@@ -10,7 +10,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/build.yml"
 DIGEST = "sha256:" + "a" * 64
-IMAGE = "ghcr.io/kyth-os/rowyn"
+IMAGE = "ghcr.io/mrtrickdotorg/rowyn"
 
 
 class UpdateChannelWorkflowTests(unittest.TestCase):
@@ -19,14 +19,15 @@ class UpdateChannelWorkflowTests(unittest.TestCase):
         cls.workflow_text = WORKFLOW.read_text(encoding="utf-8")
         cls.workflow = yaml.safe_load(cls.workflow_text)
 
-    def test_release_publishes_to_new_owner_and_old_bridge_promotion_stays_legacy_only(self):
+    def test_release_publishes_only_to_the_canonical_owner(self):
         jobs = self.workflow["jobs"]
         self.assertEqual(
             self.workflow["env"]["IMAGE_REPOSITORY"], "ghcr.io/mrtrickdotorg/rowyn"
         )
-        for job_name in ("build", "sign", "stage_destination"):
+        for job_name in ("build", "sign", "promote"):
             self.assertIn("github.repository == 'mrtrickdotorg/Rowyn'", jobs[job_name]["if"])
-        self.assertIn("github.repository == 'kyth-os/Rowyn'", jobs["promote"]["if"])
+        self.assertNotIn("kyth-os/Rowyn", self.workflow_text)
+        self.assertNotIn("ghcr.io/kyth-os", self.workflow_text)
         self.assertIn(
             '[[ "${IMAGE_NAME}" == "ghcr.io/mrtrickdotorg/rowyn" ]]',
             "\\n".join(step.get("run", "") for step in jobs["sign"]["steps"]),
@@ -36,34 +37,28 @@ class UpdateChannelWorkflowTests(unittest.TestCase):
         jobs = self.workflow["jobs"]
         self.assertIn("promote", jobs)
         promote = jobs["promote"]
-        self.assertEqual(
-            set(promote["needs"]), {"build", "sign", "stage_destination"}
-        )
+        self.assertEqual(set(promote["needs"]), {"build", "sign"})
         self.assertEqual(
             promote["permissions"],
-            {"contents": "read", "packages": "write"},
+            {"contents": "read", "packages": "write", "id-token": "write"},
         )
 
         names = [step["name"] for step in promote["steps"]]
         self.assertLess(
-            names.index("Sign exact image with update-channel key"),
-            names.index("Verify update-channel signature"),
+            names.index("Sign exact destination image with update-channel key"),
+            names.index("Verify destination update-channel signature"),
         )
         self.assertLess(
-            names.index("Verify update-channel signature"),
-            names.index("Reject stale main before stable promotion"),
+            names.index("Verify destination update-channel signature"),
+            names.index("Reject stale main before destination stable promotion"),
         )
         self.assertEqual(
-            names.index("Reject stale main before stable promotion") + 1,
-            names.index("Promote exact digest to stable"),
+            names.index("Reject stale main before destination stable promotion") + 1,
+            names.index("Promote exact digest to destination stable"),
         )
         self.assertLess(
-            names.index("Reject stale main before stable promotion"),
-            names.index("Promote exact digest to stable"),
-        )
-        self.assertLess(
-            names.index("Promote exact digest to stable"),
-            names.index("Verify stable tag digest"),
+            names.index("Promote exact digest to destination stable"),
+            names.index("Verify destination stable tag digest"),
         )
 
         self.assertIn('test -s "keys/update.pub"', self.workflow_text)
@@ -72,13 +67,13 @@ class UpdateChannelWorkflowTests(unittest.TestCase):
         self.assertIn("cosign sign --yes --key env://ROWYN_UPDATE_SIGNING_KEY", self.workflow_text)
         self.assertIn("cosign verify --key keys/update.pub", self.workflow_text)
         self.assertIn("skopeo copy --preserve-digests", self.workflow_text)
-        self.assertIn("IMAGE_NAME}@${IMAGE_DIGEST}", self.workflow_text)
-        self.assertIn('IMAGE_NAME}:stable', self.workflow_text)
+        self.assertIn("DEST_IMAGE}@${DESTINATION_DIGEST}", self.workflow_text)
+        self.assertIn('DEST_IMAGE}:stable', self.workflow_text)
 
-    def test_destination_stable_is_signed_and_verified_before_old_stable(self):
+    def test_promotion_is_signed_and_verified_before_stable_advances(self):
         jobs = self.workflow["jobs"]
-        self.assertIn("stage_destination", jobs)
-        stage = jobs["stage_destination"]
+        self.assertIn("promote", jobs)
+        stage = jobs["promote"]
         self.assertEqual(set(stage["needs"]), {"build", "sign"})
         self.assertEqual(
             stage["permissions"],
@@ -89,7 +84,7 @@ class UpdateChannelWorkflowTests(unittest.TestCase):
         self.assertIn("build/destination-derivative.Containerfile", build_paths)
         self.assertIn("build/registry-migration-destination-v1", build_paths)
         self.assertNotIn("ROWYN_DEST_GHCR_TOKEN", self.workflow_text)
-        publishing_jobs = ("build", "sign", "stage_destination")
+        publishing_jobs = ("build", "sign", "promote")
         auth_steps = 0
         for job_name in publishing_jobs:
             self.assertEqual(jobs[job_name]["permissions"]["packages"], "write")
@@ -103,7 +98,6 @@ class UpdateChannelWorkflowTests(unittest.TestCase):
                         step["env"]["GHCR_USERNAME"], "${{ github.actor }}"
                     )
         self.assertEqual(auth_steps, 7)
-        self.assertNotIn("ROWYN_DEST_GHCR_TOKEN", str(jobs["promote"]))
         self.assertEqual(
             stage["outputs"]["destination_digest"],
             "${{ steps.build_destination.outputs.destination_digest }}",
@@ -146,11 +140,6 @@ class UpdateChannelWorkflowTests(unittest.TestCase):
         self.assertEqual(marker_file.read_text(encoding="utf-8"),
                          "rowyn-registry-migration-destination-v1\n")
 
-        promote = jobs["promote"]
-        self.assertEqual(
-            set(promote["needs"]), {"build", "sign", "stage_destination"}
-        )
-
     def test_container_image_declares_its_destination_source_repository(self):
         containerfile = (ROOT / "Containerfile").read_text(encoding="utf-8")
         self.assertIn(
@@ -159,7 +148,7 @@ class UpdateChannelWorkflowTests(unittest.TestCase):
         )
 
     def test_destination_stable_verification_is_anonymous_and_uses_derived_digest(self):
-        stage = self.workflow["jobs"]["stage_destination"]
+        stage = self.workflow["jobs"]["promote"]
         verify = next(
             step for step in stage["steps"]
             if step["name"] == "Verify destination stable tag digest"
@@ -173,7 +162,7 @@ class UpdateChannelWorkflowTests(unittest.TestCase):
         self.assertIn('"${stable_digest}" == "${DESTINATION_DIGEST}"', verify["run"])
 
     def test_destination_keyless_verifier_passes_exact_github_identity_regexp(self):
-        stage = self.workflow["jobs"]["stage_destination"]
+        stage = self.workflow["jobs"]["promote"]
         verify = next(
             step for step in stage["steps"]
             if step["name"] == "Verify destination update-channel signature"
@@ -239,16 +228,14 @@ class UpdateChannelWorkflowTests(unittest.TestCase):
         promote = self.workflow["jobs"]["promote"]
         guard_step = next(
             step for step in promote["steps"]
-            if step["name"] == "Reject stale main before stable promotion"
+            if step["name"] == "Reject stale main before destination stable promotion"
         )
         copy_step = next(
             step for step in promote["steps"]
-            if step["name"] == "Promote exact digest to stable"
+            if step["name"] == "Promote exact digest to destination stable"
         )
         guard_script = guard_step["run"]
-        copy_script = copy_step["run"].replace(
-            "${{ github.actor }}", "${GITHUB_ACTOR}"
-        )
+        copy_script = copy_step["run"]
         self.assertIn("GH_TOKEN", guard_step["env"])
         self.assertIn("gh api", guard_script)
         self.assertIn("git/ref/heads/main", guard_script)
@@ -276,7 +263,10 @@ class UpdateChannelWorkflowTests(unittest.TestCase):
             skopeo = fake_bin / "skopeo"
             skopeo.write_text(
                 "#!/bin/sh\n"
-                "printf 'skopeo %s\\n' \"$*\" >> \"$TEST_LOG\"\n",
+                "printf 'skopeo %s\\n' \"$*\" >> \"$TEST_LOG\"\n"
+                "case \"$*\" in\n"
+                "  *inspect*\":stable\"*) printf '%s\\n' \"$DESTINATION_DIGEST\" ;;\n"
+                "esac\n",
                 encoding="utf-8",
             )
             skopeo.chmod(0o755)
@@ -287,11 +277,11 @@ class UpdateChannelWorkflowTests(unittest.TestCase):
                 "TEST_LOG": str(log),
                 "EXPECTED_SHA": expected_sha,
                 "GH_TOKEN": "authenticated-token",
-                "GITHUB_REPOSITORY": "kyth-os/Rowyn",
-                "IMAGE_REF": f"{IMAGE}:build",
-                "IMAGE_DIGEST": DIGEST,
-                "GITHUB_TOKEN": "token",
-                "GITHUB_ACTOR": "actor",
+                "GITHUB_REPOSITORY": "mrtrickdotorg/Rowyn",
+                "DESTINATION_DIGEST": DIGEST,
+                "GHCR_TOKEN": "token",
+                "GHCR_USERNAME": "actor",
+                "RUNNER_TEMP": str(temp),
             }
             combined_script = f"{guard_script}\n{copy_script}"
 
@@ -329,15 +319,15 @@ class UpdateChannelWorkflowTests(unittest.TestCase):
         promote = self.workflow["jobs"]["promote"]
         sign_step = next(
             step for step in promote["steps"]
-            if step["name"] == "Sign exact image with update-channel key"
+            if step["name"] == "Sign exact destination image with update-channel key"
         )
         copy_step = next(
             step for step in promote["steps"]
-            if step["name"] == "Promote exact digest to stable"
+            if step["name"] == "Promote exact digest to destination stable"
         )
         verify_step = next(
             step for step in promote["steps"]
-            if step["name"] == "Verify update-channel signature"
+            if step["name"] == "Verify destination update-channel signature"
         )
 
         with tempfile.TemporaryDirectory(prefix="rowyn-update-channel-") as temp:
@@ -362,12 +352,11 @@ class UpdateChannelWorkflowTests(unittest.TestCase):
             env = {
                 "PATH": f"{fake_bin}:/usr/bin:/bin",
                 "TEST_LOG": str(log),
-                "IMAGE_REF": f"{IMAGE}:build",
-                "IMAGE_DIGEST": DIGEST,
+                "DESTINATION_DIGEST": DIGEST,
+                "GHCR_TOKEN": "token",
+                "GHCR_USERNAME": "actor",
                 "ROWYN_UPDATE_SIGNING_KEY": "private-key-material",
                 "COSIGN_PASSWORD": "password",
-                "GITHUB_TOKEN": "token",
-                "GITHUB_ACTOR": "actor",
             }
             # The key check belongs to the signature step, not the copy step.
             public_key_check = "test -s \"keys/update.pub\""
@@ -388,12 +377,12 @@ class UpdateChannelWorkflowTests(unittest.TestCase):
         promote = self.workflow["jobs"]["promote"]
         verify_step = next(
             step for step in promote["steps"]
-            if step["name"] == "Verify stable tag digest"
+            if step["name"] == "Verify destination stable tag digest"
         )
         script = verify_step["run"]
         self.assertIn('stable_digest="$(skopeo inspect', script)
-        self.assertIn('"${IMAGE_DIGEST}"', script)
-        self.assertRegex(script, r"\[\[ .*stable_digest.*==.*IMAGE_DIGEST")
+        self.assertIn('"${DESTINATION_DIGEST}"', script)
+        self.assertRegex(script, r"\[\[ .*stable_digest.*==.*DESTINATION_DIGEST")
 
 
 if __name__ == "__main__":

@@ -123,8 +123,8 @@ class ReportTests(unittest.TestCase):
 
     def test_image_from_bootc(self):
         js = json.dumps({"status": {"booted": {"image": {
-            "image": {"image": "ghcr.io/kyth-os/rowyn:stable"}, "imageDigest": "sha256:abc"}}}})
-        self.assertEqual(report.image_from_bootc(js), ("ghcr.io/kyth-os/rowyn:stable", "sha256:abc"))
+            "image": {"image": "ghcr.io/mrtrickdotorg/rowyn:stable"}, "imageDigest": "sha256:abc"}}}})
+        self.assertEqual(report.image_from_bootc(js), ("ghcr.io/mrtrickdotorg/rowyn:stable", "sha256:abc"))
         self.assertEqual(report.image_from_bootc("nope"), (None, None))
 
     def test_stdout_runs(self):

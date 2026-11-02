@@ -152,7 +152,7 @@ fn empty_success_is_not_an_unavailable_or_failed_service_read() {
 fn bootc_projection_rejects_malformed_data_and_never_copies_arbitrary_fields() {
     assert!(parse_bootc("{}").is_err());
     assert!(parse_bootc("not json").is_err());
-    let text = parse_bootc(r#"{"status":{"booted":{"image":{"image":{"image":"ghcr.io/kyth-os/rowyn:stable"},"imageDigest":"sha256:abcd"},"secret":"do-not-copy"}}}"#).unwrap();
+    let text = parse_bootc(r#"{"status":{"booted":{"image":{"image":{"image":"ghcr.io/mrtrickdotorg/rowyn:stable"},"imageDigest":"sha256:abcd"},"secret":"do-not-copy"}}}"#).unwrap();
     assert!(text.contains("rowyn:stable"));
     assert!(!text.contains("do-not-copy"));
 }
