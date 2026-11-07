@@ -236,9 +236,14 @@ fn storage_collect() -> StorageSnapshot {
         detail: "Not measured; review files in Dolphin".into(),
         entries: None,
     });
-    match command("/usr/bin/podman", &["system", "df", "--format=json"], 8)
-        .and_then(|s| parse_podman(&s))
-    {
+    // Resolve podman the way Development does; pinning the package path made
+    // a local install look like missing image storage on this page only.
+    let podman = match super::rowyn_development::podman_path() {
+        Some(path) => command(&path.to_string_lossy(), &["system", "df", "--format=json"], 8)
+            .and_then(|s| parse_podman(&s)),
+        None => Err("podman is not installed, so image storage could not be measured.".into()),
+    };
+    match podman {
         Ok((count, size)) => inventory.push(Inventory {
             category: "podmanImages".into(),
             count,

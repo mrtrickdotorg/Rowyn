@@ -58,6 +58,7 @@
 .rowyn-home-section-heading { display: flex; align-items: end; justify-content: space-between; gap: 18px; }
 .rowyn-home-section-heading h2 { margin: 4px 0 0; font-size: 1.45rem; letter-spacing: -.035em; }
 .rowyn-home-refresh-note, .rowyn-home-section-aside { color: var(--text-muted, #a7adb9); font-size: .78rem; }
+.rowyn-home-section-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; }
 .rowyn-home-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 13px; }
 .rowyn-home-stat { display: flex; min-width: 0; min-height: 150px; flex-direction: column; gap: 8px; padding: 17px; border: 1px solid var(--hairline, rgba(255,255,255,.1)); border-radius: 16px; background: var(--card-gradient, linear-gradient(145deg,#23272f,#1c1f26)); box-shadow: var(--shadow-card); }
 .rowyn-home-stat-head { display: flex; align-items: center; gap: 9px; color: var(--text-muted, #a7adb9); font-size: .77rem; font-weight: 700; }

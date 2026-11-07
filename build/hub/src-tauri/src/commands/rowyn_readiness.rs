@@ -406,9 +406,19 @@ where
     }
 }
 fn development_prerequisites() -> Option<bool> {
+    // Resolve the same way Development does: a host that installs podman in
+    // /usr/local/bin has a working environment, and readiness must not call it
+    // missing just because the package path is empty.
     let mut present = true;
-    for path in ["/usr/bin/podman", "/usr/bin/distrobox"] {
-        match fs::metadata(path) {
+    for found in [
+        super::rowyn_development::podman_path(),
+        super::rowyn_development::distrobox_path(),
+    ] {
+        let Some(path) = found else {
+            present = false;
+            continue;
+        };
+        match fs::metadata(&path) {
             Ok(m) => present &= m.is_file() && m.permissions().mode() & 0o111 != 0,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => present = false,
             Err(_) => return None,

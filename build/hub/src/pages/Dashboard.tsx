@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { SetupChecklist } from './SetupChecklist';
 import { useStatusRow } from '../services/useStatusRow';
@@ -70,58 +70,52 @@ export function Dashboard() {
   const [storageFree, setStorageFree] = useState<string | null>(null);
   const [userName, setUserName] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const mounted = useRef(false);
   const statusRowVisible = useStatusRow();
 
-  useEffect(() => {
-    let cancelled = false;
-    let degraded = false;
-
-    async function readStatus() {
-      if (await degradedDashboardAcceptance()) {
-        degraded = true;
-        if (!cancelled) {
-          setLoaded(true);
-          void recordHubAcceptance('dashboard', JSON.stringify({ state: 'degraded', label: 'Status unavailable' }));
-        }
-        return;
-      }
-      const [nextBoot, nextRecovery, nextChannel, nextGpu, nextStorage, nextUser] = await Promise.all([
-        fetchBootRuntimeChecks(), fetchRecoveryStatus(), fetchUpdateChannel(),
-        fetchGpuName(), fetchStorageFree(), fetchUserName(),
-      ]);
-      if (cancelled) return;
-      setBootChecks(nextBoot);
-      setRecovery(nextRecovery);
-      setUpdateChannel(nextChannel);
-      setGpuName(nextGpu);
-      setStorageFree(nextStorage);
-      setUserName(nextUser);
+  /** One bounded read of the snapshot cards. `merge` keeps the last good value
+   * when a refresh cannot read a card again, so one failed probe does not blank
+   * a reading that was fine a moment ago. Nothing here runs on a timer: the
+   * cards read when the page opens and when the user asks to refresh. */
+  async function readStatus(merge: boolean) {
+    if (await degradedDashboardAcceptance()) {
+      if (!mounted.current) return;
       setLoaded(true);
-      const hasReading = nextBoot !== null || nextRecovery !== null || nextChannel !== null || nextGpu !== null || nextStorage !== null;
-      void recordHubAcceptance('dashboard', JSON.stringify({ state: hasReading ? 'live' : 'degraded', label: hasReading ? 'System overview' : 'Status unavailable' }));
+      void recordHubAcceptance('dashboard', JSON.stringify({ state: 'degraded', label: 'Status unavailable' }));
+      return;
     }
+    const [nextBoot, nextRecovery, nextChannel, nextGpu, nextStorage, nextUser] = await Promise.all([
+      fetchBootRuntimeChecks(), fetchRecoveryStatus(), fetchUpdateChannel(),
+      fetchGpuName(), fetchStorageFree(), fetchUserName(),
+    ]);
+    if (!mounted.current) return;
+    setBootChecks((current) => (merge ? nextBoot ?? current : nextBoot));
+    setRecovery((current) => (merge ? nextRecovery ?? current : nextRecovery));
+    setUpdateChannel((current) => (merge ? nextChannel ?? current : nextChannel));
+    setGpuName((current) => (merge ? nextGpu ?? current : nextGpu));
+    setStorageFree((current) => (merge ? nextStorage ?? current : nextStorage));
+    setUserName((current) => (merge ? nextUser ?? current : nextUser));
+    setLoaded(true);
+    const hasReading = nextBoot !== null || nextRecovery !== null || nextChannel !== null || nextGpu !== null || nextStorage !== null;
+    void recordHubAcceptance('dashboard', JSON.stringify({ state: hasReading ? 'live' : 'degraded', label: hasReading ? 'System overview' : 'Status unavailable' }));
+  }
 
-    void readStatus();
-    const refresh = window.setInterval(() => {
-      if (degraded) return;
-      void Promise.all([
-        fetchBootRuntimeChecks(), fetchRecoveryStatus(), fetchUpdateChannel(),
-        fetchGpuName(), fetchStorageFree(), fetchUserName(),
-      ]).then(([nextBoot, nextRecovery, nextChannel, nextGpu, nextStorage, nextUser]) => {
-        if (cancelled) return;
-        setBootChecks((current) => nextBoot ?? current);
-        setRecovery((current) => nextRecovery ?? current);
-        setUpdateChannel((current) => nextChannel ?? current);
-        setGpuName((current) => nextGpu ?? current);
-        setStorageFree((current) => nextStorage ?? current);
-        setUserName((current) => nextUser ?? current);
-      });
-    }, 60_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(refresh);
-    };
+  useEffect(() => {
+    mounted.current = true;
+    void readStatus(false);
+    return () => { mounted.current = false; };
   }, []);
+
+  async function refreshReadings() {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      await readStatus(true);
+    } finally {
+      if (mounted.current) setRefreshing(false);
+    }
+  }
 
   const passed = bootChecks?.filter((check) => check.passed).length ?? 0;
   const total = bootChecks?.length ?? 0;
@@ -162,7 +156,10 @@ export function Dashboard() {
       <section className="rowyn-home-section" aria-labelledby="rowyn-home-snapshot-title">
         <div className="rowyn-home-section-heading">
           <div><span className="home-eyebrow">THE QUICK READ</span><h2 id="rowyn-home-snapshot-title">System snapshot</h2></div>
-          <span className="rowyn-home-refresh-note">Refreshes automatically · checks are read-only</span>
+          <div className="rowyn-home-section-actions">
+            <span className="rowyn-home-refresh-note">Read when this page opens · checks are read-only</span>
+            <button type="button" className="action-button" disabled={refreshing} onClick={() => void refreshReadings()}>{refreshing ? 'Refreshing…' : 'Refresh readings'}</button>
+          </div>
         </div>
         <div className="rowyn-home-stats">
           <StatusCard icon="⌁" label="Boot health" value={bootLabel} detail={healthDetail} tone={needsReview ? 'attention' : 'neutral'} />

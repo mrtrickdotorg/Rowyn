@@ -71,10 +71,23 @@ class SectionReachability(unittest.TestCase):
         for section in ("Gaming", "SteamLibrary", "Compatibility", "Controllers"):
             self.assertIn(f'{{"key": "{section}"', port)
 
-    def test_rowyn_pages_never_poll(self):
-        for relative in SECTION_ANCHORS:
-            text = (HUB / relative).read_text(encoding="utf-8")
-            self.assertNotIn("setInterval", text, relative)
+    def test_hub_sources_never_poll(self):
+        # Dashboard refreshed itself every 60 s and escaped this contract,
+        # because only pages with section anchors were scanned. Bounded reads
+        # run when a page opens or when the user asks for them, never on a timer.
+        offenders = sorted(
+            str(path.relative_to(HUB))
+            for path in (HUB / "src").rglob("*")
+            if path.suffix in {".ts", ".tsx"}
+            and "setInterval" in path.read_text(encoding="utf-8")
+        )
+        self.assertEqual(offenders, [], "bounded reads run on open or on request, never on a timer")
+
+    def test_dashboard_refreshes_only_when_the_user_asks(self):
+        dashboard = (HUB / "src/pages/Dashboard.tsx").read_text(encoding="utf-8")
+        self.assertIn("Refresh readings", dashboard)
+        self.assertIn("refreshReadings", dashboard)
+        self.assertNotIn("Refreshes automatically", dashboard)
 
 
 class BootHealthWiring(unittest.TestCase):
@@ -173,6 +186,29 @@ class DiagnosticsStateVocabulary(unittest.TestCase):
         self.assertIn("readingNeedsAttention(reading.state)", page)
         self.assertIn("readingTone(reading.state)", page)
         self.assertIn("readingStateLabel(reading.state)", page)
+
+
+class ContainerToolResolution(unittest.TestCase):
+    """Readiness, storage and Development must agree on where podman lives.
+
+    Readiness and storage pinned /usr/bin while Development already searched
+    package and local locations, so a host with podman in /usr/local/bin
+    reported the development environment as unavailable on two pages even
+    though the third one could manage it.
+    """
+
+    def test_callers_resolve_container_tools_instead_of_pinning_package_paths(self):
+        development = (HUB / "src-tauri/src/commands/rowyn_development.rs").read_text(encoding="utf-8")
+        readiness = (HUB / "src-tauri/src/commands/rowyn_readiness.rs").read_text(encoding="utf-8")
+        care = (HUB / "src-tauri/src/commands/rowyn_care.rs").read_text(encoding="utf-8")
+        self.assertIn("pub(crate) fn podman_path()", development)
+        self.assertIn("pub(crate) fn distrobox_path()", development)
+        self.assertIn("rowyn_development::podman_path()", readiness)
+        self.assertIn("rowyn_development::distrobox_path()", readiness)
+        self.assertIn("rowyn_development::podman_path()", care)
+        for name, text in (("readiness", readiness), ("storage", care)):
+            self.assertNotIn('\"/usr/bin/podman\"', text, f"{name} must not pin the package path")
+            self.assertNotIn('\"/usr/bin/distrobox\"', text, f"{name} must not pin the package path")
 
 
 class HubTestJob(unittest.TestCase):

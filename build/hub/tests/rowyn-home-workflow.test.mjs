@@ -35,7 +35,22 @@ test('Home renders one workspace card for every manifest destination', async () 
     const names = [...workspace.matchAll(/<strong>([^<]+)<\/strong>/g)].map((match) => match[1]);
     assert.deepEqual(names.toSorted(), manifest.destinations.map((destination) => destination.key).toSorted());
     assert.equal(new Set(names).size, names.length, 'workspace cards must not be duplicated');
+    assert.match(html, /Refresh readings<\/button>/, 'the snapshot refresh must render as a user action');
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test('Home reads on open and refreshes only from its own button', async () => {
+  const page = await readFile(resolve(root, 'src/pages/Dashboard.tsx'), 'utf8');
+  // The page re-read every snapshot on a 60 s interval, which escaped the
+  // never-poll contract because only pages with section anchors were scanned.
+  assert.doesNotMatch(page, /setInterval|clearInterval/);
+  assert.doesNotMatch(page, /Refreshes automatically/);
+  assert.match(page, /Refresh readings/);
+  assert.match(page, /onClick=\{\(\) => void refreshReadings\(\)\}/);
+  // A manual refresh keeps the last good card; the open read may show
+  // unavailable instead of inventing a value.
+  assert.match(page, /async function readStatus\(merge: boolean\)/);
+  assert.match(page, /merge \? nextBoot \?\? current : nextBoot/);
 });

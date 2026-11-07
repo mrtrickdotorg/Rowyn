@@ -54,6 +54,14 @@ fn tool(name: &str, fallbacks: &[&str], missing: &str) -> Result<String, String>
         .map(|path| path.to_string_lossy().into_owned())
         .ok_or_else(|| missing.to_string())
 }
+/// Shared with readiness and storage so every surface agrees on where the
+/// container tooling lives; a second hardcoded list is how they drifted apart.
+pub(crate) fn podman_path() -> Option<std::path::PathBuf> {
+    resolve_tool("podman", PODMAN_FALLBACKS)
+}
+pub(crate) fn distrobox_path() -> Option<std::path::PathBuf> {
+    resolve_tool("distrobox", DISTROBOX_FALLBACKS)
+}
 fn podman() -> Result<String, String> {
     tool(
         "podman",
