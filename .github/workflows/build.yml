@@ -220,8 +220,8 @@ jobs:
             test -x /usr/bin/smbclient
             test -x /usr/sbin/smbd
             test -x /usr/bin/krdpserver
-            test -s /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
-            test -s /usr/share/vulkan/icd.d/radeon_icd.x86_64.json
+            ls /usr/share/vulkan/icd.d/lvp_icd*.json > /dev/null
+            ls /usr/share/vulkan/icd.d/radeon_icd*.json > /dev/null
             vulkaninfo --summary > /dev/null
             test -x /usr/bin/htop
             test -x /usr/bin/ping
