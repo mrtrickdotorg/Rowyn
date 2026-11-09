@@ -215,6 +215,14 @@ jobs:
             test -s /usr/lib/x86_64-linux-gnu/qt6/plugins/plasma/kcms/systemsettings/kcm_printer_manager.so
             test -s /usr/lib/x86_64-linux-gnu/qt6/plugins/kf6/kio/admin.so
             test -x /usr/bin/curl
+            test -x /usr/bin/plasma-systemmonitor
+            test -x /usr/bin/kamoso
+            test -x /usr/bin/smbclient
+            test -x /usr/sbin/smbd
+            test -x /usr/bin/krdpserver
+            test -s /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+            test -s /usr/share/vulkan/icd.d/radeon_icd.x86_64.json
+            vulkaninfo --summary > /dev/null
             test -x /usr/bin/htop
             test -x /usr/bin/ping
             test -x /usr/bin/lspci

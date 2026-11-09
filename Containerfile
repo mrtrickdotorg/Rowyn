@@ -125,6 +125,18 @@ RUN userdel --remove ubuntu
 # plasma-session-x11 keep the X11 session as fallback;
 # power-profiles-daemon, systemd-zram-generator, gamemode and
 # steam-devices (multiverse) are host plumbing for shared/performance-defaults.sh.
+# mesa-vulkan-drivers + vulkan-tools are named explicitly so the host
+# Vulkan stack is guaranteed by the package set, not inherited by
+# dependency closure (the Flatpak gaming route carries its own runtimes;
+# the host stack is what native games and tools see).
+#
+# Daily-driver fills (Nov 2026): plasma-systemmonitor (task manager),
+# kamoso (camera), fprintd (fingerprint reader support; PAM login wiring
+# is left to the user), samba + smbclient + kdenetwork-filesharing
+# (Windows file sharing, client and server), kaccounts-integration +
+# kio-gdrive (KDE Online Accounts / Google Drive in Dolphin — the
+# accounts the exe-handler already points OneDrive/Google users at),
+# and krdp (KDE remote desktop server).
 #
 # NVIDIA group (last install): Canonical's prebuilt, signed open kernel
 # modules (linux-modules-nvidia-615-open-generic pulls the module package
@@ -153,11 +165,14 @@ RUN printf 'path-include=/usr/share/doc/nvidia-kernel-common-*/supported-gpus.js
         openconnect vpnc-scripts ksshaskpass firewalld \
         gwenview okular okular-extra-backends ark kate kcalc kcharselect \
         kdeconnect elisa haruna skanpage unzip zip \
+        plasma-systemmonitor kamoso fprintd \
+        kaccounts-integration kio-gdrive kdenetwork-filesharing krdp \
         cups cups-browsed cups-client cups-daemon cups-filters cups-ipp-utils \
         cups-pk-helper print-manager system-config-printer-common \
         system-config-printer-udev bluez-cups colord kde-config-tablet \
         ipp-usb avahi-daemon \
         sane-airscan sane-utils \
+        samba smbclient \
         kio-admin kio-audiocd kde-config-updates kde-config-plymouth \
         plasma-runners-addons plasma-widgets-addons plasma-wallpapers-addons \
         plasma-calendar-addons plasma-dataengines-addons kwin-addons \
@@ -171,6 +186,7 @@ RUN printf 'path-include=/usr/share/doc/nvidia-kernel-common-*/supported-gpus.js
         rfkill plocate manpages bash-completion command-not-found pastebinit \
         kwin-wayland plasma-workspace plasma-session-x11 \
         power-profiles-daemon systemd-zram-generator gamemode steam-devices \
+        mesa-vulkan-drivers vulkan-tools \
         systemd-oomd iw libmimalloc3 && \
     apt-get install -y --no-install-recommends \
         flatpak plasma-discover-backend-flatpak distrobox \
@@ -189,6 +205,11 @@ RUN printf 'path-include=/usr/share/doc/nvidia-kernel-common-*/supported-gpus.js
 # KCM packages the Hub opens can only be asserted here, while it exists.
 RUN set -eux; \
     for package in bluedevil kscreen powerdevil plasma-nm plasma-pa kde-config-flatpak kup-backup; do \
+        test "$(dpkg-query -W -f='${db:Status-Status}' "$package")" = installed; \
+    done; \
+    for package in plasma-systemmonitor kamoso fprintd samba smbclient \
+        kdenetwork-filesharing kaccounts-integration kio-gdrive krdp \
+        mesa-vulkan-drivers vulkan-tools; do \
         test "$(dpkg-query -W -f='${db:Status-Status}' "$package")" = installed; \
     done; \
     test -s /usr/share/applications/kcm_kup.desktop; \
