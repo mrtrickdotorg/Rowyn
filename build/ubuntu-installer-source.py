@@ -482,9 +482,9 @@ def port_source(root, digest):
                         message: "source must be this signed Rowyn release and target must be stable".into() });
                 }
                 self.verify_install_source(phase)?;
-                if self.storage_plan.mode != "wipe" || !matches!(self.bootc_request.encryption.as_str(), "" | "none") {
+                if !matches!(self.storage_plan.mode.as_str(), "wipe" | "resize_ntfs") || !matches!(self.bootc_request.encryption.as_str(), "" | "none") {
                     return Err(NativePhaseError::Execution { phase,
-                        message: "Ubuntu port currently supports whole-disk plaintext installs only; manual, alongside, resize and TPM encryption are not qualified".into() });
+                        message: "Ubuntu port currently supports whole-disk and install-alongside-Windows (NTFS shrink) plaintext installs only; manual, replace-partition, free-space and TPM encryption are not qualified".into() });
                 }
                 let mut preflight = Command::new("/usr/libexec/rowyn-live-preflight");
                 preflight.arg(&self.storage_plan.disk);
@@ -731,6 +731,47 @@ fn classify_secure_boot_probe(
 '''
     text = replace_once(text, "impl NativeInstallRequest {", secure_boot_policy + "\nimpl NativeInstallRequest {")
     executor.write_text(text)
+    # Upstream gap (pinned 2baf849, also present on upstream testing):
+    # prepare_btrfs_target ignores the target partition its caller
+    # passes in and re-reads storage_plan.target_partition, which
+    # build_plan only sets for alongside/manual. For resize_ntfs (and
+    # free_space) the target is the partition create_target_partition
+    # just created in the freed region, so the re-read always failed
+    # with "filesystem install has no target partition" — after the
+    # NTFS shrink and partition creation had already mutated the disk.
+    # Fall back to the caller-passed target when the plan carries
+    # none; the fresh-snapshot validate_replace_target re-check below
+    # (on-disk, not the ESP, unmounted, large enough, no foreign data)
+    # still runs unchanged on whichever name is used.
+    executor_btrfs = crate / "src/installer_job_executor.rs"
+    text = executor_btrfs.read_text()
+    text = replace_once(text, '''        let target = {
+            let requested = self
+                .storage_plan
+                .target_partition
+                .as_deref()
+                .ok_or_else(|| NativePhaseError::Execution {
+                    phase,
+                    message: "filesystem install has no target partition".to_string(),
+                })?;''', '''        let target = {
+            // Rowyn: resize_ntfs/free_space plans carry no
+            // target_partition — their target is the partition the
+            // storage phase just created and passed in as `_target`.
+            // Use it when the plan has none, instead of failing after
+            // the disk has already been mutated.
+            let requested_owned = self
+                .storage_plan
+                .target_partition
+                .clone()
+                .unwrap_or_else(|| _target.to_string());
+            let requested = requested_owned.as_str();
+            if requested.is_empty() {
+                return Err(NativePhaseError::Execution {
+                    phase,
+                    message: "filesystem install has no target partition".to_string(),
+                });
+            }''')
+    executor_btrfs.write_text(text)
     # The pinned stream helper already bounds command lifetime and cancellation
     # but its original output helper intentionally rejects non-zero status.
     # Secure Boot needs the exact status/stderr pair for a positive unsupported
@@ -1485,14 +1526,27 @@ pub(crate) fn run_output_timeout_capture(
                         'onBack={() => setStep("disk")} onNext={() => setStep("config")}')
     text = replace_once(text, 'kernel: "fedora"', 'kernel: "ubuntu"')
     text = replace_once(text, 'hostname: "kyth"', 'hostname: "rowyn"')
-    # Only whole-disk wipe is qualified in this port (the executor enforces it too).
+    # Qualified modes in this port: whole-disk wipe and resize_ntfs
+    # (install alongside Windows). The executor enforces the same set
+    # at Phase::Prepare, before any disk mutation. alongside,
+    # free_space and manual stay out of the UI and gated off in the
+    # executor. Upstream's DiskStep already carries the full
+    # resize_ntfs flow (NTFS-candidate partition picker, "Space for
+    # KythOS (GiB)" with a 32 GiB floor, and a Review line reading
+    # "Shrink Windows (…), N GiB for KythOS"); restoring the option
+    # element is what makes that flow reachable.
     text = replace_once(text, '<option value="wipe">Erase full disk</option><option value="resize_ntfs">Keep Windows and install alongside</option><option value="alongside">Replace a partition</option><option value="free_space">Use free space</option><option value="manual">Manual partitioning</option>',
-                        '<option value="wipe">Erase full disk</option>')
+                        '<option value="wipe">Erase full disk</option><option value="resize_ntfs">Keep Windows and install alongside</option>')
+    # Encryption stays none-only: upstream's only encrypted mode is
+    # TPM2-bound LUKS (bootc --block-setup tpm2-luks, no passphrase
+    # anywhere in the daemon), and there is no password/LUKS
+    # passphrase plumbing to qualify. TPM2 stays gated off too —
+    # see the executor Prepare gate.
     text = replace_once(text, '<option value="none">None</option><option value="tpm2">TPM2-bound</option>',
                         '<option value="none">None</option>')
     text = replace_once(text, 'Install the immutable gaming and development desktop. Coming from Windows? Keep it for anti-cheat titles and shrink it below — KythOS plays everything else.',
-                        'Install the immutable gaming and development desktop. This installer erases the disk you select and installs Rowyn on it.')
-    app.write_text('// Rowyn: Ubuntu-only kernel, wipe-only modes, Rowyn identity.\n' + text.replace('KythOS', 'Rowyn'))
+                        'Install the immutable gaming and development desktop. Coming from Windows? Keep it for anti-cheat titles: choose "Keep Windows and install alongside" on the disk step and Rowyn will shrink your Windows partition to make room. Or erase a disk and install Rowyn on it alone.')
+    app.write_text('// Rowyn: Ubuntu-only kernel, wipe and install-alongside-Windows modes, Rowyn identity.\n' + text.replace('KythOS', 'Rowyn'))
     for page in [web / "index.html", *sorted((web / "src").rglob("*.ts*"))]:
         if page != app:
             page.write_text(page.read_text().replace('KythOS', 'Rowyn'))

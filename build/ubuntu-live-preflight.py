@@ -6,7 +6,15 @@ import re
 import subprocess
 import sys
 
-# Fixed programs used by the enabled whole-disk path, including bootc helpers.
+# Fixed programs used by the enabled install paths, including bootc helpers.
+# The install-alongside-Windows (resize_ntfs) path additionally needs the
+# ntfs-3g tools the executor's disk helper and the daemon's NTFS dirty-bit
+# attestation invoke by absolute path (/usr/sbin/ntfsresize stages
+# check/info/dry_run/resize, /usr/sbin/ntfsfix -n), plus /usr/sbin/btrfs
+# for the subvolume layout prepare_btrfs_target creates on the new
+# partition. The live image installs ntfs-3g and btrfs-progs explicitly
+# (build/ubuntu-live.Containerfile); requiring them here makes a live
+# image missing them fail in Prepare, before any disk mutation.
 REQUIRED = (
     '/usr/bin/bootc', '/usr/bin/bootctl', '/usr/bin/ostree', '/usr/bin/skopeo',
     '/usr/bin/zstd', '/usr/bin/setpriv', '/usr/bin/systemctl',
@@ -17,6 +25,7 @@ REQUIRED = (
     '/usr/sbin/blkid', '/usr/sbin/sgdisk', '/usr/sbin/parted',
     '/usr/sbin/mkfs.btrfs', '/usr/sbin/mkfs.fat', '/usr/sbin/useradd',
     '/usr/sbin/chpasswd', '/usr/sbin/losetup', '/usr/sbin/sfdisk', '/usr/sbin/fstrim',
+    '/usr/sbin/ntfsresize', '/usr/sbin/ntfsfix', '/usr/sbin/btrfs',
 )
 
 

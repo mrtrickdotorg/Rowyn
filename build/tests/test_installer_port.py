@@ -37,6 +37,7 @@ def load_module(name, file):
 installer = load_module("ubuntu_installer_source", "build/ubuntu-installer-source.py")
 hub = load_module("ubuntu_hub_source", "build/ubuntu-hub-source.py")
 source_probes = load_module("ubuntu_source_probes", "build/ubuntu-source-probes.py")
+live_preflight = load_module("ubuntu_live_preflight", "build/ubuntu-live-preflight.py")
 
 
 class InstallerJunkCutContractTests(unittest.TestCase):
@@ -79,6 +80,72 @@ class InstallerJunkCutContractTests(unittest.TestCase):
             "Rowyn does not support custom kernels or MOK enrollment",
         ):
             self.assertIn(anchor, script)
+
+
+class InstallerAlongsideQualificationTests(unittest.TestCase):
+    """Install-alongside-Windows (resize_ntfs) is qualified; every other
+    non-wipe mode and every encryption mode stays gated off."""
+
+    def test_port_script_restores_only_wipe_and_resize_modes_in_ui(self):
+        script = (ROOT / "build/ubuntu-installer-source.py").read_text()
+        # The replacement dropdown offers exactly wipe + resize_ntfs.
+        self.assertIn(
+            "'<option value=\"wipe\">Erase full disk</option>"
+            "<option value=\"resize_ntfs\">Keep Windows and install alongside</option>'",
+            script)
+        # Encryption stays none-only in the UI transform: upstream's
+        # only encrypted mode is TPM2-bound LUKS with no passphrase
+        # plumbing, so there is nothing else honest to offer.
+        self.assertIn(
+            "'<option value=\"none\">None</option>'", script)
+
+    def test_port_script_narrows_executor_gate_to_wipe_and_resize(self):
+        script = (ROOT / "build/ubuntu-installer-source.py").read_text()
+        self.assertIn(
+            '!matches!(self.storage_plan.mode.as_str(), "wipe" | "resize_ntfs")',
+            script)
+        self.assertIn(
+            "whole-disk and install-alongside-Windows (NTFS shrink) plaintext installs only; "
+            "manual, replace-partition, free-space and TPM encryption are not qualified",
+            script)
+        # The old wipe-only gate is gone.
+        self.assertNotIn("whole-disk plaintext installs only", script)
+        self.assertNotIn(
+            'self.storage_plan.mode != "wipe"', script)
+
+    def test_port_script_restores_honest_alongside_copy(self):
+        script = (ROOT / "build/ubuntu-installer-source.py").read_text()
+        # Welcome copy names the alongside choice and the shrink, and
+        # no longer claims the installer only erases.
+        self.assertIn('choose "Keep Windows and install alongside"', script)
+        self.assertIn("shrink your Windows partition to make room", script)
+        self.assertNotIn(
+            "This installer erases the disk you select and installs Rowyn on it.",
+            script)
+
+    def test_port_script_carries_prepare_btrfs_target_fallback(self):
+        # Upstream prepare_btrfs_target re-reads plan.target_partition,
+        # which resize_ntfs plans never carry; the port falls back to
+        # the caller-passed created partition, keeping the fresh
+        # snapshot re-validation.
+        script = (ROOT / "build/ubuntu-installer-source.py").read_text()
+        self.assertIn("unwrap_or_else(|| _target.to_string())", script)
+        self.assertIn("requested_owned", script)
+
+    def test_live_preflight_requires_resize_path_tools(self):
+        # The resize path shells out to these by absolute path; the
+        # preflight (run in Prepare, before any mutation) must require
+        # them, and the live image must install their packages.
+        for binary in ("/usr/sbin/ntfsresize", "/usr/sbin/ntfsfix",
+                       "/usr/sbin/btrfs"):
+            self.assertIn(binary, live_preflight.REQUIRED)
+        containerfile = (ROOT / "build/ubuntu-live.Containerfile").read_text()
+        live_stage = containerfile.split(
+            "FROM ${UBUNTU_IMAGE} AS live", 1)[1]
+        package_line = live_stage.split(
+            "apt-get install -y --no-install-recommends", 1)[1].split("&&", 1)[0]
+        for package in ("ntfs-3g", "btrfs-progs", "cryptsetup-bin"):
+            self.assertRegex(package_line, rf"\b{re.escape(package)}\b")
 
 
 class SourceProbesContractTests(unittest.TestCase):
@@ -200,6 +267,78 @@ class PinnedInstallerJunkCutTests(unittest.TestCase):
             job = (src / "installer_job.rs").read_text()
             self.assertIn('#[ignore = "load-sensitive cross-thread timing', job)
 
+
+    def test_alongside_qualification_applied(self):
+        repo = _pinned_repo()
+        with tempfile.TemporaryDirectory(prefix="rowyn-installer-alongside-") as temp:
+            root = Path(temp) / "source"
+            installer.export_source(repo, root)
+            installer.port_source(root, DIGEST)
+            crate = root / "src/rowyn-installer-web/src-tauri"
+            src = crate / "src"
+
+            # UI: exactly wipe + resize_ntfs are offered; the dormant
+            # upstream DiskStep resize flow (NTFS picker, GiB input,
+            # Review shrink line) becomes reachable, and the welcome
+            # copy describes the shrink honestly.
+            app = (root / "src/rowyn-installer-web/src/InstallerApp.tsx").read_text()
+            self.assertIn(
+                '<option value="wipe">Erase full disk</option>'
+                '<option value="resize_ntfs">Keep Windows and install alongside</option>',
+                app)
+            for unqualified in ('<option value="alongside">',
+                                '<option value="free_space">',
+                                '<option value="manual">'):
+                self.assertNotIn(unqualified, app)
+            self.assertIn("Windows partition to shrink", app)
+            self.assertIn("Shrink Windows (", app)
+            self.assertIn("shrink your Windows partition to make room", app)
+            # Encryption stays none-only: no TPM2 (or any other) option.
+            self.assertIn('<option value="none">None</option>', app)
+            self.assertNotIn('value="tpm2"', app)
+
+            # Executor: the Prepare gate admits wipe + resize_ntfs and
+            # still rejects everything else, and it runs before the
+            # live preflight (itself before any disk mutation).
+            executor = (src / "installer_job_executor.rs").read_text()
+            self.assertIn(
+                '!matches!(self.storage_plan.mode.as_str(), "wipe" | "resize_ntfs")',
+                executor)
+            self.assertIn(
+                "manual, replace-partition, free-space and TPM encryption are not qualified",
+                executor)
+            self.assertNotIn("whole-disk plaintext installs only", executor)
+            prepare = executor[executor.index("            Phase::Prepare => {"):
+                               executor.index("            Phase::Storage =>")]
+            self.assertLess(prepare.index('"resize_ntfs"'),
+                            prepare.index("rowyn-live-preflight"))
+            self.assertLess(prepare.index("verify_install_source"),
+                            prepare.index("rowyn-live-preflight"))
+
+            # The bounded prepare_btrfs_target fix is in: a resize plan
+            # (no target_partition) formats the partition the storage
+            # phase just created, still re-validated from a fresh
+            # snapshot.
+            self.assertIn("unwrap_or_else(|| _target.to_string())", executor)
+            self.assertIn("validate_replace_target", executor)
+
+            # NTFS attestation/shrink anchors survive the port
+            # untouched and fail closed: daemon commit-time dirty-bit
+            # re-verification via ntfsfix, journal shrink
+            # preconditions, and the executor's ntfsresize stages.
+            daemon = (src / "installer_daemon.rs").read_text()
+            self.assertIn("fn stamp_ntfs_attestation", daemon)
+            self.assertIn("fn ntfs_volume_is_clean", daemon)
+            self.assertIn('"/usr/sbin/ntfsfix"', daemon)
+            journal = (src / "installer_journal.rs").read_text()
+            self.assertIn("fn validate_shrink_preconditions", journal)
+            self.assertIn("ntfs_verified_clean", journal)
+            self.assertIn("dirty bit must be re-verified clear", journal)
+            disk = (src / "installer_disk.rs").read_text()
+            self.assertIn('"/usr/sbin/ntfsresize"', disk)
+            self.assertIn("fn resize_ntfs_target", executor)
+            for stage in ('"check"', '"info"', '"dry_run"', '"resize"'):
+                self.assertIn(stage, executor)
 
     def test_rename_contract_applied(self):
         repo = _pinned_repo()
