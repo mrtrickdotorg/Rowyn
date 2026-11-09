@@ -1,0 +1,85 @@
+#!/usr/bin/env python3
+"""Record one completed game session in the local telemetry database.
+
+The Hub's session charts read ~/.local/share/rowyn/telemetry.db through
+the shared crate's telemetry reader; until now nothing wrote it. This
+recorder is called by rowyn-game-launch when a wrapped game exits and
+writes exactly the columns the reader selects, in the extended schema:
+game name, start time, duration, and the active scheduler. Frame-rate
+and latency figures stay NULL — Rowyn does not measure them, and the
+reader renders NULL as "not measured" rather than inventing numbers.
+
+Local only: no network, no upload, one sqlite file in the user's own
+data directory. Usage: rowyn-telemetry-record GAME STARTED_AT DURATION_S
+"""
+import os
+import sqlite3
+import sys
+from pathlib import Path
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS sessions (
+    game_name TEXT,
+    started_at REAL,
+    duration_s REAL,
+    avg_fps REAL,
+    p1_low_fps REAL,
+    stutter_count INTEGER,
+    scheduler TEXT,
+    avg_latency_ms REAL,
+    p99_latency_ms REAL
+)
+"""
+
+
+def db_path() -> Path:
+    override = os.environ.get("ROWYN_TELEMETRY_DB")
+    if override:
+        return Path(override)
+    return Path.home() / ".local/share/rowyn/telemetry.db"
+
+
+def scheduler_name() -> str:
+    try:
+        ops = Path("/sys/kernel/scx/ops").read_text(encoding="utf-8").strip()
+    except OSError:
+        ops = ""
+    return ops.split()[0] if ops else "kernel-default"
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) != 4:
+        print("usage: rowyn-telemetry-record GAME STARTED_AT DURATION_S", file=sys.stderr)
+        return 2
+    game = argv[1].strip()
+    if not game or len(game) > 160 or any(ord(c) < 32 for c in game):
+        print("invalid game name", file=sys.stderr)
+        return 2
+    try:
+        started_at = float(argv[2])
+        duration_s = float(argv[3])
+    except ValueError:
+        print("invalid timestamps", file=sys.stderr)
+        return 2
+    if started_at <= 0 or duration_s < 0:
+        print("invalid timestamps", file=sys.stderr)
+        return 2
+    path = db_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(path)
+    try:
+        connection.execute(SCHEMA)
+        connection.execute(
+            "INSERT INTO sessions (game_name, started_at, duration_s, avg_fps,"
+            " p1_low_fps, stutter_count, scheduler, avg_latency_ms, p99_latency_ms)"
+            " VALUES (?, ?, ?, NULL, NULL, 0, ?, NULL, NULL)",
+            (game, started_at, duration_s, scheduler_name()),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

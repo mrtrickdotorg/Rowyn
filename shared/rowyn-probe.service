@@ -1,0 +1,12 @@
+[Unit]
+Description=Collect the Rowyn system probe cache
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/rowyn-probe --system
+UMask=0077
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

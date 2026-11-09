@@ -249,6 +249,10 @@ jobs:
             test -s /usr/share/applications/kcm_app-permissions.desktop
             test -s /usr/share/kio/servicemenus/rowyn-development-here.desktop
             test -e /etc/systemd/user/graphical-session.target.wants/rowyn-update-notify.timer
+            test -x /usr/bin/rowyn-probe
+            test -x /usr/bin/rowyn-telemetry-record
+            test -e /etc/systemd/system/timers.target.wants/rowyn-probe.timer
+            test -e /etc/systemd/user/timers.target.wants/rowyn-probe-user.timer
             if ldd /usr/bin/rowyn-hub-shell | grep -Fq "not found"; then
               echo "rowyn-hub-shell has unresolved runtime libraries" >&2
               exit 1

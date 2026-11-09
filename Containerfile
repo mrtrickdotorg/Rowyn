@@ -81,7 +81,8 @@ WORKDIR /build/rowyn-hub-web
 RUN npm ci && npm run build
 WORKDIR /build/rowyn-hub-web/src-tauri
 RUN cargo build --release --locked && \
-    cp target/release/rowyn-hub-shell /rowyn-hub-shell
+    cp target/release/rowyn-hub-shell /rowyn-hub-shell && \
+    cp target/release/rowyn-probe /rowyn-probe
 
 # --- system: assemble the bootable image ------------------------------------
 FROM base AS system
@@ -391,6 +392,7 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
 # Tauri shell and the VPN stack (openconnect, vpnc-scripts, ksshaskpass,
 # firewalld) are in the KDE package layer above.
 COPY --from=hub-builder /rowyn-hub-shell /usr/bin/rowyn-hub-shell
+COPY --from=hub-builder /rowyn-probe /usr/bin/rowyn-probe
 COPY shared/com.rowyn.hub.desktop /usr/share/applications/com.rowyn.hub.desktop
 COPY build/hub/src-tauri/data/kde/servicemenus/rowyn-development-here.desktop /usr/share/kio/servicemenus/rowyn-development-here.desktop
 COPY docs/assets/rowyn-logo.png /usr/share/icons/hicolor/512x512/apps/com.rowyn.hub.png
@@ -421,10 +423,13 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
 
 # Support tools: local-only scrubbed bug report and controller readiness check
 # (python3 standard library only; both are read-only and make no network calls).
+# rowyn-telemetry-record is the local session writer rowyn-game-launch calls
+# when a wrapped game exits; same local-only discipline.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     install -Dm755 /ctx/shared/rowyn-report /usr/bin/rowyn-report && \
     install -Dm755 /ctx/shared/rowyn-controller-check /usr/bin/rowyn-controller-check && \
-    for t in rowyn-report rowyn-controller-check; do \
+    install -Dm755 /ctx/shared/rowyn-telemetry-record /usr/bin/rowyn-telemetry-record && \
+    for t in rowyn-report rowyn-controller-check rowyn-telemetry-record; do \
       python3 -c "import py_compile,sys; py_compile.compile(sys.argv[1], cfile=sys.argv[2], doraise=True)" /usr/bin/$t /tmp/$t.pyc && \
       rm -f /tmp/$t.pyc; \
     done
@@ -454,6 +459,19 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     install -Dm644 /ctx/shared/rowyn-update-notify.service /usr/lib/systemd/user/rowyn-update-notify.service && \
     install -Dm644 /ctx/shared/rowyn-update-notify.timer /usr/lib/systemd/user/rowyn-update-notify.timer && \
     systemctl --global enable rowyn-update-notify.timer
+
+# Probe producer: the Hub's probe reader expects cache files written by
+# rowyn-probe (the shared crate's probe library, driven by the shell
+# crate's second binary). The root service refreshes the system cache
+# (deferring network-backed sections); the per-user timer merges fresh
+# system sections and collects the rest every 10 minutes.
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    install -Dm644 /ctx/shared/rowyn-probe.service /usr/lib/systemd/system/rowyn-probe.service && \
+    install -Dm644 /ctx/shared/rowyn-probe.timer /usr/lib/systemd/system/rowyn-probe.timer && \
+    install -Dm644 /ctx/shared/rowyn-probe-user.service /usr/lib/systemd/user/rowyn-probe-user.service && \
+    install -Dm644 /ctx/shared/rowyn-probe-user.timer /usr/lib/systemd/user/rowyn-probe-user.timer && \
+    systemctl enable rowyn-probe.timer && \
+    systemctl --global enable rowyn-probe-user.timer
 
 # Boot health: a deployment that has never been confirmed healthy runs bounded
 # local checks once per boot; three failures quarantine the digest and roll the

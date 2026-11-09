@@ -48,15 +48,27 @@ EOF2
 write_file /usr/bin/rowyn-game-launch 0755 <<'EOF2'
 #!/bin/sh
 # Run a command in the Rowyn gaming slice, under GameMode when available.
-# Falls back to a plain exec if the user systemd manager cannot be reached.
+# Falls back to a plain run if the user systemd manager cannot be reached.
+# The command is not exec'd: the wrapper waits so it can record the
+# session (game, start, duration) in the local telemetry database the
+# Hub's session charts read. Recording is best-effort — a recorder
+# failure never changes the game's exit status, which is preserved.
 [ "$#" -gt 0 ] || { echo "usage: rowyn-game-launch COMMAND [ARGS...]" >&2; exit 2; }
+game=$(basename "$1")
+started=$(date +%s)
 if [ -x /usr/games/gamemoderun ]; then
     set -- /usr/games/gamemoderun "$@"
 fi
 if command -v systemd-run >/dev/null 2>&1 && systemctl --user is-system-running >/dev/null 2>&1; then
-    exec systemd-run --user --scope --quiet --slice=rowyn-gaming.slice -- "$@"
+    systemd-run --user --scope --quiet --slice=rowyn-gaming.slice -- "$@"
+else
+    "$@"
 fi
-exec "$@"
+status=$?
+if [ -x /usr/bin/rowyn-telemetry-record ]; then
+    /usr/bin/rowyn-telemetry-record "$game" "$started" "$(( $(date +%s) - started ))" >/dev/null 2>&1 || true
+fi
+exit $status
 EOF2
 
 # Per-game opt-in: never preloaded globally.

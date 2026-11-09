@@ -45,7 +45,7 @@ export function Backups() {
 
   return <div id="hub-section-backups" className="page-content rowyn-mvp">
     <section className="glass dashboard-card"><span className="home-eyebrow">Rowyn Backups</span><h1>Backups</h1>
-      <p className="card-copy">Kup configuration is read only; Rowyn does not run backups or verify destination connectivity or backup contents. Versioned backups retain history; mirrors do not. A backup on the same disk does not protect against disk failure. OS rollback does not restore personal files.</p>
+      <p className="card-copy">This page reads your real Kup configuration — plans, destinations, included files, and the last completed run Kup recorded — and Open Kup settings takes you straight to Kup’s own settings, where plans are created, edited, and run. Rowyn itself does not run backups or verify destination connectivity or backup contents. Versioned backups retain history; mirrors do not. A backup on the same disk does not protect against disk failure. OS rollback does not restore personal files.</p>
       <div className="home-actions">
         <button className="action-button action-button-primary" onClick={() => void run('refresh')} disabled={busy}>{busy ? 'Working…' : 'Refresh Kup status'}</button>
         <button className="action-button" onClick={() => void run('settings')} disabled={busy}>Open Kup settings</button>

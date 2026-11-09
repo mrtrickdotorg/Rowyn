@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh the Rowyn system probe cache
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=15min
+Unit=rowyn-probe.service
+
+[Install]
+WantedBy=timers.target

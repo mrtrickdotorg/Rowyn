@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh the Rowyn user probe cache every 10 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=10min
+Unit=rowyn-probe-user.service
+
+[Install]
+WantedBy=timers.target
