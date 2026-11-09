@@ -409,6 +409,35 @@ class PinnedHubSourceTests(unittest.TestCase):
             self.assertIn("fn update_check_state_accepts_composefs_manifest_diff_output", query)
             self.assertIn("/usr/bin/rowyn-bootc-guard", query)
 
+    def test_daily_driver_catalog_and_install_scope(self):
+        repo = _pinned_repo()
+        with tempfile.TemporaryDirectory(prefix="rowyn-hub-daily-") as temp:
+            root = Path(temp) / "src"
+            hub.export_source(repo, root)
+            hub.port_source(root)
+            catalog = (root / "src/rowyn-shared-rs/src/system/software_catalog.rs").read_text()
+            # Every id the daily-driver pass adds was verified against
+            # Flathub on 2026-11-09; com.microsoft.Teams does not exist
+            # there and must never be offered.
+            for app_id in ("org.mozilla.firefox", "eu.betterbird.Betterbird",
+                           "com.bitwarden.desktop", "com.visualstudio.code",
+                           "us.zoom.Zoom", "com.slack.Slack",
+                           "com.github.IsmaelMartinez.teams_for_linux",
+                           "com.vysp3r.ProtonPlus"):
+                self.assertIn(f'id: "{app_id}"', catalog)
+            self.assertIn('name: "Work".to_string()', catalog)
+            self.assertNotIn("com.microsoft.Teams", catalog)
+            # The shared install projection is system-scoped now.
+            self.assertIn('["flatpak", "install", "--system", "-y", "flathub", app_id]', catalog)
+            self.assertIn("fn projects_only_valid_system_scoped_flatpak_installs()", catalog)
+            main = (root / "src/rowyn-hub-web/src-tauri/src/main.rs").read_text()
+            self.assertIn("fn system_flatpak_install(", main)
+            self.assertIn("fn system_flatpak_install_args(", main)
+            install_body = main.split("fn install_flatpak(", 1)[1].split("fn install_status(", 1)[0]
+            self.assertIn("system_flatpak_install(&app_id, &cancel)", install_body)
+            self.assertNotIn('"--user"', install_body)
+            self.assertNotIn("ensure_flathub_user_remote", install_body)
+
     def test_audit_fixes_on_kept_pages(self):
         repo = _pinned_repo()
         with tempfile.TemporaryDirectory(prefix="rowyn-hub-audit-") as temp:

@@ -88,7 +88,7 @@ export function Play() {
   return <div className="page-content rowyn-mvp">
     <section className="glass dashboard-card" id="hub-section-gaming">
       <span className="home-eyebrow">Rowyn Play · MVP</span><h1>Play</h1>
-      <p className="card-copy">Four launchers, installed as personal Flatpaks from Flathub using the same jobs as Apps. No native package installs or system tuning. A launcher being installed does not establish game compatibility. Steam game discovery is an explicit, read-only scan of local app manifests; it does not validate or launch games.</p>
+      <p className="card-copy">Four launchers, installed as system-wide Flatpaks from Flathub — the same installation Discover uses — with the same jobs as Apps. No native package installs or system tuning. A launcher being installed does not establish game compatibility. Steam game discovery is an explicit, read-only scan of local app manifests; it does not validate or launch games.</p>
       <div className="home-actions"><button className="action-button" disabled={busy} onClick={() => run('Reading installed launchers…', refreshLaunchers)}>Refresh launchers</button>
         {tracked && <button className="action-button" disabled={cancelBusy} onClick={async () => {
           setCancelBusy(true);
@@ -114,8 +114,8 @@ export function Play() {
       {pending && <section className="glass dashboard-card" role="alertdialog" aria-labelledby="rowyn-play-confirm">
         <h2 id="rowyn-play-confirm">{pending.kind === 'install' ? `Install ${pending.name}?` : `Remove ${pending.name}?`}</h2>
         <p className="card-copy">{pending.kind === 'install'
-          ? `Downloads ${pending.name} from Flathub into your user account with the same job as the App Store. This can take several minutes, and installing it does not establish game compatibility.`
-          : `Removes ${pending.name} from your user account. Game files, saves and compatibility data are not deleted.`}</p>
+          ? `Downloads ${pending.name} from Flathub into the system-wide Flatpak installation — the same one Discover uses. This can take several minutes, and installing it does not establish game compatibility.`
+          : `Removes ${pending.name} from the system-wide Flatpak installation. Game files, saves and compatibility data are not deleted.`}</p>
         <div className="home-actions">
           <button className="action-button" disabled={busy} onClick={() => setPending(null)}>Cancel</button>
           <button className="action-button" disabled={busy} onClick={() => void confirmPending()}>

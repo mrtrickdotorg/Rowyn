@@ -702,6 +702,266 @@ def apply_rowyn_mvp(root):
     apply_rowyn_qol(root)
 
 
+def apply_rowyn_daily_driver(root):
+    """Daily-driver program (Nov 2026): catalog breadth + one Flatpak scope.
+
+    Runs after the rename, on the final Rowyn tree. Two changes:
+
+    1. The shared crate's curated catalog gains the apps a Windows
+       convert looks for first (Firefox, Betterbird — the mail client
+       the exe-handler already recommends — Bitwarden, and a Work pack
+       with VS Code, Zoom, Slack and the community Teams client) plus
+       ProtonPlus in the Gaming pack. Every id was verified against
+       Flathub on 2026-11-09; the crate's own test re-validates the id
+       shape, and com.microsoft.Teams is deliberately absent (it does
+       not exist on Flathub; the community client is the honest path).
+
+    2. Installs unify on the system Flatpak installation — the one
+       Discover uses — so an app installed from the Hub reads as
+       installed everywhere. The App Store/Play install command used
+       the per-user scope, which made the two disagree about what was
+       installed. The system path reuses the established
+       system_flatpak_* pattern from the update/uninstall code (flatpak
+       runs as the user; the polkit-authorised system helper performs
+       the change; refusal becomes administrator guidance, not a raw
+       D-Bus error). Uninstall already resolves the installed scope, so
+       legacy per-user installs stay removable, and updates keep
+       covering both scopes for the same reason.
+    """
+    catalog = root / "src/rowyn-shared-rs/src/system/software_catalog.rs"
+    text = catalog.read_text()
+
+    def app_block(app_id, label, description, indent="                "):
+        # Match the file's own formatting: short descriptions stay on
+        # one line, long ones wrap the way the neighboring entries do.
+        if len(description) > 80:
+            desc = (f"{indent}    description:\n"
+                    f"{indent}        \"{description}\"\n"
+                    f"{indent}            .to_string(),\n")
+        else:
+            desc = f"{indent}    description: \"{description}\".to_string(),\n"
+        return (
+            f"{indent}CatalogApp {{\n"
+            f"{indent}    id: \"{app_id}\".to_string(),\n"
+            f"{indent}    label: \"{label}\".to_string(),\n"
+            f"{indent}    selected: true,\n"
+            f"{desc}"
+            f"{indent}}},\n")
+
+    ludusavi = (
+        "                CatalogApp {\n"
+        "                    id: \"com.github.mtkennerly.ludusavi\".to_string(),\n"
+        "                    label: \"Ludusavi\".to_string(),\n"
+        "                    selected: true,\n"
+        "                    description:\n"
+        "                        \"Back up and restore PC game save files across hundreds of titles.\"\n"
+        "                            .to_string(),\n"
+        "                },\n")
+    text = replace_once(text, ludusavi, ludusavi + app_block(
+        "com.vysp3r.ProtonPlus", "ProtonPlus",
+        "Install and update Proton-GE and other compatibility tools for Steam and launchers."))
+    text = replace_once(
+        text,
+        '"Steam, Epic/GOG, compatibility launchers, saves, and standalone .exe support."',
+        '"Steam, Epic/GOG, compatibility launchers, saves, Proton-GE tooling, and standalone .exe support."')
+
+    localsend = (
+        "                CatalogApp {\n"
+        "                    id: \"org.localsend.localsend_app\".to_string(),\n"
+        "                    label: \"LocalSend\".to_string(),\n"
+        "                    selected: true,\n"
+        "                    description: \"Send files to nearby devices over the local network.\".to_string(),\n"
+        "                },\n")
+    everyday_additions = (
+        app_block("org.mozilla.firefox", "Firefox",
+                  "Web browser from Mozilla, for anyone who does not want Brave.")
+        + app_block("eu.betterbird.Betterbird", "Betterbird Mail",
+                    "Desktop email and calendar, Thunderbird-compatible — the Outlook replacement Rowyn suggests.")
+        + app_block("com.bitwarden.desktop", "Bitwarden",
+                    "Password manager; unlocks the vault you already use."))
+    work_pack = (
+        "        StarterPack {\n"
+        "            name: \"Work\".to_string(),\n"
+        "            desc: \"Code editor, calls and chat for people arriving from Windows workplaces.\".to_string(),\n"
+        "            apps: vec![\n"
+        + app_block("com.visualstudio.code", "Visual Studio Code",
+                    "Code editor from Microsoft, packaged as a Flatpak.")
+        + app_block("us.zoom.Zoom", "Zoom", "Video meetings and calls.")
+        + app_block("com.slack.Slack", "Slack", "Team chat for work.")
+        + app_block("com.github.IsmaelMartinez.teams_for_linux", "Teams for Linux",
+                    "Community Microsoft Teams client; the official Teams app is web-only on Linux.")
+        + "            ],\n"
+        "        },\n")
+    text = replace_once(
+        text,
+        localsend + "            ],\n        },\n    ]\n}",
+        localsend + everyday_additions + "            ],\n        },\n"
+        + work_pack + "    ]\n}")
+
+    geforce_anchor = '            flatpak_id: "".to_string(),\n        },\n    ]\n}'
+    familiar_additions = "".join(
+        "        FamiliarApp {\n"
+        f"            windows_name: \"{name}\".to_string(),\n"
+        f"            description: \"{desc}\".to_string(),\n"
+        f"            flatpak_id: \"{app_id}\".to_string(),\n"
+        "        },\n"
+        for name, desc, app_id in (
+            ("Outlook", "Use Betterbird for desktop email and calendar.",
+             "eu.betterbird.Betterbird"),
+            ("Microsoft Teams",
+             "Use Teams for Linux, the community client; official Teams is web-only on Linux.",
+             "com.github.IsmaelMartinez.teams_for_linux"),
+            ("Visual Studio Code", "Install Visual Studio Code from Flatpak.",
+             "com.visualstudio.code"),
+        ))
+    text = replace_once(text, geforce_anchor,
+                        '            flatpak_id: "".to_string(),\n        },\n'
+                        + familiar_additions + "    ]\n}")
+
+    text = replace_once(
+        text,
+        "/// Project one catalog result into the explicit, user-scoped install argv",
+        "/// Project one catalog result into the explicit, system-scoped install argv")
+    text = replace_once(
+        text,
+        '["flatpak", "install", "--user", "-y", "flathub", app_id]',
+        '["flatpak", "install", "--system", "-y", "flathub", app_id]')
+    text = replace_once(
+        text,
+        "fn projects_only_valid_user_scoped_flatpak_installs()",
+        "fn projects_only_valid_system_scoped_flatpak_installs()")
+    text = replace_once(
+        text,
+        '            vec![\n                "flatpak",\n                "install",\n                "--user",',
+        '            vec![\n                "flatpak",\n                "install",\n                "--system",')
+    catalog.write_text(text)
+
+    main_rs = root / "src/rowyn-hub-web/src-tauri/src/main.rs"
+    text = main_rs.read_text()
+    install_helpers = '''
+/// Fixed argv for installing one app into the system installation —
+/// the same installation Discover uses, so installed state agrees
+/// everywhere. The id is validated here again so this builder is safe
+/// on its own, and follows `--` so it can never be read as an option.
+fn system_flatpak_install_args(app_id: &str) -> Result<Vec<String>, String> {
+    commands::privilege::validate_flatpak_id(app_id)?;
+    Ok(["install", "--system", "--noninteractive", "-y", "flathub", "--", app_id]
+        .iter()
+        .map(|arg| arg.to_string())
+        .collect())
+}
+
+/// Turn a failed system-scope install into text the user can act on.
+/// polkit refusing the (non-interactive) request surfaces as a D-Bus
+/// "... not allowed for user" error from the system helper.
+fn system_flatpak_install_failure(stderr: &str) -> String {
+    let lower = stderr.to_lowercase();
+    if lower.contains("not allowed for user")
+        || lower.contains("not authorized")
+        || lower.contains("authorization")
+        || lower.contains("authentication is required")
+    {
+        return "Installing a system-wide app needs an administrator. Sign in as an \
+                administrator (a member of the sudo group) or ask one to install it."
+            .to_string();
+    }
+    let detail = stderr.trim();
+    if detail.is_empty() {
+        "Flatpak failed without reporting a reason.".to_string()
+    } else {
+        detail.to_string()
+    }
+}
+
+/// Run one system-scope install as the user, bounded by the Flatpak
+/// transfer tier and killed within one poll tick on cancel: Flatpak's
+/// own polkit-authorised system helper performs the change.
+fn system_flatpak_install(app_id: &str, cancel: &AtomicBool) -> Result<(), String> {
+    let args = system_flatpak_install_args(app_id)?;
+    let mut command = Command::new("/usr/bin/flatpak");
+    command.args(&args).stdin(std::process::Stdio::null());
+    match rowyn_shared::system::process::run_bounded_command_cancel(
+        command,
+        timeout_for(JobTimeoutClass::FlatpakTransfer),
+        cancel,
+    ) {
+        Ok(output) if output.status.success() => Ok(()),
+        Ok(output) => Err(system_flatpak_install_failure(
+            &commands::process::bounded_text(&output.stderr),
+        )),
+        Err(error) if error.kind() == std::io::ErrorKind::TimedOut => {
+            Err("Installing the app took too long and was stopped.".to_string())
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {
+            Err("Cancelled.".to_string())
+        }
+        Err(error) => Err(format!("Could not start Flatpak: {error}")),
+    }
+}
+
+'''
+    text = replace_once(
+        text,
+        "fn system_flatpak_update(cancel: &AtomicBool) -> Result<(), String> {",
+        install_helpers
+        + "fn system_flatpak_update(cancel: &AtomicBool) -> Result<(), String> {")
+    old_install_body = '''        // Ensure the per-user Flathub remote exists first (idempotent):
+        // the security/gaming install paths already did this, so a missing
+        // remote failed installs from THIS page only. A setup failure is
+        // the job's failure, with the setup step named.
+        if let Err(error) = commands::job::ensure_flathub_user_remote(&cancel) {
+            app_installs().finish(
+                &job_for_thread,
+                "failed",
+                format!("Could not set up Flathub: {error}"),
+            );
+            return;
+        }
+        if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            return;
+        }
+        // Unbounded `.output()` hangs on a stalled mirror with no way to
+        // cancel; run bounded and cancellable like the other install paths.
+        let mut command = std::process::Command::new("/usr/bin/flatpak");
+        command.args(["install", "--user", "-y", "flathub", "--", &app_id]);
+        let result = rowyn_shared::system::process::run_bounded_command_cancel(
+            command,
+            timeout_for(JobTimeoutClass::FlatpakTransfer),
+            &cancel,
+        );
+        let (state, detail) = match result {
+            Ok(output) if output.status.success() => {
+                ("complete", "Installation complete.".to_string())
+            }
+            Ok(output) => ("failed", commands::process::bounded_text(&output.stderr)),
+            // A timeout is not "could not start": the install ran and was
+            // stopped at the transfer bound. Name it honestly (the update
+            // path already special-cased this; install did not).
+            Err(err) if err.kind() == std::io::ErrorKind::TimedOut => (
+                "failed",
+                "Installing took too long and was stopped.".to_string(),
+            ),
+            Err(err) => ("failed", format!("Could not start Flatpak: {err}")),
+        };
+        app_installs().finish(&job_for_thread, state, detail);'''
+    new_install_body = '''        // Install into the system installation — the same one
+        // Discover uses — so an app installed here reads as installed
+        // everywhere; the per-user scope made the two disagree about
+        // what was installed. The system Flathub remote is the image's
+        // static declaration, so there is no per-user remote setup
+        // step to fail before the install can start.
+        if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            return;
+        }
+        let (state, detail) = match system_flatpak_install(&app_id, &cancel) {
+            Ok(()) => ("complete", "Installation complete.".to_string()),
+            Err(error) => ("failed", error),
+        };
+        app_installs().finish(&job_for_thread, state, detail);'''
+    text = replace_once(text, old_install_body, new_install_body)
+    main_rs.write_text(text)
+
+
 def port_source(root):
     changes = []
     web = root / "src/rowyn-hub-web"
@@ -2180,6 +2440,13 @@ mod audit_fix_tests {
     changes.append("Cargo.lock re-synced after the kyth-shared -> rowyn-shared "
                    "package rename: " + sync_cargo_lock(crate, ("kyth-shared",)))
 
+    apply_rowyn_daily_driver(root)
+    changes.append(
+        "daily-driver: catalog gains Firefox/Betterbird/Bitwarden, a Work pack "
+        "(VS Code/Zoom/Slack/Teams for Linux) and ProtonPlus; familiar-apps map "
+        "gains Outlook/Teams/VS Code; Hub installs unified on the system "
+        "Flatpak installation (Discover's scope) via system_flatpak_install")
+
     (root / "ROWYN-PORT-NOTICE").write_text(
         f"Pinned upstream System Hub source {PIN}, Apache-2.0 (LICENSE).\n"
         "Modified by Rowyn: Rowyn Hub identity (com.rowyn.hub), destinations cut to\n"
@@ -2203,6 +2470,10 @@ mod audit_fix_tests {
         "for the upstream root daemon, the shared crate's 92 helper-binary targets, and\n"
         "every shared-crate library module outside the shells' reachability\n"
         "closure (incl. the runtime-updater/PGP heritage and its pgp dependency).\n"
+        "A daily-driver pass extends the shared crate's curated catalog (Firefox,\n"
+        "Betterbird, Bitwarden, a Work pack with VS Code/Zoom/Slack/Teams for Linux,\n"
+        "ProtonPlus) and unifies Hub Flatpak installs on the system installation —\n"
+        "the scope Discover uses — instead of the per-user installation.\n"
         "A full internal rename rewrites every remaining upstream identifier\n"
         "(the shared crate package and its paths, on-disk data paths, the stage\n"
         "progress wire token, env vars, the SAML script identifiers) to the Rowyn\n"
