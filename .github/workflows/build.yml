@@ -241,6 +241,10 @@ jobs:
             test -x /usr/bin/rowyn-update-notify
             test -x /usr/bin/rowyn-first-run
             test -s /etc/xdg/autostart/rowyn-first-run.desktop
+            test -x /usr/bin/rowyn-deb-handler
+            test -x /usr/bin/kdialog
+            test -s /usr/share/applications/rowyn-deb-handler.desktop
+            grep -Fq "application/vnd.debian.binary-package=rowyn-deb-handler.desktop" /etc/xdg/kde-mimeapps.list
             test -s /usr/share/applications/kcm_kup.desktop
             test -s /usr/share/applications/kcm_app-permissions.desktop
             test -s /usr/share/kio/servicemenus/rowyn-development-here.desktop

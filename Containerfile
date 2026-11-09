@@ -154,7 +154,7 @@ RUN printf 'path-include=/usr/share/doc/nvidia-kernel-common-*/supported-gpus.js
     apt-get update && \
     apt-get install -y \
         plasma-desktop sddm xserver-xorg sddm-theme-breeze konsole dolphin kinfocenter kde-spectacle \
-        breeze breeze-gtk-theme breeze-icon-theme kde-style-breeze kde-cli-tools \
+        breeze breeze-gtk-theme breeze-icon-theme kde-style-breeze kde-cli-tools kdialog \
         plasma-nm plasma-pa xdg-desktop-portal-kde \
         bluedevil kscreen powerdevil \
         kup-backup bup rsync kde-config-flatpak libnotify-bin \

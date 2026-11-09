@@ -1,0 +1,40 @@
+#!/bin/sh
+# The .deb explainer: Rowyn installs graphical apps as Flatpaks, so a
+# downloaded .deb must not dead-end silently (the PackageKit backend is
+# removed by policy). This handler tells the user why, in plain terms,
+# and offers the route that works: search for the same app in the Hub's
+# Apps page, which covers the curated catalog and all of Flathub.
+# Command-line .deb tools belong in Distrobox; the text says so.
+set -eu
+
+file=${1:-}
+package=""
+if [ -n "$file" ] && [ -f "$file" ]; then
+    package=$(dpkg-deb -f "$file" Package 2>/dev/null || true)
+fi
+if [ -z "$package" ] && [ -n "$file" ]; then
+    package=$(basename "$file")
+fi
+subject=${package:-"This file"}
+
+text="$subject is a Debian package (.deb).
+
+Rowyn installs graphical apps as Flatpaks instead of .deb packages: Flatpaks are sandboxed, update in one place, and never scatter files across the signed system image. Most apps offered as .deb downloads are also on Flathub — often including this one.
+
+Open the Hub's Apps page to search for it there. (Command-line tools belong in Distrobox instead — the Hub's Development page sets that up.)"
+
+if command -v kdialog >/dev/null 2>&1; then
+    if kdialog --title "Installing software on Rowyn" \
+            --yes-label "Search in the Hub" --no-label "Close" \
+            --yesno "$text" 2>/dev/null; then
+        exec /usr/bin/rowyn-hub-shell --page Apps
+    fi
+    exit 0
+fi
+
+# No dialog tool: at least leave a notification rather than silence.
+if command -v notify-send >/dev/null 2>&1; then
+    notify-send "Installing software on Rowyn" \
+        "$subject is a .deb package. Rowyn installs graphical apps as Flatpaks — search for it in the Hub's Apps page or Discover instead."
+fi
+exit 0

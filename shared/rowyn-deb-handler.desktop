@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Installing software on Rowyn
+Comment=Why .deb packages open here, and where to get the app instead
+Exec=/usr/bin/rowyn-deb-handler %f
+Icon=system-software-install
+Terminal=false
+MimeType=application/vnd.debian.binary-package;
+Categories=System;
+NoDisplay=true

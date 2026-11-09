@@ -85,7 +85,31 @@ PersistentInstallation=/var/lib/flatpak
 NativeGuiPackages=disabled
 SnapGuiPackages=disabled
 PackageKitGuiPackages=disabled
+DebPackages=explainer
 FlatpakRemote=flathub
 FlatpakRemoteConfig=/etc/flatpak/remotes.d/flathub.flatpakrepo
 EOF
 chmod 0644 "$policy"
+
+# A downloaded .deb must not dead-end: with the PackageKit backend gone,
+# double-clicking one would otherwise do nothing at all. Register the
+# explainer as the KDE default handler for the .deb MIME type (a default
+# only — a user's own mimeapps.list wins). kde-mimeapps.list is the
+# KDE-session default file, so the browser defaults in mimeapps.list are
+# not disturbed.
+for artifact in rowyn-deb-handler rowyn-deb-handler.desktop; do
+    [[ -f "$script_dir/$artifact" ]] || {
+        echo "missing .deb explainer artifact: $artifact" >&2
+        exit 1
+    }
+done
+install -Dm755 "$script_dir/rowyn-deb-handler" \
+    "$(root_path /usr/bin/rowyn-deb-handler)"
+install -Dm644 "$script_dir/rowyn-deb-handler.desktop" \
+    "$(root_path /usr/share/applications/rowyn-deb-handler.desktop)"
+install -d "$(root_path /etc/xdg)"
+cat > "$(root_path /etc/xdg/kde-mimeapps.list)" <<'EOF'
+[Default Applications]
+application/vnd.debian.binary-package=rowyn-deb-handler.desktop
+EOF
+chmod 0644 "$(root_path /etc/xdg/kde-mimeapps.list)"
