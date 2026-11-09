@@ -49,6 +49,7 @@ const destinations = [
   { label: 'Updates', description: 'Review system updates and available rollback options.', route: '/updates', icon: '↻', accent: 'amber' },
   { label: 'Diagnostics', description: 'Run read-only checks and review a report before sharing.', route: '/diagnostics', icon: '⌁', accent: 'mint' },
   { label: 'VPN', description: 'Manage your saved secure-work connections.', route: '/vpn', icon: '◈', accent: 'violet' },
+  { label: 'MoveIn', description: 'Bring documents, pictures, bookmarks, and your wallpaper from Windows.', route: '/windows-move-in', icon: '⇥', accent: 'amber' },
 ] as const;
 
 /** Drop vendor boilerplate and the PCI id so a long GPU name fits a stat card. */
