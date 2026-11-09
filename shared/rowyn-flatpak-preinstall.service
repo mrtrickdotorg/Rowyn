@@ -1,0 +1,17 @@
+[Unit]
+Description=Install the Flatpaks Rowyn ships with the OS (flatpak preinstall)
+Documentation=man:flatpak-preinstall(1)
+# The vendor preinstall set lives in /usr/share/flatpak/preinstall.d and
+# is served by the static Flathub remote declaration; the first run needs
+# the network, later runs are no-ops. preinstall tracks user opt-outs
+# itself: an app the user uninstalled is not reinstalled.
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/flatpak preinstall --system -y --noninteractive
+TimeoutStartSec=1800
+
+[Install]
+WantedBy=multi-user.target

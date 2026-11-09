@@ -294,6 +294,12 @@ jobs:
             # for root and bootc.
             test -s /etc/skel/.config/containers/policy.json
             python3 -m json.tool /etc/skel/.config/containers/policy.json > /dev/null
+            test -s /usr/share/flatpak/preinstall.d/rowyn-brave.preinstall
+            grep -Fq "com.brave.Browser" /usr/share/flatpak/preinstall.d/rowyn-brave.preinstall
+            test -s /usr/lib/systemd/system/rowyn-flatpak-preinstall.service
+            test -e /etc/systemd/system/multi-user.target.wants/rowyn-flatpak-preinstall.service
+            grep -Fq "x-scheme-handler/https=com.brave.Browser.desktop" /etc/xdg/mimeapps.list
+            grep -Fq "x-scheme-handler/https=com.brave.Browser.desktop" /etc/skel/.config/mimeapps.list
             test -s /usr/share/plymouth/themes/rowyn/rowyn.plymouth
             test -s /usr/share/plymouth/themes/rowyn/rowyn.script
             test -s /usr/share/plymouth/themes/rowyn/rowyn-logo.png

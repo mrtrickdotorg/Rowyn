@@ -336,7 +336,19 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
 # survive stateless first boot.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     /ctx/shared/kde-dark-defaults.sh --root / && \
-    /ctx/shared/kde-wallpaper-defaults.sh --root /
+    /ctx/shared/kde-wallpaper-defaults.sh --root / && \
+    /ctx/shared/browser-defaults.sh --root /
+
+# Brave is the default browser, shipped the way Flatpak intends OS
+# vendors to ship apps: a .preinstall declaration in the immutable tree
+# plus a boot-time oneshot that runs `flatpak preinstall` against the
+# system installation (the static Flathub remote from installed-apps.sh
+# serves it). Nothing is baked into /var; preinstall tracks the install
+# (and a user's later uninstall) in the system installation itself.
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    install -Dm644 /ctx/shared/brave.preinstall /usr/share/flatpak/preinstall.d/rowyn-brave.preinstall && \
+    install -Dm644 /ctx/shared/rowyn-flatpak-preinstall.service /usr/lib/systemd/system/rowyn-flatpak-preinstall.service && \
+    systemctl enable rowyn-flatpak-preinstall.service
 
 # Performance defaults (zram, sysctl, MGLRU/THP, ntsync, gaming limits) are
 # vendor-dir files under /usr/lib, so /etc overrides win.
