@@ -959,7 +959,77 @@ fn system_flatpak_install(app_id: &str, cancel: &AtomicBool) -> Result<(), Strin
         };
         app_installs().finish(&job_for_thread, state, detail);'''
     text = replace_once(text, old_install_body, new_install_body)
+
+    # New Play/Steam commands live in the Rowyn-owned overlay modules;
+    # their invoke-handler registrations are added here, after the
+    # renamed steam registration line.
+    registration_anchor = "            commands::rowyn_steam::rowyn_steam_games_scan,\n"
+    if text.count(registration_anchor) != 1:
+        raise SystemExit("generate_handler steam registration anchor drifted")
+    text = text.replace(
+        registration_anchor,
+        registration_anchor
+        + "            commands::rowyn_steam::rowyn_steam_play_status,\n"
+        + "            commands::rowyn_steam::rowyn_steam_play_apply,\n"
+        + "            commands::rowyn_play::rowyn_display_modes_scan,\n"
+        + "            commands::rowyn_play::rowyn_vulkan_layers_scan,\n"
+        + "            commands::rowyn_play::rowyn_vulkan_layer_install,\n",
+        1,
+    )
     main_rs.write_text(text)
+
+
+def apply_rowyn_move_in(root):
+    """Wire the Rowyn-native Windows migration destination (MoveIn).
+
+    The upstream "Move In" destination was cut and stays cut (its route
+    and component names remain absent, as the port tests assert); this
+    is a separate Rowyn-owned successor — destination key MoveIn, route
+    /windows-move-in, page RowynMoveIn, backend commands::rowyn_migrate
+    — wired with the same anchored splices the Backups destination
+    uses. Runs after the rename, on the final Rowyn tree.
+    """
+    web = root / "src/rowyn-hub-web"
+    manifest_path = web / "src/data/hubRoutes.json"
+    manifest = json.loads(manifest_path.read_text())
+    if any(d["key"] == "MoveIn" for d in manifest["destinations"]):
+        raise ValueError("MoveIn destination already exists")
+    manifest["destinations"].append({
+        "key": "MoveIn", "route": "/windows-move-in", "sections": [{
+            "key": "MoveIn", "title": "Move in from Windows",
+            "description": "Detect a Windows installation and import documents, pictures, bookmarks and wallpaper — read-only on the Windows side."}]})
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+    app = web / "src/App.tsx"
+    text = replace_once(app.read_text(), 'const Apps = lazy(',
+        'const WindowsMoveIn = lazy(() => import("./pages/RowynMoveIn").then(({ MoveIn: page }) => ({ default: page })));\nconst Apps = lazy(')
+    text = replace_once(text, '  "/apps": "Apps",', '  "/windows-move-in": "MoveIn",\n  "/apps": "Apps",')
+    text = replace_once(text, '              <Route path="/apps"',
+        '              <Route path="/windows-move-in" element={<WindowsMoveIn />} />\n              <Route path="/apps"')
+    app.write_text(text)
+    sidebar = web / "src/components/Sidebar.tsx"
+    sidebar.write_text(replace_once(sidebar.read_text(), '  Apps: { hint:',
+        '  MoveIn: { hint: "Bring your files from Windows", Icon: IconHome },\n  Apps: { hint:'))
+    sections = web / "src/data/hubSections.ts"
+    text = replace_once(sections.read_text(), '  Diagnostics: IconDatabase,',
+        '  MoveIn: IconDatabase,\n  Diagnostics: IconDatabase,')
+    sections.write_text(text + '\nexport const MOVEIN_SECTIONS = sectionsFor("MoveIn");\n')
+    destinations = web / "src/data/destinations.ts"
+    text = replace_once(destinations.read_text(), '  APPS_SECTIONS,', '  MOVEIN_SECTIONS,\n  APPS_SECTIONS,')
+    destinations.write_text(replace_once(text, '  Apps: APPS_SECTIONS,', '  MoveIn: MOVEIN_SECTIONS,\n  Apps: APPS_SECTIONS,'))
+    commands = web / "src-tauri/src/commands/mod.rs"
+    commands.write_text(commands.read_text() + '\npub(crate) mod rowyn_migrate;\n')
+    main = web / "src-tauri/src/main.rs"
+    text = main.read_text()
+    anchor = "            commands::rowyn_steam::rowyn_steam_games_scan,\n"
+    if text.count(anchor) != 1:
+        raise SystemExit("generate_handler steam registration anchor drifted (move-in)")
+    main.write_text(text.replace(
+        anchor,
+        anchor
+        + "            commands::rowyn_migrate::rowyn_migrate_scan,\n"
+        + "            commands::rowyn_migrate::rowyn_migrate_mount,\n"
+        + "            commands::rowyn_migrate::rowyn_migrate_import,\n",
+        1))
 
 
 def port_source(root):
@@ -2446,6 +2516,11 @@ mod audit_fix_tests {
         "(VS Code/Zoom/Slack/Teams for Linux) and ProtonPlus; familiar-apps map "
         "gains Outlook/Teams/VS Code; Hub installs unified on the system "
         "Flatpak installation (Discover's scope) via system_flatpak_install")
+
+    apply_rowyn_move_in(root)
+    changes.append(
+        "MoveIn destination: Rowyn-native Windows migration surface "
+        "(detect/profiles/import, read-only on the Windows side)")
 
     (root / "ROWYN-PORT-NOTICE").write_text(
         f"Pinned upstream System Hub source {PIN}, Apache-2.0 (LICENSE).\n"

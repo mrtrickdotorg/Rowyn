@@ -290,7 +290,7 @@ class PinnedHubSourceTests(unittest.TestCase):
 
                 manifest = json.loads((web / "src/data/hubRoutes.json").read_text())
                 self.assertEqual([d["key"] for d in manifest["destinations"]],
-                                 ["Apps", "VPN", "Updates", "Development", "Diagnostics", "Play", "Work", "Backups"])
+                                 ["Apps", "VPN", "Updates", "Development", "Diagnostics", "Play", "Work", "Backups", "MoveIn"])
 
                 app = (web / "src/App.tsx").read_text()
                 for route in ("/dev-tools", "/this-pc", "/move-in"):
@@ -437,6 +437,17 @@ class PinnedHubSourceTests(unittest.TestCase):
             self.assertIn("system_flatpak_install(&app_id, &cancel)", install_body)
             self.assertNotIn('"--user"', install_body)
             self.assertNotIn("ensure_flathub_user_remote", install_body)
+            for command in (
+                "commands::rowyn_steam::rowyn_steam_play_status",
+                "commands::rowyn_steam::rowyn_steam_play_apply",
+                "commands::rowyn_play::rowyn_display_modes_scan",
+                "commands::rowyn_play::rowyn_vulkan_layers_scan",
+                "commands::rowyn_play::rowyn_vulkan_layer_install",
+                "commands::rowyn_migrate::rowyn_migrate_scan",
+                "commands::rowyn_migrate::rowyn_migrate_mount",
+                "commands::rowyn_migrate::rowyn_migrate_import",
+            ):
+                self.assertIn(command, main)
 
     def test_audit_fixes_on_kept_pages(self):
         repo = _pinned_repo()
