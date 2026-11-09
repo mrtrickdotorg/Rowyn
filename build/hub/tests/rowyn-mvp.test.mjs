@@ -111,6 +111,25 @@ test('host-only options never pretend to work inside Flatpak Steam', () => {
   assert.match(m.launchOptions('host', true, true), /rowyn-game-launch \/usr\/bin\/rowyn-mimalloc-run %command%/);
 });
 
+test('MangoHud is an env switch on both boundaries, ordered before wrappers', () => {
+  assert.equal(m.launchOptions('flatpak', true, true, true), 'MANGOHUD=1 %command%');
+  assert.equal(m.launchOptions('flatpak', false, false, false), '%command%');
+  assert.equal(m.launchOptions('host', true, false, true), 'MANGOHUD=1 /usr/bin/rowyn-game-launch %command%');
+  assert.equal(m.launchOptions('host', false, false, true), 'MANGOHUD=1 %command%');
+});
+
+test('curated compat verdicts resolve by app id, then by title, else null', () => {
+  const cs2 = m.compatVerdict('730', 'Counter-Strike 2');
+  assert.ok(cs2);
+  assert.match(cs2.label, /natively/);
+  // A title match survives edition punctuation differences.
+  const byName = m.compatVerdict('999999', 'Counter-Strike 2');
+  assert.ok(byName);
+  assert.equal(byName.label, cs2.label);
+  // Unknown titles get no invented verdict.
+  assert.equal(m.compatVerdict('999999', 'Definitely Not A Curated Game'), null);
+});
+
 test('Steam compatibility links accept only numeric app IDs and clearly point to community data', () => {
   assert.deepEqual(m.steamCompatibilityLinks('620'), {
     protondb: 'https://www.protondb.com/app/620',

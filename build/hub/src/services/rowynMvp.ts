@@ -28,3 +28,27 @@ export async function rowynSteamGamesScan(): Promise<SteamScan> {
   nativeOnly();
   return invoke<SteamScan>('rowyn_steam_games_scan');
 }
+export interface SteamPlayStatus { steam_present: boolean; steam_running: boolean; mapping_present: boolean; detail: string }
+export async function rowynSteamPlayStatus(): Promise<SteamPlayStatus> {
+  nativeOnly();
+  return invoke<SteamPlayStatus>('rowyn_steam_play_status');
+}
+export async function rowynSteamPlayApply(): Promise<SteamPlayStatus> {
+  nativeOnly();
+  return invoke<SteamPlayStatus>('rowyn_steam_play_apply');
+}
+export interface DisplayMode { name: string; connected: boolean; hdr: string | null; vrr: string | null }
+export interface DisplayModes { outputs: DisplayMode[]; vrr_policy: string | null; detail: string }
+export async function rowynDisplayModesScan(): Promise<DisplayModes> {
+  nativeOnly();
+  return invoke<DisplayModes>('rowyn_display_modes_scan');
+}
+export interface VulkanLayers { steam_runtime_branch: string | null; mangohud_branches: string[]; gamescope_branches: string[]; detail: string }
+export async function rowynVulkanLayersScan(): Promise<VulkanLayers> {
+  nativeOnly();
+  return invoke<VulkanLayers>('rowyn_vulkan_layers_scan');
+}
+export async function rowynVulkanLayerInstall(layer: 'mangohud' | 'gamescope'): Promise<VulkanLayers> {
+  nativeOnly();
+  return invoke<VulkanLayers>('rowyn_vulkan_layer_install', { layer });
+}

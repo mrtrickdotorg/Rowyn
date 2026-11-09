@@ -96,3 +96,61 @@ fn parses_vdf_bom_and_comments() {
     };
     assert_eq!(text(first, "path"), Some("/games/library"));
 }
+
+const CONFIG_WITHOUT_MAPPING: &str = "\"InstallConfigStore\"\n{\n\t\"Software\"\n\t{\n\t\t\"Valve\"\n\t\t{\n\t\t\t\"Steam\"\n\t\t\t{\n\t\t\t\t\"CDKeys\"\n\t\t\t\t{\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n}\n";
+
+const CONFIG_WITH_OTHER_TOOL: &str = "\"InstallConfigStore\"\n{\n\t\"Software\"\n\t{\n\t\t\"Valve\"\n\t\t{\n\t\t\t\"Steam\"\n\t\t\t{\n\t\t\t\t\"CompatToolMapping\"\n\t\t\t\t{\n\t\t\t\t\t\"1234560\"\n\t\t\t\t\t{\n\t\t\t\t\t\t\"name\"\t\t\"proton_9_0\"\n\t\t\t\t\t}\n\t\t\t\t\t\"0\"\n\t\t\t\t\t{\n\t\t\t\t\t\t\"name\"\t\t\"proton_9_0\"\n\t\t\t\t\t\t\"config\"\t\t\"\"\n\t\t\t\t\t\t\"priority\"\t\t\"75\"\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n}\n";
+
+#[test]
+fn mapping_inserted_when_absent_and_rest_of_file_untouched() {
+    let updated = apply_default_compat_mapping(CONFIG_WITHOUT_MAPPING).unwrap();
+    assert_eq!(compat_default_tool(&updated).as_deref(), Some("proton_experimental"));
+    // Everything before the Steam block's opening brace is byte-identical,
+    // and the pre-existing CDKeys block survives verbatim.
+    let marker = "\"Steam\"\n\t\t\t{\n";
+    assert_eq!(
+        updated.split(marker).next(),
+        CONFIG_WITHOUT_MAPPING.split(marker).next()
+    );
+    assert!(updated.contains("\"CDKeys\""));
+    parse_vdf(&updated).unwrap();
+}
+
+#[test]
+fn existing_default_replaced_and_per_game_entries_preserved() {
+    let updated = apply_default_compat_mapping(CONFIG_WITH_OTHER_TOOL).unwrap();
+    assert_eq!(compat_default_tool(&updated).as_deref(), Some("proton_experimental"));
+    // The per-game override for 1234560 keeps its own tool.
+    assert!(updated.contains("\"1234560\""));
+    assert_eq!(updated.matches("proton_9_0").count(), 1);
+    parse_vdf(&updated).unwrap();
+}
+
+#[test]
+fn mapping_block_without_default_gains_one() {
+    let config = CONFIG_WITH_OTHER_TOOL.replace(
+        "\t\t\t\t\t\"0\"\n\t\t\t\t\t{\n\t\t\t\t\t\t\"name\"\t\t\"proton_9_0\"\n\t\t\t\t\t\t\"config\"\t\t\"\"\n\t\t\t\t\t\t\"priority\"\t\t\"75\"\n\t\t\t\t\t}\n",
+        "",
+    );
+    let updated = apply_default_compat_mapping(&config).unwrap();
+    assert_eq!(compat_default_tool(&updated).as_deref(), Some("proton_experimental"));
+    assert!(updated.contains("\"1234560\""));
+    parse_vdf(&updated).unwrap();
+}
+
+#[test]
+fn apply_is_idempotent_once_experimental_is_the_default() {
+    let once = apply_default_compat_mapping(CONFIG_WITHOUT_MAPPING).unwrap();
+    let twice = apply_default_compat_mapping(&once).unwrap();
+    assert_eq!(once, twice);
+}
+
+#[test]
+fn apply_fails_closed_on_unrecognized_shapes() {
+    // No Steam section at all.
+    assert!(apply_default_compat_mapping("\"InstallConfigStore\"\n{\n}\n").is_err());
+    // Truncated / unclosed.
+    assert!(apply_default_compat_mapping("\"InstallConfigStore\"\n{\n\t\"Software\"\n\t{\n").is_err());
+    // Not VDF.
+    assert!(apply_default_compat_mapping("hello world").is_err());
+}

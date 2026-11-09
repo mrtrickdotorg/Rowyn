@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { ExternalLink } from '../components/ExternalLink';
 import { cancelInstall, fetchInstalledFlatpaks, installFlatpak, uninstallFlatpak, waitInstallJob, invalidateSharedReads, getInFlightJob, type InstalledFlatpaksResult } from '../services/liveData';
-import { rowynControllerScan, openRowynLauncher, rowynSteamGamesScan } from '../services/rowynMvp';
-import { LAUNCHERS, launcherState, installLauncher, createPlayStatusOwner, launchOptions, steamCompatibilityLinks, type Reading, type SteamScan } from '../services/rowynMvpModel';
+import { rowynControllerScan, openRowynLauncher, rowynSteamGamesScan, rowynSteamPlayStatus, rowynSteamPlayApply, rowynDisplayModesScan, rowynVulkanLayersScan, rowynVulkanLayerInstall, type SteamPlayStatus, type DisplayModes, type VulkanLayers } from '../services/rowynMvp';
+import { LAUNCHERS, launcherState, installLauncher, createPlayStatusOwner, launchOptions, steamCompatibilityLinks, compatVerdict, type Reading, type SteamScan } from '../services/rowynMvpModel';
 import { copyText } from '../services/rowynClipboard';
 import { useSectionFollow, type SectionMap } from '../hooks/useSectionFollow';
 import '../styles/rowynMvp.css';
@@ -43,10 +43,14 @@ export function Play() {
   const [game, setGame] = useState('');
   const [gaming, setGaming] = useState(true);
   const [mimalloc, setMimalloc] = useState(false);
+  const [mangohud, setMangohud] = useState(false);
+  const [steamPlay, setSteamPlay] = useState<SteamPlayStatus | null>(null);
+  const [layers, setLayers] = useState<VulkanLayers | null>(null);
+  const [displays, setDisplays] = useState<DisplayModes | null>(null);
   const [pending, setPending] = useState<PendingLauncher | null>(null);
   const lock = useRef(false);
   const statusOwner = useRef(createPlayStatusOwner(setStatus));
-  const options = launchOptions(boundary, gaming, mimalloc);
+  const options = launchOptions(boundary, gaming, mimalloc, mangohud);
   const tracked = activeInstall ?? getInFlightJob('install');
   async function refreshLaunchers() {
     invalidateSharedReads('installed-flatpaks');
@@ -138,8 +142,10 @@ export function Play() {
       {steamScan && steamScan.available && !steamScan.games.length && <p className="card-copy">No fully installed titles were detected in the scanned metadata.</p>}
       {steamScan?.games.map((item) => {
         const links = steamCompatibilityLinks(item.app_id);
+        const verdict = compatVerdict(item.app_id, item.name);
         return <article className="rowyn-launcher" key={item.app_id}><h3>{item.name}</h3>
           <p className="card-copy">Steam App ID {item.app_id} · detected from local metadata; compatibility not tested by Rowyn.</p>
+          {verdict && <p className="card-copy"><span className="rowyn-state">{verdict.label}</span> — {verdict.note} Anti-cheat: {verdict.anticheat}. Curated verdict checked {verdict.checked}; game updates can change it.</p>}
           <div className="home-actions"><ExternalLink href={links.protondb}>ProtonDB community reports (not a guarantee)</ExternalLink>
             <ExternalLink href={links.steamStore}>Steam store page</ExternalLink></div>
         </article>;
@@ -153,7 +159,46 @@ export function Play() {
       <label>Where does this game run?<select value={boundary} onChange={(event) => setBoundary(event.target.value as 'flatpak' | 'host')}><option value="flatpak">Flatpak Steam / sandboxed launcher</option><option value="host">Host-native Steam / host command</option></select></label>
       <label><input type="checkbox" checked={gaming} disabled={boundary === 'flatpak'} onChange={(event) => setGaming(event.target.checked)} /> Use Rowyn gaming slice / GameMode when available</label>
       <label><input type="checkbox" checked={mimalloc} disabled={boundary === 'flatpak'} onChange={(event) => setMimalloc(event.target.checked)} /> Try mimalloc for this game only (experimental; may regress or warn on 32-bit games)</label>
+      <label><input type="checkbox" checked={mangohud} onChange={(event) => setMangohud(event.target.checked)} /> MangoHud overlay (frame rate and frame-time readout; needs the MangoHud Vulkan layer below)</label>
       <p className="card-copy">Host wrappers /usr/bin/rowyn-game-launch and /usr/bin/rowyn-mimalloc-run are not generally accessible inside Flatpak Steam. Do not paste host paths there or use flatpak-spawn to escape the sandbox. The Flatpak-safe default below adds no host wrapper. The host-native example is for an already installed host launcher; this Hub does not install one. Undo by removing the launch options.</p>
+      <p className="card-copy">Proton-GE: some games run better on the community Proton-GE build than on Valve’s Proton. ProtonPlus — in the Apps page’s Gaming pack — installs and updates Proton-GE for Steam and the other launchers; pick the tool per game in Steam → Properties → Compatibility. Trying it is reversible: switch back to Proton Experimental the same way.</p>
+      <h3>Steam Play for all titles</h3>
+      <p className="card-copy">Windows games need Steam Play enabled globally, or each title needs its compatibility tool set by hand. This reads Steam’s own configuration; the one-click apply quits-safe (it refuses while Steam is running, keeps a backup of the original file, and only ever sets the default tool to Proton Experimental).</p>
+      <div className="home-actions"><button className="action-button" disabled={busy} onClick={() => run('Reading Steam Play state…', async () => {
+        const next = await rowynSteamPlayStatus(); setSteamPlay(next);
+        return next.detail;
+      })}>Check Steam Play</button>
+      {steamPlay && steamPlay.steam_present && !steamPlay.mapping_present && <button className="action-button" disabled={busy || steamPlay.steam_running} onClick={() => run('Enabling Steam Play for all titles…', async () => {
+        const next = await rowynSteamPlayApply(); setSteamPlay(next);
+        return next.mapping_present ? 'Steam Play is now enabled for all titles (Proton Experimental).' : next.detail;
+      })}>Enable Steam Play for all titles</button>}</div>
+      {!steamPlay && <p className="card-copy">Not checked yet.</p>}
+      {steamPlay && <p className="card-copy">{steamPlay.detail}{steamPlay.steam_running && !steamPlay.mapping_present ? ' Quit Steam to enable the one-click apply.' : ''}</p>}
+      <h3>Vulkan layers for Flatpak games</h3>
+      <p className="card-copy">MangoHud and gamescope reach Flatpak games as Freedesktop Vulkan-layer extensions, matched to the runtime branch Steam itself uses — a layer installed for the wrong branch does nothing. On a host-native install the same tools come from the distribution inside Distrobox instead.</p>
+      <div className="home-actions"><button className="action-button" disabled={busy} onClick={() => run('Reading Vulkan layers…', async () => {
+        const next = await rowynVulkanLayersScan(); setLayers(next);
+        return next.detail;
+      })}>Check Vulkan layers</button>
+      {layers?.steam_runtime_branch && !layers.mangohud_branches.includes(layers.steam_runtime_branch) && <button className="action-button" disabled={busy} onClick={() => run('Installing the MangoHud layer…', async () => {
+        const next = await rowynVulkanLayerInstall('mangohud'); setLayers(next);
+        return next.mangohud_branches.includes(next.steam_runtime_branch ?? '') ? `MangoHud layer installed for runtime ${next.steam_runtime_branch}.` : 'MangoHud layer install finished; re-check the layer state.';
+      })}>Install MangoHud layer</button>}
+      {layers?.steam_runtime_branch && !layers.gamescope_branches.includes(layers.steam_runtime_branch) && <button className="action-button" disabled={busy} onClick={() => run('Installing the gamescope layer…', async () => {
+        const next = await rowynVulkanLayerInstall('gamescope'); setLayers(next);
+        return next.gamescope_branches.includes(next.steam_runtime_branch ?? '') ? `gamescope layer installed for runtime ${next.steam_runtime_branch}.` : 'gamescope layer install finished; re-check the layer state.';
+      })}>Install gamescope layer</button>}</div>
+      {!layers && <p className="card-copy">Not checked yet.</p>}
+      {layers && <p className="card-copy">{layers.detail} MangoHud branches installed: {layers.mangohud_branches.join(', ') || 'none'}. gamescope branches installed: {layers.gamescope_branches.join(', ') || 'none'}.</p>}
+      <h3>Displays: HDR and variable refresh</h3>
+      <p className="card-copy">What the display stack reports for each output. “Incapable” means the display or its connection does not offer the feature — no setting changes that. Enable HDR per display and variable refresh in System Settings → Display &amp; Monitor; KWin’s variable-refresh policy applies to fullscreen games.</p>
+      <div className="home-actions"><button className="action-button" disabled={busy} onClick={() => run('Reading display capabilities…', async () => {
+        const next = await rowynDisplayModesScan(); setDisplays(next);
+        return next.detail;
+      })}>Check displays</button></div>
+      {!displays && <p className="card-copy">Not checked yet.</p>}
+      {displays && <p className="card-copy">{displays.detail} KWin variable-refresh policy: {displays.vrr_policy ?? 'not set (KWin default)'}.</p>}
+      {displays?.outputs.map((output) => <p className="card-copy" key={output.name}>{output.name} — {output.connected ? 'connected' : 'disconnected'} · HDR: {output.hdr ?? 'not reported'} · VRR: {output.vrr ?? 'not reported'}</p>)}
       <p>{game || 'Selected game'} — paste into that game’s launch options:</p><pre aria-label="Launch options">{options}</pre>
       <button className="action-button" disabled={busy} onClick={() => run('Copying launch options…', async () => {
         const result = await copyText(options);

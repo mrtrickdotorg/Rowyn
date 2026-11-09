@@ -39,6 +39,49 @@ export function readingStateLabel(state: string): string {
 }
 export interface SteamGame { app_id: string; name: string }
 export interface SteamScan { available: boolean; warnings: number; games: SteamGame[] }
+
+/**
+ * Curated compatibility verdicts from the shipped compat_games.json
+ * dataset (kept from the port for this surface). Matching is by Steam
+ * app id where the entry's source URL carries one, else by normalized
+ * title. An unmatched title gets no verdict — the page keeps showing
+ * the ProtonDB link instead of guessing.
+ */
+import compatData from '../data/compat_games.json';
+
+export interface CompatVerdict { label: string; note: string; anticheat: string; checked: string }
+
+const COMPAT_LABELS: Record<string, string> = {
+  native: 'Works natively on Linux',
+  proton: 'Works with Proton',
+  tweaks: 'Works with tweaks',
+  blocked: 'Does not run — anti-cheat or broken',
+};
+
+interface CompatEntry { name: string; status: string; note: string; anticheat: string; checked: string; source_url?: string }
+
+function normalizeTitle(name: string): string {
+  return name.toLowerCase().replace(/[™®©]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+const compatByAppId = new Map<string, CompatEntry>();
+const compatByName = new Map<string, CompatEntry>();
+for (const game of compatData.games as CompatEntry[]) {
+  const match = /\/app\/(\d+)\//.exec(game.source_url ?? '');
+  if (match) compatByAppId.set(match[1], game);
+  compatByName.set(normalizeTitle(game.name), game);
+}
+
+export function compatVerdict(appId: string, name: string): CompatVerdict | null {
+  const game = compatByAppId.get(appId) ?? compatByName.get(normalizeTitle(name));
+  if (!game) return null;
+  return {
+    label: COMPAT_LABELS[game.status] ?? `Curated status: ${game.status}`,
+    note: game.note,
+    anticheat: game.anticheat,
+    checked: game.checked,
+  };
+}
 export interface DiagnosticsSnapshot { collected_at: number; readings: Reading[] }
 export const LAUNCHERS = [
   { id: 'com.valvesoftware.Steam', name: 'Steam', description: 'Steam library and Proton. Enable Steam Play per title when needed.' },
@@ -79,9 +122,15 @@ export function createPlayStatusOwner(write: (message: string) => void) {
     },
   };
 }
-export function launchOptions(boundary: 'flatpak' | 'host', gaming: boolean, mimalloc: boolean): string {
-  if (boundary === 'flatpak') return '%command%';
-  return [gaming ? '/usr/bin/rowyn-game-launch' : '', mimalloc ? '/usr/bin/rowyn-mimalloc-run' : '', '%command%'].filter(Boolean).join(' ');
+export function launchOptions(boundary: 'flatpak' | 'host', gaming: boolean, mimalloc: boolean, mangohud = false): string {
+  // MangoHud is an environment switch, not a wrapper binary: MANGOHUD=1
+  // activates the Vulkan layer wherever the layer itself is installed —
+  // inside the Flatpak (the Freedesktop VulkanLayer extension for the
+  // app's runtime branch) or on a host-native install (the distribution's
+  // mangohud in a Distrobox/terminal context). The env assignment must
+  // precede any wrapper path on the host boundary.
+  if (boundary === 'flatpak') return mangohud ? 'MANGOHUD=1 %command%' : '%command%';
+  return [mangohud ? 'MANGOHUD=1' : '', gaming ? '/usr/bin/rowyn-game-launch' : '', mimalloc ? '/usr/bin/rowyn-mimalloc-run' : '', '%command%'].filter(Boolean).join(' ');
 }
 export function steamCompatibilityLinks(appId: string) {
   if (!/^[1-9][0-9]{0,9}$/.test(appId)) throw new Error('invalid Steam app id');
