@@ -239,6 +239,8 @@ jobs:
             test -x /usr/bin/rsync
             test -x /usr/bin/notify-send
             test -x /usr/bin/rowyn-update-notify
+            test -x /usr/bin/rowyn-first-run
+            test -s /etc/xdg/autostart/rowyn-first-run.desktop
             test -s /usr/share/applications/kcm_kup.desktop
             test -s /usr/share/applications/kcm_app-permissions.desktop
             test -s /usr/share/kio/servicemenus/rowyn-development-here.desktop

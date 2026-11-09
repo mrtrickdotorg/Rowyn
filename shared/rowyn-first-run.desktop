@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Rowyn setup checklist
+Comment=Open the Rowyn Hub setup checklist on first login
+Exec=/usr/bin/rowyn-first-run
+Icon=com.rowyn.hub
+Terminal=false
+OnlyShowIn=KDE;
+X-KDE-autostart-phase=2
+NoDisplay=true

@@ -440,6 +440,13 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     install -Dm644 /ctx/shared/rowyn-update-watcher.timer /usr/lib/systemd/system/rowyn-update-watcher.timer && \
     systemctl enable rowyn-update-watcher.timer
 
+# First-login presentation of the Hub (whose Home page carries the
+# Setup Checklist): an XDG autostart entry runs a marker-gated launcher
+# that opens the Hub exactly once per user.
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    install -Dm755 /ctx/shared/rowyn-first-run /usr/bin/rowyn-first-run && \
+    install -Dm644 /ctx/shared/rowyn-first-run.desktop /etc/xdg/autostart/rowyn-first-run.desktop
+
 # Passive per-user notification, deduplicated by the exact staged image digest.
 # No automatic reboot and no privilege prompts in the desktop session.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \

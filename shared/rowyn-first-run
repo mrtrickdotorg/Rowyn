@@ -1,0 +1,24 @@
+#!/bin/sh
+# Present the Rowyn Hub once per user, at their first graphical login.
+#
+# The Hub's Home page carries the Setup Checklist (explore apps, check
+# updates, set up backups, run diagnostics), which is Rowyn's first-run
+# guide; this launcher exists only to put it in front of a new user a
+# single time. The marker is written BEFORE the Hub is launched, so a
+# crash, a closed window, or a missing Hub can never turn this into a
+# nag on every login. Deleting the marker re-arms the presentation.
+set -eu
+
+config_home=${XDG_CONFIG_HOME:-"$HOME/.config"}
+marker="$config_home/rowyn/first-run-presented"
+if [ -e "$marker" ]; then
+    exit 0
+fi
+mkdir -p "$(dirname "$marker")"
+: > "$marker"
+
+hub=${ROWYN_HUB_SHELL:-/usr/bin/rowyn-hub-shell}
+if [ -x "$hub" ]; then
+    exec "$hub"
+fi
+exit 0
