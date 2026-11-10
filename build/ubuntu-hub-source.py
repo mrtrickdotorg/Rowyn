@@ -1132,6 +1132,51 @@ def apply_rowyn_pass2(root):
     catalog.write_text(text)
 
 
+def apply_rowyn_streaming(root):
+    """Pass 2 streaming (Nov 2026): Sunshine one-click setup support.
+
+    Registers the Rowyn-owned rowyn_sunshine commands (status, firewall
+    open, start-at-login) and adds Moonlight — the client half of the
+    pair — to the Gaming pack next to WiVRn. The Sunshine install
+    itself rides the standard catalog/job path (it is a Play-page
+    action, not a catalog preselect: a stream host is opt-in)."""
+    web = root / "src/rowyn-hub-web"
+    commands = web / "src-tauri/src/commands/mod.rs"
+    commands.write_text(commands.read_text() + '\npub(crate) mod rowyn_sunshine;\n')
+    main = web / "src-tauri/src/main.rs"
+    text = main.read_text()
+    anchor = "            commands::rowyn_migrate::rowyn_migrate_import,\n"
+    if text.count(anchor) != 1:
+        raise SystemExit("generate_handler migrate registration anchor drifted (streaming)")
+    main.write_text(text.replace(
+        anchor,
+        anchor
+        + "            commands::rowyn_sunshine::rowyn_sunshine_status,\n"
+        + "            commands::rowyn_sunshine::rowyn_sunshine_firewall_open,\n"
+        + "            commands::rowyn_sunshine::rowyn_sunshine_autostart_enable,\n",
+        1))
+
+    catalog = root / "src/rowyn-shared-rs/src/system/software_catalog.rs"
+    text = catalog.read_text()
+    wivrn = (
+        "                CatalogApp {\n"
+        "                    id: \"io.github.wivrn.wivrn\".to_string(),\n"
+        "                    label: \"WiVRn\".to_string(),\n"
+        "                    selected: true,\n"
+        "                    description:\n"
+        "                        \"Stream PC VR games to a standalone headset over Wi-Fi. With Flatpak Steam, follow the VR notes in Rowyn's gaming guide — the sandbox adds caveats.\"\n"
+        "                            .to_string(),\n"
+        "                },\n")
+    moonlight = (
+        "                CatalogApp {\n"
+        "                    id: \"com.moonlight_stream.Moonlight\".to_string(),\n"
+        "                    label: \"Moonlight\".to_string(),\n"
+        "                    selected: true,\n"
+        "                    description: \"Stream games to this machine from a Sunshine host.\".to_string(),\n"
+        "                },\n")
+    catalog.write_text(replace_once(text, wivrn, wivrn + moonlight))
+
+
 def port_source(root):
     changes = []
     web = root / "src/rowyn-hub-web"
@@ -2628,6 +2673,11 @@ mod audit_fix_tests {
         "(Gaming), EasyEffects (Creator), OnlyOffice (Work) and a Tuning & "
         "Peripherals pack (LACT/OpenRGB/Piper/Solaar); familiar Office names "
         "OnlyOffice for Microsoft-format fidelity")
+
+    apply_rowyn_streaming(root)
+    changes.append(
+        "pass 2 streaming: rowyn_sunshine commands registered (status, "
+        "firewall, start-at-login); Moonlight joins the Gaming pack")
 
     (root / "ROWYN-PORT-NOTICE").write_text(
         f"Pinned upstream System Hub source {PIN}, Apache-2.0 (LICENSE).\n"
