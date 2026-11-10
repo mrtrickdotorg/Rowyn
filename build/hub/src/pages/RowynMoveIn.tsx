@@ -41,6 +41,7 @@ export function MoveIn() {
     <section className="glass dashboard-card" id="hub-section-move-in">
       <span className="home-eyebrow">Rowyn Move In</span><h1>Move in from Windows</h1>
       <p className="card-copy">Bring your files over from the Windows installation on this machine. The Windows drive is only ever read — mounting is read-only, and importing copies; nothing on the Windows side is changed, moved or deleted. Existing files here are never overwritten: a file that already exists is skipped and reported. Programs themselves do not move (Windows apps do not run on Linux); documents, pictures and bookmarks do.</p>
+      <p className="card-copy">This is a one-time import, not a sync: files living in OneDrive will not keep updating here afterwards. If you keep using OneDrive, connect it afterwards — the Coming from Windows guide explains the rclone mount and sync options honestly.</p>
       <div className="home-actions"><button className="action-button" disabled={busy} onClick={() => run('Scanning for a Windows installation…', async () => {
         const next = await rowynMigrateScan(); setInstalls(next); setReport(null);
         if (!next.length) return 'No NTFS partitions were found. If Windows is on this machine, its drive may be BitLocker-locked or not visible to this scan.';

@@ -47,7 +47,41 @@ differently:
 | `C:\Users\<you>` | `/home/<you>` (shown as your Home folder) |
 | Program Files | There isn't one — apps live in the system image or in Flatpak's own store; you never manage their files |
 | `.exe` installers | See below |
-| OneDrive / Google Drive | KDE Online Accounts (System Settings) puts Google Drive in Dolphin; OneDrive works in the browser |
+| OneDrive / Google Drive | KDE Online Accounts (System Settings) puts Google Drive in Dolphin; OneDrive: see "What about OneDrive?" below |
+
+## "What about OneDrive?"
+
+Microsoft does not make a OneDrive app for Linux, and Rowyn will not
+pretend otherwise. There are three honest routes, in order of how most
+converts use them:
+
+1. **The web app.** onedrive.live.com in Brave works fully — view,
+   edit (Office web apps), upload, download. For occasional use this
+   is all you need.
+2. **rclone, as a mounted drive.** `rclone` (in a Distrobox terminal:
+   `sudo apt install rclone`, then `rclone config` and pick OneDrive)
+   can mount your OneDrive as a normal folder — files open from
+   Dolphin and download on demand, much like OneDrive's
+   files-on-demand on Windows. `rclone mount` at login is a common
+   setup; rclone's own docs walk through it.
+3. **rclone, as two-way sync.** `rclone bisync` keeps a local folder
+   and OneDrive in step in both directions if you want real local
+   copies that keep working offline.
+
+Two distinctions converts get tripped by:
+
+- **Sync is not import.** Rowyn's MoveIn page copies your Windows
+  profile *once* — documents, pictures, browser bookmarks — into
+  "From Windows" in your Home folder. Nothing keeps it in step
+  afterwards. If a file lives in OneDrive and you edit it in both
+  places, use one of the rclone routes, not repeated imports.
+- **A mount is not a copy.** With `rclone mount`, closing the laptop
+  lid offline means the files are not there. With `bisync`, they are —
+  at the cost of the disk space, exactly like choosing "Always keep on
+  this device" on Windows.
+
+Google Drive needs none of this: KDE Online Accounts (System Settings)
+adds it to Dolphin natively.
 
 ## "This Windows program won't run"
 
