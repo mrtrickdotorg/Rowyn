@@ -1,0 +1,7 @@
+# Sunshine (game-stream host) injects keyboard, mouse and gamepad
+# input through /dev/uinput and /dev/uhid. Tag both uaccess so the
+# active local session can open them — the Flatpak itself requests
+# --device=all, so with these rules no input-group membership or
+# world-writable device node is needed.
+KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess"
+KERNEL=="uhid", SUBSYSTEM=="misc", TAG+="uaccess"

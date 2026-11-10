@@ -153,7 +153,10 @@ RUN userdel --remove ubuntu
 # shuffling; its Flatpak id does not exist, so the archive package is
 # the route), hplip (driver fallback for older HP printers/scanners
 # the driverless stack cannot drive) and the Inter + Cascadia Code
-# fonts converts expect from modern Windows.
+# fonts converts expect from modern Windows. virt-manager +
+# qemu-system-x86 + swtpm + ovmf are the Windows-VM basics (docs/
+# windows-vm.md): swtpm provides the TPM 2.0 Windows 11 requires and
+# ovmf the UEFI/Secure Boot firmware.
 #
 # NVIDIA group (last install): Canonical's prebuilt, signed open kernel
 # modules (linux-modules-nvidia-615-open-generic pulls the module package
@@ -187,6 +190,7 @@ RUN printf 'path-include=/usr/share/doc/nvidia-kernel-common-*/supported-gpus.js
         corectrl input-remapper ratbagd \
         kmail korganizer \
         gimagereader tesseract-ocr pdfarranger hplip \
+        virt-manager qemu-system-x86 swtpm ovmf \
         cups cups-browsed cups-client cups-daemon cups-filters cups-ipp-utils \
         cups-pk-helper print-manager system-config-printer-common \
         system-config-printer-udev bluez-cups colord kde-config-tablet \
@@ -235,7 +239,8 @@ RUN set -eux; \
         mesa-va-drivers intel-media-va-driver i965-va-driver vainfo \
         corectrl input-remapper ratbagd kmail korganizer \
         gimagereader tesseract-ocr pdfarranger hplip \
-        fonts-inter fonts-cascadia-code; do \
+        fonts-inter fonts-cascadia-code \
+        virt-manager qemu-system-x86 swtpm ovmf; do \
         test "$(dpkg-query -W -f='${db:Status-Status}' "$package")" = installed; \
     done; \
     test -s /usr/share/applications/kcm_kup.desktop; \
@@ -371,10 +376,24 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
 # system installation (the static Flathub remote from installed-apps.sh
 # serves it). Nothing is baked into /var; preinstall tracks the install
 # (and a user's later uninstall) in the system installation itself.
+#
+# The gaming core ships the same way, and it is the distribution's
+# identity feature: Rowyn is the Ubuntu people default to for gaming,
+# so Steam, Lutris and Heroic are present from the first boot — via
+# the same uninstallable, never-force-restored preinstall mechanism,
+# not baked into the image.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     install -Dm644 /ctx/shared/brave.preinstall /usr/share/flatpak/preinstall.d/rowyn-brave.preinstall && \
+    install -Dm644 /ctx/shared/gaming-core.preinstall /usr/share/flatpak/preinstall.d/rowyn-gaming-core.preinstall && \
     install -Dm644 /ctx/shared/rowyn-flatpak-preinstall.service /usr/lib/systemd/system/rowyn-flatpak-preinstall.service && \
     systemctl enable rowyn-flatpak-preinstall.service
+
+# Sunshine's input injection needs the active session to reach
+# /dev/uinput and /dev/uhid; the shipped uaccess rules grant exactly
+# that (the Sunshine Flatpak requests --device=all itself). Harmless
+# on machines that never stream.
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    install -Dm644 /ctx/shared/99-rowyn-sunshine-uinput.rules /usr/lib/udev/rules.d/99-rowyn-sunshine-uinput.rules
 
 # Performance defaults (zram, sysctl, MGLRU/THP, ntsync, gaming limits) are
 # vendor-dir files under /usr/lib, so /etc overrides win.

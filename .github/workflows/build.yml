@@ -313,6 +313,10 @@ jobs:
             python3 -m json.tool /etc/skel/.config/containers/policy.json > /dev/null
             test -s /usr/share/flatpak/preinstall.d/rowyn-brave.preinstall
             grep -Fq "com.brave.Browser" /usr/share/flatpak/preinstall.d/rowyn-brave.preinstall
+            test -s /usr/share/flatpak/preinstall.d/rowyn-gaming-core.preinstall
+            grep -Fq "com.valvesoftware.Steam" /usr/share/flatpak/preinstall.d/rowyn-gaming-core.preinstall
+            grep -Fq "net.lutris.Lutris" /usr/share/flatpak/preinstall.d/rowyn-gaming-core.preinstall
+            grep -Fq "com.heroicgameslauncher.hgl" /usr/share/flatpak/preinstall.d/rowyn-gaming-core.preinstall
             test -s /usr/lib/systemd/system/rowyn-flatpak-preinstall.service
             test -e /etc/systemd/system/multi-user.target.wants/rowyn-flatpak-preinstall.service
             grep -Fq "x-scheme-handler/https=com.brave.Browser.desktop" /etc/xdg/mimeapps.list
