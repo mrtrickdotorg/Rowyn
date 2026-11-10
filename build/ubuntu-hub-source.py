@@ -1032,6 +1032,106 @@ def apply_rowyn_move_in(root):
         1))
 
 
+def apply_rowyn_pass2(root):
+    """Pass 2 (Nov 2026): compete with Bazzite on gaming + productivity.
+
+    Catalog-only here (payload natives and the vkBasalt wiring live in
+    their own commits): the Gaming pack gains the overlay/proton tooling
+    depth Bazzite ships (Protontricks, GOverlay, MangoJuice), emulation
+    (RetroArch) and VR streaming (WiVRn, with its Flatpak caveat in the
+    copy); a Tuning & Peripherals pack collects the Flatpak tuning
+    front-ends (LACT, OpenRGB, Piper, Solaar — CoreCtrl and Input
+    Remapper are payload natives, named in the pack description so the
+    split is discoverable); the Creator pack gains EasyEffects; the
+    Work pack gains OnlyOffice, and the familiar-apps Office entry
+    names it as the Microsoft-format fidelity option next to
+    LibreOffice. Every new id was verified against Flathub on
+    2026-11-09 (HTTP 200); pdfarranger's guessed id was NOT (404), so
+    PDF Arranger ships as a payload package instead.
+    """
+    catalog = root / "src/rowyn-shared-rs/src/system/software_catalog.rs"
+    text = catalog.read_text()
+
+    def app_block(app_id, label, description, indent="                "):
+        # Same formatting rule as the daily-driver pass: short
+        # descriptions stay on one line, long ones wrap.
+        if len(description) > 80:
+            desc = (f"{indent}    description:\n"
+                    f"{indent}        \"{description}\"\n"
+                    f"{indent}            .to_string(),\n")
+        else:
+            desc = f"{indent}    description: \"{description}\".to_string(),\n"
+        return (
+            f"{indent}CatalogApp {{\n"
+            f"{indent}    id: \"{app_id}\".to_string(),\n"
+            f"{indent}    label: \"{label}\".to_string(),\n"
+            f"{indent}    selected: true,\n"
+            f"{desc}"
+            f"{indent}}},\n")
+
+    def block_of(app_id, label, description):
+        return app_block(app_id, label, description)
+
+    protonplus = block_of(
+        "com.vysp3r.ProtonPlus", "ProtonPlus",
+        "Install and update Proton-GE and other compatibility tools for Steam and launchers.")
+    gaming_additions = (
+        app_block("com.github.Matoking.protontricks", "Protontricks",
+                  "Run winetricks verbs inside a game's Proton prefix — the fix behind many 'works with tweaks' verdicts.")
+        + app_block("io.github.benjamimgois.goverlay", "GOverlay",
+                    "Graphical settings editor for MangoHud, vkBasalt and other overlays.")
+        + app_block("io.github.radiolamp.mangojuice", "MangoJuice",
+                    "A compact settings front-end for the MangoHud overlay.")
+        + app_block("org.libretro.RetroArch", "RetroArch",
+                    "Emulation front-end for classic consoles and computers.")
+        + app_block("io.github.wivrn.wivrn", "WiVRn",
+                    "Stream PC VR games to a standalone headset over Wi-Fi. With Flatpak Steam, follow the VR notes in Rowyn's gaming guide — the sandbox adds caveats."))
+    text = replace_once(text, protonplus, protonplus + gaming_additions)
+    text = replace_once(
+        text,
+        '"Steam, Epic/GOG, compatibility launchers, saves, Proton-GE tooling, and standalone .exe support."',
+        '"Steam, Epic/GOG, launchers, saves, Proton/overlay tooling, emulation, VR streaming, and standalone .exe support."')
+
+    audacity = block_of("org.audacityteam.Audacity", "Audacity",
+                        "Multi-track audio editor and recorder.")
+    text = replace_once(text, audacity, audacity + app_block(
+        "com.github.wwmm.easyeffects", "EasyEffects",
+        "System-wide audio effects: equalizer, limiter and microphone noise suppression."))
+
+    teams = block_of(
+        "com.github.IsmaelMartinez.teams_for_linux", "Teams for Linux",
+        "Community Microsoft Teams client; the official Teams app is web-only on Linux.")
+    text = replace_once(text, teams, teams + app_block(
+        "org.onlyoffice.desktopeditors", "OnlyOffice",
+        "Office suite built around Microsoft formats; the closest DOCX/XLSX fidelity on Linux."))
+
+    tuning_pack = (
+        "        StarterPack {\n"
+        "            name: \"Tuning & Peripherals\".to_string(),\n"
+        "            desc: \"GPU tuning, RGB lighting and gaming-peripheral setup. CoreCtrl and Input Remapper are built into Rowyn; these are the remaining front-ends.\".to_string(),\n"
+        "            apps: vec![\n"
+        + app_block("io.github.ilya_zlobintsev.LACT", "LACT",
+                    "GPU overclocking, fan curves and power limits for AMD and NVIDIA.")
+        + app_block("org.openrgb.OpenRGB", "OpenRGB",
+                    "One control panel for RGB lighting across brands.")
+        + app_block("org.freedesktop.Piper", "Piper",
+                    "Configure gaming mice — buttons, DPI, LEDs — on Rowyn's built-in ratbagd.")
+        + app_block("io.github.pwr_solaar.solaar", "Solaar",
+                    "Manage Logitech receivers, pairing and device settings.")
+        + "            ],\n"
+        "        },\n")
+    text = replace_once(
+        text,
+        "            ],\n        },\n    ]\n}\n\n#[derive(Debug, Clone, Serialize)]\npub struct FamiliarApp {",
+        "            ],\n        },\n" + tuning_pack + "    ]\n}\n\n#[derive(Debug, Clone, Serialize)]\npub struct FamiliarApp {")
+
+    text = replace_once(
+        text,
+        '            description: "LibreOffice is the drop-in Office suite.".to_string(),',
+        '            description: "LibreOffice is the drop-in Office suite; OnlyOffice (Work pack) tracks Microsoft DOCX/XLSX formats most closely.".to_string(),')
+    catalog.write_text(text)
+
+
 def port_source(root):
     changes = []
     web = root / "src/rowyn-hub-web"
@@ -2521,6 +2621,13 @@ mod audit_fix_tests {
     changes.append(
         "MoveIn destination: Rowyn-native Windows migration surface "
         "(detect/profiles/import, read-only on the Windows side)")
+
+    apply_rowyn_pass2(root)
+    changes.append(
+        "pass 2: catalog gains Protontricks/GOverlay/MangoJuice/RetroArch/WiVRn "
+        "(Gaming), EasyEffects (Creator), OnlyOffice (Work) and a Tuning & "
+        "Peripherals pack (LACT/OpenRGB/Piper/Solaar); familiar Office names "
+        "OnlyOffice for Microsoft-format fidelity")
 
     (root / "ROWYN-PORT-NOTICE").write_text(
         f"Pinned upstream System Hub source {PIN}, Apache-2.0 (LICENSE).\n"
