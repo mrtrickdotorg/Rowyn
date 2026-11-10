@@ -157,20 +157,22 @@ pub(crate) async fn rowyn_display_modes_scan() -> Result<DisplayModes, String> {
     .map_err(|_| "Display scan worker failed".to_string())?
 }
 
-// --- Vulkan layer extensions (MangoHud, gamescope) --------------------------
-// Both reach Flatpak games as Freedesktop Vulkan-layer extensions, not as
+// --- Vulkan layer extensions (MangoHud, gamescope, vkBasalt) ---------------
+// All reach Flatpak games as Freedesktop Vulkan-layer extensions, not as
 // apps: the layer must be installed for the same runtime branch the game
 // uses. Steam's branch is read from flatpak's own metadata; installs pin
 // exactly that branch and nothing else.
 
 pub(crate) const MANGOHUD_LAYER: &str = "org.freedesktop.Platform.VulkanLayer.MangoHud";
 pub(crate) const GAMESCOPE_LAYER: &str = "org.freedesktop.Platform.VulkanLayer.gamescope";
+pub(crate) const VKBASALT_LAYER: &str = "org.freedesktop.Platform.VulkanLayer.vkBasalt";
 
 #[derive(Debug, serde::Serialize)]
 pub(crate) struct VulkanLayers {
     steam_runtime_branch: Option<String>,
     mangohud_branches: Vec<String>,
     gamescope_branches: Vec<String>,
+    vkbasalt_branches: Vec<String>,
     detail: String,
 }
 
@@ -222,6 +224,7 @@ fn scan_vulkan_layers() -> VulkanLayers {
         .and_then(|info| steam_runtime_branch(&info));
     let mangohud = layer_branches(&refs, MANGOHUD_LAYER);
     let gamescope = layer_branches(&refs, GAMESCOPE_LAYER);
+    let vkbasalt = layer_branches(&refs, VKBASALT_LAYER);
     let detail = match &branch {
         Some(branch) => format!(
             "Steam uses the Freedesktop {branch} runtime. A Vulkan layer only reaches Steam games when it is installed for that same branch."
@@ -232,6 +235,7 @@ fn scan_vulkan_layers() -> VulkanLayers {
         steam_runtime_branch: branch,
         mangohud_branches: mangohud,
         gamescope_branches: gamescope,
+        vkbasalt_branches: vkbasalt,
         detail,
     }
 }
@@ -248,6 +252,7 @@ pub(crate) async fn rowyn_vulkan_layer_install(layer: String) -> Result<VulkanLa
     let layer_id = match layer.as_str() {
         "mangohud" => MANGOHUD_LAYER,
         "gamescope" => GAMESCOPE_LAYER,
+        "vkbasalt" => VKBASALT_LAYER,
         _ => return Err("Unsupported layer.".into()),
     };
     tauri::async_runtime::spawn_blocking(move || {
@@ -256,10 +261,10 @@ pub(crate) async fn rowyn_vulkan_layer_install(layer: String) -> Result<VulkanLa
             .steam_runtime_branch
             .clone()
             .ok_or("Steam is not installed; its runtime branch decides which layer branch to install.")?;
-        let installed = if layer_id == MANGOHUD_LAYER {
-            &before.mangohud_branches
-        } else {
-            &before.gamescope_branches
+        let installed = match layer_id {
+            MANGOHUD_LAYER => &before.mangohud_branches,
+            VKBASALT_LAYER => &before.vkbasalt_branches,
+            _ => &before.gamescope_branches,
         };
         if installed.iter().any(|found| found == &branch) {
             return Ok(before);

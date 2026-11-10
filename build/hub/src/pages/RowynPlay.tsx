@@ -44,13 +44,14 @@ export function Play() {
   const [gaming, setGaming] = useState(true);
   const [mimalloc, setMimalloc] = useState(false);
   const [mangohud, setMangohud] = useState(false);
+  const [vkbasalt, setVkbasalt] = useState(false);
   const [steamPlay, setSteamPlay] = useState<SteamPlayStatus | null>(null);
   const [layers, setLayers] = useState<VulkanLayers | null>(null);
   const [displays, setDisplays] = useState<DisplayModes | null>(null);
   const [pending, setPending] = useState<PendingLauncher | null>(null);
   const lock = useRef(false);
   const statusOwner = useRef(createPlayStatusOwner(setStatus));
-  const options = launchOptions(boundary, gaming, mimalloc, mangohud);
+  const options = launchOptions(boundary, gaming, mimalloc, mangohud, vkbasalt);
   const tracked = activeInstall ?? getInFlightJob('install');
   async function refreshLaunchers() {
     invalidateSharedReads('installed-flatpaks');
@@ -160,6 +161,7 @@ export function Play() {
       <label><input type="checkbox" checked={gaming} disabled={boundary === 'flatpak'} onChange={(event) => setGaming(event.target.checked)} /> Use Rowyn gaming slice / GameMode when available</label>
       <label><input type="checkbox" checked={mimalloc} disabled={boundary === 'flatpak'} onChange={(event) => setMimalloc(event.target.checked)} /> Try mimalloc for this game only (experimental; may regress or warn on 32-bit games)</label>
       <label><input type="checkbox" checked={mangohud} onChange={(event) => setMangohud(event.target.checked)} /> MangoHud overlay (frame rate and frame-time readout; needs the MangoHud Vulkan layer below)</label>
+      <label><input type="checkbox" checked={vkbasalt} onChange={(event) => setVkbasalt(event.target.checked)} /> vkBasalt post-processing (sharpening and colour effects such as CAS; needs the vkBasalt Vulkan layer below)</label>
       <p className="card-copy">Host wrappers /usr/bin/rowyn-game-launch and /usr/bin/rowyn-mimalloc-run are not generally accessible inside Flatpak Steam. Do not paste host paths there or use flatpak-spawn to escape the sandbox. The Flatpak-safe default below adds no host wrapper. The host-native example is for an already installed host launcher; this Hub does not install one. Undo by removing the launch options.</p>
       <p className="card-copy">Proton-GE: some games run better on the community Proton-GE build than on Valve’s Proton. ProtonPlus — in the Apps page’s Gaming pack — installs and updates Proton-GE for Steam and the other launchers; pick the tool per game in Steam → Properties → Compatibility. Trying it is reversible: switch back to Proton Experimental the same way.</p>
       <h3>Steam Play for all titles</h3>
@@ -175,7 +177,7 @@ export function Play() {
       {!steamPlay && <p className="card-copy">Not checked yet.</p>}
       {steamPlay && <p className="card-copy">{steamPlay.detail}{steamPlay.steam_running && !steamPlay.mapping_present ? ' Quit Steam to enable the one-click apply.' : ''}</p>}
       <h3>Vulkan layers for Flatpak games</h3>
-      <p className="card-copy">MangoHud and gamescope reach Flatpak games as Freedesktop Vulkan-layer extensions, matched to the runtime branch Steam itself uses — a layer installed for the wrong branch does nothing. On a host-native install the same tools come from the distribution inside Distrobox instead.</p>
+      <p className="card-copy">MangoHud, gamescope and vkBasalt reach Flatpak games as Freedesktop Vulkan-layer extensions, matched to the runtime branch Steam itself uses — a layer installed for the wrong branch does nothing. On a host-native install the same tools come from the distribution inside Distrobox instead.</p>
       <div className="home-actions"><button className="action-button" disabled={busy} onClick={() => run('Reading Vulkan layers…', async () => {
         const next = await rowynVulkanLayersScan(); setLayers(next);
         return next.detail;
@@ -187,9 +189,13 @@ export function Play() {
       {layers?.steam_runtime_branch && !layers.gamescope_branches.includes(layers.steam_runtime_branch) && <button className="action-button" disabled={busy} onClick={() => run('Installing the gamescope layer…', async () => {
         const next = await rowynVulkanLayerInstall('gamescope'); setLayers(next);
         return next.gamescope_branches.includes(next.steam_runtime_branch ?? '') ? `gamescope layer installed for runtime ${next.steam_runtime_branch}.` : 'gamescope layer install finished; re-check the layer state.';
-      })}>Install gamescope layer</button>}</div>
+      })}>Install gamescope layer</button>}
+      {layers?.steam_runtime_branch && !layers.vkbasalt_branches.includes(layers.steam_runtime_branch) && <button className="action-button" disabled={busy} onClick={() => run('Installing the vkBasalt layer…', async () => {
+        const next = await rowynVulkanLayerInstall('vkbasalt'); setLayers(next);
+        return next.vkbasalt_branches.includes(next.steam_runtime_branch ?? '') ? `vkBasalt layer installed for runtime ${next.steam_runtime_branch}.` : 'vkBasalt layer install finished; re-check the layer state.';
+      })}>Install vkBasalt layer</button>}</div>
       {!layers && <p className="card-copy">Not checked yet.</p>}
-      {layers && <p className="card-copy">{layers.detail} MangoHud branches installed: {layers.mangohud_branches.join(', ') || 'none'}. gamescope branches installed: {layers.gamescope_branches.join(', ') || 'none'}.</p>}
+      {layers && <p className="card-copy">{layers.detail} MangoHud branches installed: {layers.mangohud_branches.join(', ') || 'none'}. gamescope branches installed: {layers.gamescope_branches.join(', ') || 'none'}. vkBasalt branches installed: {layers.vkbasalt_branches.join(', ') || 'none'}.</p>}
       <h3>Displays: HDR and variable refresh</h3>
       <p className="card-copy">What the display stack reports for each output. “Incapable” means the display or its connection does not offer the feature — no setting changes that. Enable HDR per display and variable refresh in System Settings → Display &amp; Monitor; KWin’s variable-refresh policy applies to fullscreen games.</p>
       <div className="home-actions"><button className="action-button" disabled={busy} onClick={() => run('Reading display capabilities…', async () => {

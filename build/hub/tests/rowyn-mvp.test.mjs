@@ -118,6 +118,13 @@ test('MangoHud is an env switch on both boundaries, ordered before wrappers', ()
   assert.equal(m.launchOptions('host', false, false, true), 'MANGOHUD=1 %command%');
 });
 
+test('vkBasalt is an env switch on both boundaries and composes with MangoHud', () => {
+  assert.equal(m.launchOptions('flatpak', false, false, false, true), 'ENABLE_VKBASALT=1 %command%');
+  assert.equal(m.launchOptions('flatpak', false, false, true, true), 'MANGOHUD=1 ENABLE_VKBASALT=1 %command%');
+  assert.equal(m.launchOptions('host', true, false, false, true), 'ENABLE_VKBASALT=1 /usr/bin/rowyn-game-launch %command%');
+  assert.equal(m.launchOptions('host', false, false, false, false), '%command%');
+});
+
 test('curated compat verdicts resolve by app id, then by title, else null', () => {
   const cs2 = m.compatVerdict('730', 'Counter-Strike 2');
   assert.ok(cs2);

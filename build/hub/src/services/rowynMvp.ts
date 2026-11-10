@@ -43,12 +43,12 @@ export async function rowynDisplayModesScan(): Promise<DisplayModes> {
   nativeOnly();
   return invoke<DisplayModes>('rowyn_display_modes_scan');
 }
-export interface VulkanLayers { steam_runtime_branch: string | null; mangohud_branches: string[]; gamescope_branches: string[]; detail: string }
+export interface VulkanLayers { steam_runtime_branch: string | null; mangohud_branches: string[]; gamescope_branches: string[]; vkbasalt_branches: string[]; detail: string }
 export async function rowynVulkanLayersScan(): Promise<VulkanLayers> {
   nativeOnly();
   return invoke<VulkanLayers>('rowyn_vulkan_layers_scan');
 }
-export async function rowynVulkanLayerInstall(layer: 'mangohud' | 'gamescope'): Promise<VulkanLayers> {
+export async function rowynVulkanLayerInstall(layer: 'mangohud' | 'gamescope' | 'vkbasalt'): Promise<VulkanLayers> {
   nativeOnly();
   return invoke<VulkanLayers>('rowyn_vulkan_layer_install', { layer });
 }

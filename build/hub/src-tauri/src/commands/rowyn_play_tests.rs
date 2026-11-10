@@ -81,9 +81,10 @@ fn kwin_vrr_policy_reads_only_the_wayland_section() {
 
 #[test]
 fn layer_branches_and_steam_runtime_parse_flatpak_output() {
-    let refs = "org.freedesktop.Platform.VulkanLayer.MangoHud/x86_64/24.08\norg.freedesktop.Platform.VulkanLayer.MangoHud/x86_64/23.08\norg.freedesktop.Platform.VulkanLayer.gamescope/x86_64/24.08\ncom.valvesoftware.Steam/x86_64/stable\n";
+    let refs = "org.freedesktop.Platform.VulkanLayer.MangoHud/x86_64/24.08\norg.freedesktop.Platform.VulkanLayer.MangoHud/x86_64/23.08\norg.freedesktop.Platform.VulkanLayer.gamescope/x86_64/24.08\norg.freedesktop.Platform.VulkanLayer.vkBasalt/x86_64/24.08\ncom.valvesoftware.Steam/x86_64/stable\n";
     assert_eq!(layer_branches(refs, MANGOHUD_LAYER), vec!["23.08".to_string(), "24.08".to_string()]);
     assert_eq!(layer_branches(refs, GAMESCOPE_LAYER), vec!["24.08".to_string()]);
+    assert_eq!(layer_branches(refs, VKBASALT_LAYER), vec!["24.08".to_string()]);
     let info = "ID: com.valvesoftware.Steam\nRuntime: org.freedesktop.Platform/x86_64/24.08\nSdk: org.freedesktop.Sdk/x86_64/24.08\n";
     assert_eq!(steam_runtime_branch(info).as_deref(), Some("24.08"));
     assert_eq!(steam_runtime_branch("no runtime here"), None);

@@ -122,15 +122,17 @@ export function createPlayStatusOwner(write: (message: string) => void) {
     },
   };
 }
-export function launchOptions(boundary: 'flatpak' | 'host', gaming: boolean, mimalloc: boolean, mangohud = false): string {
-  // MangoHud is an environment switch, not a wrapper binary: MANGOHUD=1
-  // activates the Vulkan layer wherever the layer itself is installed —
-  // inside the Flatpak (the Freedesktop VulkanLayer extension for the
-  // app's runtime branch) or on a host-native install (the distribution's
-  // mangohud in a Distrobox/terminal context). The env assignment must
-  // precede any wrapper path on the host boundary.
-  if (boundary === 'flatpak') return mangohud ? 'MANGOHUD=1 %command%' : '%command%';
-  return [mangohud ? 'MANGOHUD=1' : '', gaming ? '/usr/bin/rowyn-game-launch' : '', mimalloc ? '/usr/bin/rowyn-mimalloc-run' : '', '%command%'].filter(Boolean).join(' ');
+export function launchOptions(boundary: 'flatpak' | 'host', gaming: boolean, mimalloc: boolean, mangohud = false, vkbasalt = false): string {
+  // MangoHud and vkBasalt are environment switches, not wrapper binaries:
+  // MANGOHUD=1 / ENABLE_VKBASALT=1 activate the Vulkan layers wherever the
+  // layers themselves are installed — inside the Flatpak (the Freedesktop
+  // VulkanLayer extensions for the app's runtime branch) or on a
+  // host-native install (the distribution's packages in a
+  // Distrobox/terminal context). The env assignments must precede any
+  // wrapper path on the host boundary.
+  const env = [mangohud ? 'MANGOHUD=1' : '', vkbasalt ? 'ENABLE_VKBASALT=1' : ''].filter(Boolean).join(' ');
+  if (boundary === 'flatpak') return [env, '%command%'].filter(Boolean).join(' ');
+  return [env, gaming ? '/usr/bin/rowyn-game-launch' : '', mimalloc ? '/usr/bin/rowyn-mimalloc-run' : '', '%command%'].filter(Boolean).join(' ');
 }
 export function steamCompatibilityLinks(appId: string) {
   if (!/^[1-9][0-9]{0,9}$/.test(appId)) throw new Error('invalid Steam app id');
