@@ -502,12 +502,15 @@ def apply_rowyn_qol(root):
     apps.write_text(replace_once(text, '      <HubPage', '      <AppsDefaultsAccess />\n      <HubPage'))
     updates = web / "src/pages/Updates.tsx"
     text = ('import { RecoveryClarity } from "../components/RecoveryClarity";\n'
-            'import { BootHealthPanel } from "../components/BootHealthPanel";\n') + updates.read_text()
+            'import { BootHealthPanel } from "../components/BootHealthPanel";\n'
+            'import { RowynChannelCard } from "../components/RowynChannelCard";\n') + updates.read_text()
     # The update flow leads the page: hero, guidance, next step, details. The two
     # read-only panels follow it in one row instead of pushing the hero down.
+    # Pass 2 adds the channel card: current channel from the booted
+    # deployment, stable<->testing switching through bootc_switch_branch.
     updates.write_text(replace_once(text, '<UpdatesOverview />',
         '<UpdatesOverview /><section className="rowyn-updates-panels">'
-        '<RecoveryClarity /><BootHealthPanel /></section>'))
+        '<RecoveryClarity /><BootHealthPanel /><RowynChannelCard /></section>'))
     overview = web / "src/components/UpdatesOverview.tsx"
     text = overview.read_text()
     # The hero chip and the guidance block already name the update state, so this
