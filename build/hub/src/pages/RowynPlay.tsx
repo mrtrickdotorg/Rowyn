@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { ExternalLink } from '../components/ExternalLink';
 import { cancelInstall, fetchInstalledFlatpaks, installFlatpak, uninstallFlatpak, waitInstallJob, invalidateSharedReads, getInFlightJob, type InstalledFlatpaksResult } from '../services/liveData';
-import { rowynControllerScan, openRowynLauncher, rowynSteamGamesScan, rowynSteamPlayStatus, rowynSteamPlayApply, rowynDisplayModesScan, rowynVulkanLayersScan, rowynVulkanLayerInstall, type SteamPlayStatus, type DisplayModes, type VulkanLayers } from '../services/rowynMvp';
+import { rowynControllerScan, openRowynLauncher, rowynSteamGamesScan, rowynSteamPlayStatus, rowynSteamPlayApply, rowynDisplayModesScan, rowynVulkanLayersScan, rowynVulkanLayerInstall, rowynSunshineStatus, rowynSunshineFirewallOpen, rowynSunshineAutostartEnable, type SteamPlayStatus, type DisplayModes, type VulkanLayers, type SunshineStatus } from '../services/rowynMvp';
 import { LAUNCHERS, launcherState, installLauncher, createPlayStatusOwner, launchOptions, steamCompatibilityLinks, compatVerdict, type Reading, type SteamScan } from '../services/rowynMvpModel';
+import { loadProfiles, saveProfiles, profileFor, isDefaultProfile, assembleProfileOptions, type GameProfile } from '../services/rowynPlayProfilesModel';
 import { copyText } from '../services/rowynClipboard';
 import { useSectionFollow, type SectionMap } from '../hooks/useSectionFollow';
 import '../styles/rowynMvp.css';
@@ -11,6 +12,7 @@ const SECTIONS: SectionMap = {
   Gaming: 'hub-section-gaming',
   SteamLibrary: 'hub-section-steam-library',
   Compatibility: 'hub-section-compatibility',
+  Streaming: 'hub-section-streaming',
   Controllers: 'hub-section-controllers',
 };
 
@@ -48,6 +50,17 @@ export function Play() {
   const [steamPlay, setSteamPlay] = useState<SteamPlayStatus | null>(null);
   const [layers, setLayers] = useState<VulkanLayers | null>(null);
   const [displays, setDisplays] = useState<DisplayModes | null>(null);
+  const [profiles, setProfiles] = useState<Record<string, GameProfile>>(() => loadProfiles());
+  const [profileWarning, setProfileWarning] = useState<string | null>(null);
+  const [sunshine, setSunshine] = useState<SunshineStatus | null>(null);
+
+  function updateProfile(appId: string, patch: Partial<GameProfile>) {
+    setProfiles((current) => {
+      const next = { ...current, [appId]: { ...profileFor(current, appId), ...patch } };
+      setProfileWarning(saveProfiles(next));
+      return next;
+    });
+  }
   const [pending, setPending] = useState<PendingLauncher | null>(null);
   const lock = useRef(false);
   const statusOwner = useRef(createPlayStatusOwner(setStatus));
@@ -141,12 +154,26 @@ export function Play() {
       {!steamScan && <p className="card-copy">Not scanned yet. No scan runs automatically.</p>}
       {steamScan && !steamScan.available && <p className="card-copy">Steam was not detected in common locations. No titles are inferred from this result.</p>}
       {steamScan && steamScan.available && !steamScan.games.length && <p className="card-copy">No fully installed titles were detected in the scanned metadata.</p>}
+      {profileWarning && <p className="card-copy" role="status">{profileWarning}</p>}
       {steamScan?.games.map((item) => {
         const links = steamCompatibilityLinks(item.app_id);
         const verdict = compatVerdict(item.app_id, item.name);
+        const profile = profileFor(profiles, item.app_id);
+        const assembled = assembleProfileOptions(boundary, profile);
         return <article className="rowyn-launcher" key={item.app_id}><h3>{item.name}</h3>
           <p className="card-copy">Steam App ID {item.app_id} · detected from local metadata; compatibility not tested by Rowyn.</p>
           {verdict && <p className="card-copy"><span className="rowyn-state">{verdict.label}</span> — {verdict.note} Anti-cheat: {verdict.anticheat}. Curated verdict checked {verdict.checked}; game updates can change it.</p>}
+          <h4>Launch profile for this game</h4>
+          <p className="card-copy">Remembered per title on this machine and rebuilt below using the boundary chosen in Compatibility (currently: {boundary === 'flatpak' ? 'Flatpak Steam' : 'host-native'}). Paste the result into Steam → Properties → Launch Options for this game; the builder above remains the unsaved default profile.</p>
+          <label><input type="checkbox" checked={profile.mangohud} onChange={(event) => updateProfile(item.app_id, { mangohud: event.target.checked })} /> MangoHud overlay</label>
+          <label><input type="checkbox" checked={profile.vkbasalt} onChange={(event) => updateProfile(item.app_id, { vkbasalt: event.target.checked })} /> vkBasalt post-processing</label>
+          <label><input type="checkbox" checked={profile.gamescope} onChange={(event) => updateProfile(item.app_id, { gamescope: event.target.checked })} /> gamescope (Flatpak: the layer from the Compatibility section carries it; host: prefixes the gamescope wrapper)</label>
+          <label><input type="checkbox" checked={profile.gaming} disabled={boundary === 'flatpak'} onChange={(event) => updateProfile(item.app_id, { gaming: event.target.checked })} /> Rowyn gaming slice / GameMode wrapper (host only)</label>
+          <label><input type="checkbox" checked={profile.mimalloc} disabled={boundary === 'flatpak'} onChange={(event) => updateProfile(item.app_id, { mimalloc: event.target.checked })} /> mimalloc allocator wrapper (host only, experimental)</label>
+          <label>Extra launch options (kept verbatim)<input value={profile.extra} maxLength={200} onChange={(event) => updateProfile(item.app_id, { extra: event.target.value })} placeholder="e.g. -high or PROTON_LOG=1" /></label>
+          <p className="card-copy">Launch options: <code>{assembled}</code></p>
+          <div className="home-actions"><button className="action-button" onClick={() => void copyText(assembled)}>Copy launch options</button>
+          {!isDefaultProfile(profile) && <button className="action-button" onClick={() => updateProfile(item.app_id, { mangohud: false, vkbasalt: false, gamescope: false, gaming: false, mimalloc: false, extra: '' })}>Reset profile</button>}</div>
           <div className="home-actions"><ExternalLink href={links.protondb}>ProtonDB community reports (not a guarantee)</ExternalLink>
             <ExternalLink href={links.steamStore}>Steam store page</ExternalLink></div>
         </article>;
@@ -210,6 +237,29 @@ export function Play() {
         const result = await copyText(options);
         return result.ok ? 'Launch options copied. No configuration was changed.' : result.reason;
       })}>Copy launch options</button>
+    </section>
+    <section className="glass dashboard-card" id="hub-section-streaming"><h2>Game streaming (Sunshine)</h2>
+      <p className="card-copy">Sunshine turns this machine into a stream host for Moonlight clients — a TV, a laptop, a phone. Rowyn automates the tedious parts: the install (the standard system Flatpak job), start-at-login, and opening Sunshine’s documented firewall ports (TCP 47984/47989/48010, UDP 47998–48000/48002/48010, admin prompt via the same askpass path as VPN). The input devices Sunshine injects (keyboard, mouse, gamepad) reach your session through udev rules Rowyn ships in the image — nothing to configure.</p>
+      <p className="card-copy">What stays manual, honestly: pairing a client is done in Sunshine’s own web interface at https://localhost:47990 after it first runs, and a client on another machine uses Moonlight — offered in the Apps page’s Gaming pack for the receiving side.</p>
+      <div className="home-actions"><button className="action-button" disabled={busy} onClick={() => run('Reading Sunshine state…', async () => {
+        const next = await rowynSunshineStatus(); setSunshine(next);
+        return next.detail;
+      })}>Check Sunshine</button>
+      {sunshine && !sunshine.installed && <button className="action-button" disabled={busy} onClick={() => run('Installing Sunshine…', async () => {
+        const result = await installFlatpak('dev.lizardbyte.app.Sunshine');
+        const next = await rowynSunshineStatus(); setSunshine(next);
+        return `${result} ${next.detail}`;
+      })}>Install Sunshine</button>}
+      {sunshine?.installed && !sunshine.autostart && <button className="action-button" disabled={busy} onClick={() => run('Enabling start-at-login…', async () => {
+        const next = await rowynSunshineAutostartEnable(); setSunshine(next);
+        return next.detail;
+      })}>Start Sunshine at login</button>}
+      {sunshine?.installed && !sunshine.firewall_open && <button className="action-button" disabled={busy} onClick={() => run('Opening the Sunshine firewall ports…', async () => {
+        const next = await rowynSunshineFirewallOpen(); setSunshine(next);
+        return next.detail;
+      })}>Open firewall ports</button>}</div>
+      {!sunshine && <p className="card-copy">Not checked yet.</p>}
+      {sunshine && <p className="card-copy">{sunshine.detail}</p>}
     </section>
     <section className="glass dashboard-card" id="hub-section-controllers"><h2>Controllers</h2>
       <p className="card-copy">Connect or pair a controller, then rescan. This reads the shipped controller checker only; it does not pair devices, load drivers, change permissions, or claim input testing passed.</p>

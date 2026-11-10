@@ -48,6 +48,19 @@ export async function rowynVulkanLayersScan(): Promise<VulkanLayers> {
   nativeOnly();
   return invoke<VulkanLayers>('rowyn_vulkan_layers_scan');
 }
+export interface SunshineStatus { installed: boolean; autostart: boolean; firewall_open: boolean; detail: string }
+export async function rowynSunshineStatus(): Promise<SunshineStatus> {
+  nativeOnly();
+  return invoke<SunshineStatus>('rowyn_sunshine_status');
+}
+export async function rowynSunshineFirewallOpen(): Promise<SunshineStatus> {
+  nativeOnly();
+  return invoke<SunshineStatus>('rowyn_sunshine_firewall_open');
+}
+export async function rowynSunshineAutostartEnable(): Promise<SunshineStatus> {
+  nativeOnly();
+  return invoke<SunshineStatus>('rowyn_sunshine_autostart_enable');
+}
 export async function rowynVulkanLayerInstall(layer: 'mangohud' | 'gamescope' | 'vkbasalt'): Promise<VulkanLayers> {
   nativeOnly();
   return invoke<VulkanLayers>('rowyn_vulkan_layer_install', { layer });
