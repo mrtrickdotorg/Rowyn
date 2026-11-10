@@ -7,8 +7,10 @@
 #
 #   * the update policy (channel and downgrade permission) is the same
 #     update-policy.conf the watcher reads, parsed with the same strict,
-#     fail-closed rules; only the stable channel exists today, and a staged
-#     image older than the booted one is refused unless AllowDowngrade=yes
+#     fail-closed rules; the channel (stable or testing) selects which
+#     promoted tag of the canonical image this machine follows, and a
+#     staged image older than the booted one is refused unless
+#     AllowDowngrade=yes
 #   * a refused downgrade is quarantined through rowyn-boot-health, so it
 #     can never be treated as a healthy boot even if it still boots
 #
@@ -37,7 +39,10 @@
 set -uo pipefail
 
 readonly LOCK_FILE=/run/rowyn-bootc.lock
-readonly UPDATE_REF=ghcr.io/mrtrickdotorg/rowyn:stable
+readonly IMAGE_NAME=ghcr.io/mrtrickdotorg/rowyn
+# The ref this run stages: the canonical image at the policy channel's
+# tag. Set definitively in main() once the policy is parsed.
+update_ref=$IMAGE_NAME:stable
 readonly BOOTC_TIMEOUT_SECS=3600
 readonly TERM_GRACE_SECS=10
 readonly SYSROOT_FREE_MIN_BYTES=$((2 * 1024 * 1024 * 1024))
@@ -207,7 +212,7 @@ parse_policy() {
                 ;;
             Channel)
                 case "$val" in
-                    stable) ;;
+                    stable|testing) ;;
                     *)
                         policy_error="$file:$n: unsupported channel $val"
                         return 1
@@ -413,7 +418,7 @@ run_bootc_update() {
     local operation=$1 with_progress_fd=$2
     local -a args
     case "$operation" in
-        switch) args=(switch "$UPDATE_REF") ;;
+        switch) args=(switch "$update_ref") ;;
         upgrade) args=(upgrade) ;;
         *) fail "Unsupported bootc update operation" ;;
     esac
@@ -432,7 +437,7 @@ run_bootc_update() {
         # file redirect does not work. Hand it the write end of a pipe whose
         # reader appends to the progress file that drain_progress tails.
         if [[ "$operation" == switch ]]; then
-            args=(switch --progress-fd 3 "$UPDATE_REF")
+            args=(switch --progress-fd 3 "$update_ref")
         else
             args=(upgrade --progress-fd 3)
         fi
@@ -514,9 +519,7 @@ main() {
     if ! parse_policy; then
         fail "refusing to stage: invalid update policy (${policy_error:-unreadable})"
     fi
-    if [[ "$policy_channel" != "stable" ]]; then
-        fail "update-policy.conf selects channel '$policy_channel'; Rowyn publishes only the stable channel"
-    fi
+    update_ref="$IMAGE_NAME:$policy_channel"
 
     if [[ "${ROWYN_UPDATE_AUTO:-0}" == 1 ]]; then
         auto_gates
@@ -541,11 +544,18 @@ main() {
 
     local booted_ref operation
     booted_ref=$(booted_image_reference) || fail "Could not determine the booted Rowyn image reference"
-    case "$booted_ref" in
-        ghcr.io/kyth-os/rowyn:*|ghcr.io/kyth-os/rowyn@sha256:*) operation=switch ;;
-        ghcr.io/mrtrickdotorg/rowyn:*|ghcr.io/mrtrickdotorg/rowyn@sha256:*) operation=upgrade ;;
-        *) fail "Unsupported booted Rowyn image reference" ;;
-    esac
+    # Already on the followed channel's tag: upgrade pulls its newest
+    # digest. Anything else Rowyn-shaped — the pre-move kyth-os
+    # namespace, the other channel's tag, a digest-pinned deployment —
+    # switches to the followed channel's ref explicitly.
+    if [[ "$booted_ref" == "$update_ref" ]]; then
+        operation=upgrade
+    else
+        case "$booted_ref" in
+            ghcr.io/kyth-os/rowyn:*|ghcr.io/kyth-os/rowyn@sha256:*|ghcr.io/mrtrickdotorg/rowyn:*|ghcr.io/mrtrickdotorg/rowyn@sha256:*) operation=switch ;;
+            *) fail "Unsupported booted Rowyn image reference" ;;
+        esac
+    fi
 
     emit_marker 1 download "Starting image download"
 

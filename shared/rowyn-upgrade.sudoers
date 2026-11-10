@@ -12,3 +12,4 @@
 %sudo ALL=(root) NOPASSWD: /usr/bin/rowyn-bootc-guard status-json
 %sudo ALL=(root) NOPASSWD: /usr/bin/rowyn-bootc-guard check
 %sudo ALL=(root) NOPASSWD: /usr/bin/rowyn-bootc-guard switch-latest
+%sudo ALL=(root) NOPASSWD: /usr/bin/rowyn-bootc-guard switch-testing

@@ -15,18 +15,21 @@ FINALIZE = ROOT / "shared/rowyn-finalize-staged.sh"
 
 
 class SafeUpgradeTests(unittest.TestCase):
-    def test_staging_targets_the_destination_stable_channel(self):
+    def test_staging_targets_the_policy_channel_of_the_destination_image(self):
         text = SAFE_UPGRADE.read_text(encoding="utf-8")
-        self.assertIn("readonly UPDATE_REF=ghcr.io/mrtrickdotorg/rowyn:stable", text)
-        self.assertIn('switch) args=(switch "$UPDATE_REF")', text)
+        self.assertIn("readonly IMAGE_NAME=ghcr.io/mrtrickdotorg/rowyn", text)
+        self.assertIn('update_ref="$IMAGE_NAME:$policy_channel"', text)
+        self.assertIn('switch) args=(switch "$update_ref")', text)
         self.assertIn('upgrade) args=(upgrade)', text)
+        self.assertIn("stable|testing", text)
         self.assertIn("mrtrickdotorg/rowyn", text)
         self.assertNotIn("/usr/bin/bootc upgrade --progress-fd", text)
 
-    def test_manual_switch_targets_the_destination_stable_channel(self):
+    def test_manual_switch_targets_the_destination_channels(self):
         text = (ROOT / "shared/rowyn-bootc-guard.sh").read_text(encoding="utf-8")
         self.assertIn("readonly STABLE_REF=ghcr.io/mrtrickdotorg/rowyn:stable", text)
-        self.assertIn('bootc switch "$STABLE_REF"', text)
+        self.assertIn("readonly TESTING_REF=ghcr.io/mrtrickdotorg/rowyn:testing", text)
+        self.assertIn('bootc switch "$TARGET_REF"', text)
         self.assertIn('/usr/bin/bootc upgrade', text)
 
     def test_only_the_physical_root_space_is_checked(self):
@@ -51,7 +54,7 @@ switch|upgrade)
 esac
 """
 
-    def run_guard(self, image_ref):
+    def run_guard(self, image_ref, operation="switch-latest"):
         with tempfile.TemporaryDirectory(prefix="rowyn-bootc-guard-") as temp:
             base = Path(temp)
             bootc = base / "bootc"
@@ -63,6 +66,11 @@ esac
             finalize.chmod(0o755)
             calls = base / "bootc-calls"
             finalizer_calls = base / "finalizer-calls"
+            policy_etc = base / "etc/update-policy.conf"
+            policy_default = base / "default/update-policy.conf"
+            policy_default.parent.mkdir(parents=True)
+            policy_default.write_text("AutoStage=yes\nChannel=stable\n",
+                                      encoding="utf-8")
             text = (ROOT / "shared/rowyn-bootc-guard.sh").read_text(encoding="utf-8")
             text = text.replace("/usr/bin/bootc", str(bootc))
             text = text.replace("/run/rowyn-bootc.lock", str(base / "lock"))
@@ -70,27 +78,58 @@ esac
             script = base / "guard"
             script.write_text(text, encoding="utf-8")
             env = dict(os.environ, BOOTED_IMAGE_REF=image_ref,
-                       BOOTC_CALLS=str(calls), FINALIZE_CALLS=str(finalizer_calls))
-            result = subprocess.run(["bash", str(script), "switch-latest"],
+                       BOOTC_CALLS=str(calls), FINALIZE_CALLS=str(finalizer_calls),
+                       ROWYN_POLICY_ETC=str(policy_etc),
+                       ROWYN_POLICY_DEFAULT=str(policy_default))
+            result = subprocess.run(["bash", str(script), operation],
                                     capture_output=True, text=True, timeout=30, env=env)
-            return result, calls.read_text(encoding="utf-8") if calls.exists() else ""
+            recorded = (policy_etc.read_text(encoding="utf-8")
+                        if policy_etc.exists() else "")
+            return result, calls.read_text(encoding="utf-8") if calls.exists() else "", recorded
 
     def test_old_registry_booted_image_switches_to_destination(self):
-        result, calls = self.run_guard("ghcr.io/kyth-os/rowyn:stable")
+        result, calls, _ = self.run_guard("ghcr.io/kyth-os/rowyn:stable")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("switch ghcr.io/mrtrickdotorg/rowyn:stable", calls)
         self.assertNotIn("upgrade", calls)
 
     def test_destination_booted_image_uses_upgrade_to_avoid_switch_collision(self):
-        result, calls = self.run_guard("ghcr.io/mrtrickdotorg/rowyn:stable")
+        result, calls, _ = self.run_guard("ghcr.io/mrtrickdotorg/rowyn:stable")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(calls.strip(), "upgrade")
         self.assertNotIn("switch", calls)
 
     def test_unrecognized_booted_image_fails_closed(self):
-        result, calls = self.run_guard("ghcr.io/attacker/rowyn:stable")
+        result, calls, _ = self.run_guard("ghcr.io/attacker/rowyn:stable")
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(calls, "")
+
+    def test_switch_testing_from_stable_switches_and_records_the_channel(self):
+        result, calls, recorded = self.run_guard(
+            "ghcr.io/mrtrickdotorg/rowyn:stable", "switch-testing")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("switch ghcr.io/mrtrickdotorg/rowyn:testing", calls)
+        self.assertIn("Channel=testing", recorded)
+        self.assertIn("AutoStage=yes", recorded)
+
+    def test_switch_testing_from_the_old_registry(self):
+        result, calls, _ = self.run_guard(
+            "ghcr.io/kyth-os/rowyn:stable", "switch-testing")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("switch ghcr.io/mrtrickdotorg/rowyn:testing", calls)
+
+    def test_switch_testing_on_testing_upgrades_in_place(self):
+        result, calls, _ = self.run_guard(
+            "ghcr.io/mrtrickdotorg/rowyn:testing", "switch-testing")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls.strip(), "upgrade")
+
+    def test_switch_latest_from_testing_returns_to_stable(self):
+        result, calls, recorded = self.run_guard(
+            "ghcr.io/mrtrickdotorg/rowyn:testing", "switch-latest")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("switch ghcr.io/mrtrickdotorg/rowyn:stable", calls)
+        self.assertIn("Channel=stable", recorded)
 
 
 class SafeUpgradeProgressPipeTests(unittest.TestCase):
@@ -177,6 +216,78 @@ esac
         text = SAFE_UPGRADE.read_text(encoding="utf-8")
         self.assertNotIn('3>"$workdir/bootc.progress"', text)
         self.assertIn('3> >(cat >>"$workdir/bootc.progress")', text)
+
+
+class SafeUpgradeChannelTests(unittest.TestCase):
+    """The policy channel selects the staged ref: a machine on testing
+    stages testing; a channel change stages a switch; an unknown
+    channel fails closed before bootc runs."""
+
+    FAKE_BOOTC = """#!/bin/sh
+printf '%s\\n' "$*" >> "$BOOTC_CALLS"
+case "$1" in
+status)
+    printf '{"status":{"booted":{"image":{"image":{"image":"%s"}}},"staged":{"image":{}}}}\n' "$BOOTED_IMAGE_REF"
+    ;;
+switch|upgrade)
+    for arg in "$@"; do
+        if [ "$arg" = "--progress-fd" ] && [ -p /dev/fd/3 ]; then
+            echo '{"type":"ProgressBytes","task":"pulling","bytes":10,"bytesTotal":100,"steps":0,"stepsTotal":1}' >&3
+        fi
+    done
+    echo "Staged update"
+    ;;
+esac
+"""
+
+    def run_script(self, booted_image_ref, policy_text):
+        with tempfile.TemporaryDirectory(prefix="rowyn-safe-upgrade-channel-") as temp:
+            temp_path = Path(temp)
+            bootc = temp_path / "bootc"
+            bootc.write_text(self.FAKE_BOOTC, encoding="utf-8")
+            bootc.chmod(0o755)
+            finalize = temp_path / "finalize"
+            finalize.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            finalize.chmod(0o755)
+            calls = temp_path / "bootc-calls"
+            policy = temp_path / "update-policy.conf"
+            policy.write_text(policy_text, encoding="utf-8")
+            text = SAFE_UPGRADE.read_text(encoding="utf-8")
+            text = text.replace("if (( EUID != 0 )); then", "if false; then")
+            text = text.replace("/usr/bin/bootc", str(bootc))
+            text = text.replace("/run/rowyn-bootc.lock", str(temp_path / "lock"))
+            text = text.replace("/usr/libexec/rowyn-finalize-staged", str(finalize))
+            script = temp_path / "rowyn-safe-upgrade"
+            script.write_text(text, encoding="utf-8")
+            env = dict(os.environ, BOOTED_IMAGE_REF=booted_image_ref,
+                       BOOTC_CALLS=str(calls),
+                       ROWYN_POLICY_ETC=str(policy),
+                       ROWYN_POLICY_DEFAULT=str(temp_path / "absent-default"))
+            result = subprocess.run(["bash", str(script)], capture_output=True,
+                                    text=True, timeout=60, env=env)
+            recorded = calls.read_text(encoding="utf-8") if calls.exists() else ""
+            return result, recorded
+
+    def test_testing_machine_stages_by_upgrade(self):
+        result, calls = self.run_script(
+            "ghcr.io/mrtrickdotorg/rowyn:testing", "Channel=testing\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("upgrade", calls)
+        self.assertNotIn("switch", calls)
+
+    def test_channel_change_stages_a_switch_to_the_channel_ref(self):
+        result, calls = self.run_script(
+            "ghcr.io/mrtrickdotorg/rowyn:stable", "Channel=testing\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("switch", calls)
+        self.assertIn("ghcr.io/mrtrickdotorg/rowyn:testing", calls)
+
+    def test_unknown_channel_fails_closed(self):
+        result, calls = self.run_script(
+            "ghcr.io/mrtrickdotorg/rowyn:stable", "Channel=cachy\n")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("switch", calls)
+        self.assertNotIn("upgrade", calls)
 
 
 class FinalizeStagedTests(unittest.TestCase):

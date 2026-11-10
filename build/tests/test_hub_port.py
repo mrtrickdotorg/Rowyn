@@ -138,6 +138,7 @@ class HubPortContractTests(unittest.TestCase):
             "%sudo ALL=(root) NOPASSWD: /usr/bin/rowyn-bootc-guard status-json",
             "%sudo ALL=(root) NOPASSWD: /usr/bin/rowyn-bootc-guard check",
             "%sudo ALL=(root) NOPASSWD: /usr/bin/rowyn-bootc-guard switch-latest",
+            "%sudo ALL=(root) NOPASSWD: /usr/bin/rowyn-bootc-guard switch-testing",
         ):
             self.assertIn(entry, sudoers)
         workflow = (ROOT / ".github/workflows/build.yml").read_text()
@@ -350,8 +351,9 @@ class PinnedHubSourceTests(unittest.TestCase):
                 self.assertNotIn("kyth-finalize-staged", updates)
                 self.assertNotIn("KythOS update helper", updates)
                 self.assertNotIn("KythOS bootc guard helper", updates)
-                # Branch switching stays registered and now reaches the
-                # Rowyn guard, which implements only the stable channel.
+                # Branch switching stays registered and reaches the
+                # Rowyn guard, which implements the stable and testing
+                # channels.
                 self.assertIn("commands::updates::bootc_switch_branch",
                               (crate / "src/main.rs").read_text())
                 # The check path lives in the shared crate: its guard

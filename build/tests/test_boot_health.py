@@ -391,10 +391,16 @@ class WatcherPolicyTests(unittest.TestCase):
             return result, ran
 
     def test_unknown_channel_is_refused(self):
-        result, ran = self.run_watcher("Channel=testing\n")
+        result, ran = self.run_watcher("Channel=cachy\n")
         self.assertEqual(result.returncode, 0)
         self.assertIn("refusing to auto-stage", result.stdout)
         self.assertEqual(ran, "")
+
+    def test_testing_channel_is_accepted(self):
+        result, ran = self.run_watcher("Channel=testing\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("refusing to auto-stage", result.stdout)
+        self.assertIn("DGR=", ran)
 
     def test_downgrade_permission_is_exported(self):
         result, ran = self.run_watcher("AllowDowngrade=yes\n")
