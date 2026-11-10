@@ -223,6 +223,13 @@ jobs:
             ls /usr/share/vulkan/icd.d/lvp_icd*.json > /dev/null
             ls /usr/share/vulkan/icd.d/radeon_icd*.json > /dev/null
             vulkaninfo --summary > /dev/null
+            test -x /usr/bin/vainfo
+            ls /usr/lib/x86_64-linux-gnu/dri/i965_drv_video.so > /dev/null
+            ls /usr/lib/x86_64-linux-gnu/dri/iHD_drv_video.so > /dev/null
+            ls /usr/lib/x86_64-linux-gnu/dri/radeonsi_drv_video.so > /dev/null
+            test -x /usr/bin/corectrl
+            test -x /usr/bin/kmail
+            test -x /usr/bin/korganizer
             test -x /usr/bin/htop
             test -x /usr/bin/ping
             test -x /usr/bin/lspci

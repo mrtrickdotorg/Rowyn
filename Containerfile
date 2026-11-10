@@ -139,6 +139,22 @@ RUN userdel --remove ubuntu
 # accounts the exe-handler already points OneDrive/Google users at),
 # and krdp (KDE remote desktop server).
 #
+# Pass 2 fills (Nov 2026): the VA-API set — mesa-va-drivers (a thin
+# pointer at mesa-libgallium, which carries the Gallium VA drivers),
+# intel-media-va-driver (Intel Gen8+), i965-va-driver (older Intel) and
+# vainfo. Without them no VA driver was named at all, so browser video,
+# OBS encoding and Steam Remote Play silently used software paths.
+# Native tuning/peripheral/PIM tools the Flatpak catalog cannot carry:
+# corectrl (GPU/CPU tuning), input-remapper and ratbagd (input
+# remapping and gaming-mouse configuration — Piper's backend),
+# kmail + korganizer (KDE PIM: mail, calendar, tasks and contacts on
+# the Akonadi stack the shipped kaccounts-integration syncs with),
+# gimagereader + tesseract-ocr (scan-to-text), pdfarranger (PDF page
+# shuffling; its Flatpak id does not exist, so the archive package is
+# the route), hplip (driver fallback for older HP printers/scanners
+# the driverless stack cannot drive) and the Inter + Cascadia Code
+# fonts converts expect from modern Windows.
+#
 # NVIDIA group (last install): Canonical's prebuilt, signed open kernel
 # modules (linux-modules-nvidia-615-open-generic pulls the module package
 # for exactly the kernel linux-image-generic installed, so no DKMS and
@@ -168,6 +184,9 @@ RUN printf 'path-include=/usr/share/doc/nvidia-kernel-common-*/supported-gpus.js
         kdeconnect elisa haruna skanpage unzip zip \
         plasma-systemmonitor kamoso fprintd \
         kaccounts-integration kio-gdrive kdenetwork-filesharing krdp \
+        corectrl input-remapper ratbagd \
+        kmail korganizer \
+        gimagereader tesseract-ocr pdfarranger hplip \
         cups cups-browsed cups-client cups-daemon cups-filters cups-ipp-utils \
         cups-pk-helper print-manager system-config-printer-common \
         system-config-printer-udev bluez-cups colord kde-config-tablet \
@@ -179,6 +198,7 @@ RUN printf 'path-include=/usr/share/doc/nvidia-kernel-common-*/supported-gpus.js
         plasma-calendar-addons plasma-dataengines-addons kwin-addons \
         ffmpeg gstreamer1.0-pipewire phonon4qt6-backend-vlc \
         fonts-liberation fonts-dejavu-core fonts-dejavu-mono \
+        fonts-inter fonts-cascadia-code \
         orca \
         ubuntu-minimal ubuntu-standard \
         locales pciutils fwupd \
@@ -188,6 +208,7 @@ RUN printf 'path-include=/usr/share/doc/nvidia-kernel-common-*/supported-gpus.js
         kwin-wayland plasma-workspace plasma-session-x11 \
         power-profiles-daemon systemd-zram-generator gamemode steam-devices \
         mesa-vulkan-drivers vulkan-tools \
+        mesa-va-drivers intel-media-va-driver i965-va-driver vainfo \
         systemd-oomd iw libmimalloc3 && \
     apt-get install -y --no-install-recommends \
         flatpak plasma-discover-backend-flatpak distrobox \
@@ -210,7 +231,11 @@ RUN set -eux; \
     done; \
     for package in plasma-systemmonitor kamoso fprintd samba smbclient \
         kdenetwork-filesharing kaccounts-integration kio-gdrive krdp \
-        mesa-vulkan-drivers vulkan-tools; do \
+        mesa-vulkan-drivers vulkan-tools \
+        mesa-va-drivers intel-media-va-driver i965-va-driver vainfo \
+        corectrl input-remapper ratbagd kmail korganizer \
+        gimagereader tesseract-ocr pdfarranger hplip \
+        fonts-inter fonts-cascadia-code; do \
         test "$(dpkg-query -W -f='${db:Status-Status}' "$package")" = installed; \
     done; \
     test -s /usr/share/applications/kcm_kup.desktop; \
