@@ -10,9 +10,12 @@ import sys
 # The install-alongside-Windows (resize_ntfs) path additionally needs the
 # ntfs-3g tools the executor's disk helper and the daemon's NTFS dirty-bit
 # attestation invoke by absolute path (/usr/sbin/ntfsresize stages
-# check/info/dry_run/resize, /usr/sbin/ntfsfix -n), plus /usr/sbin/btrfs
+# check/info/dry_run/resize, /usr/bin/ntfsfix -n), plus /usr/bin/btrfs
 # for the subvolume layout prepare_btrfs_target creates on the new
-# partition. The live image installs ntfs-3g and btrfs-progs explicitly
+# partition. Ubuntu 26.10 packaging moved ntfsfix and the btrfs CLI to
+# /usr/bin (verified in the ntfs-3g 1:2026.7.7-2 and btrfs-progs 7.1-1
+# archive debs; ntfsresize and mkfs.btrfs remain in /usr/sbin). The live
+# image installs ntfs-3g and btrfs-progs explicitly
 # (build/ubuntu-live.Containerfile); requiring them here makes a live
 # image missing them fail in Prepare, before any disk mutation.
 REQUIRED = (
@@ -25,7 +28,7 @@ REQUIRED = (
     '/usr/sbin/blkid', '/usr/sbin/sgdisk', '/usr/sbin/parted',
     '/usr/sbin/mkfs.btrfs', '/usr/sbin/mkfs.fat', '/usr/sbin/useradd',
     '/usr/sbin/chpasswd', '/usr/sbin/losetup', '/usr/sbin/sfdisk', '/usr/sbin/fstrim',
-    '/usr/sbin/ntfsresize', '/usr/sbin/ntfsfix', '/usr/sbin/btrfs',
+    '/usr/sbin/ntfsresize', '/usr/bin/ntfsfix', '/usr/bin/btrfs',
 )
 
 

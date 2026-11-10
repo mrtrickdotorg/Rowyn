@@ -117,6 +117,13 @@ def replace_once(text, old, new):
     return text.replace(old, new)
 
 
+def replace_count(text, old, new, expected):
+    if text.count(old) != expected:
+        raise ValueError(
+            f"expected exactly {expected} source anchors: {old[:100]!r}")
+    return text.replace(old, new)
+
+
 def strip_shared_crate_bins(root):
     """Delete the shared crate's helper-binary sources and their [[bin]]
     manifest sections. Neither image build compiles them (the payload
@@ -902,6 +909,24 @@ pub(crate) fn run_output_timeout_capture(
         }
 ''')
     daemon.write_text(text)
+    # Ubuntu 26.10 (stonking) packaging moved ntfsfix and the btrfs CLI
+    # from /usr/sbin to /usr/bin; upstream invokes both by the old
+    # absolute paths. Verified against the archive debs: ntfs-3g
+    # 1:2026.7.7-2 ships ./usr/bin/ntfsfix (and keeps ntfsresize in
+    # /usr/sbin, so that path stays), btrfs-progs 7.1-1 ships
+    # ./usr/bin/btrfs (only mkfs.btrfs/fsck.btrfs remain in /usr/sbin).
+    # Repoint every invocation — the daemon's NTFS dirty-bit attestation
+    # probe and the disk helper's subvolume operations, including the
+    # in-file unit-test argv expectations — or the resize path fails on
+    # a real live system after the preflight has passed.
+    daemon = crate / "src/installer_daemon.rs"
+    text = daemon.read_text()
+    text = replace_count(text, '"/usr/sbin/ntfsfix"', '"/usr/bin/ntfsfix"', 1)
+    daemon.write_text(text)
+    disk = crate / "src/installer_disk.rs"
+    text = disk.read_text()
+    text = replace_count(text, '"/usr/sbin/btrfs"', '"/usr/bin/btrfs"', 6)
+    disk.write_text(text)
     # Ubuntu account administration and shell differ from Fedora.
     accounts = crate / "src/installer_accounts.rs"
     text = accounts.read_text().replace('wheel', 'sudo').replace('/bin/zsh', '/bin/bash')

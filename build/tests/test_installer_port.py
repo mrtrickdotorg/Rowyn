@@ -123,6 +123,23 @@ class InstallerAlongsideQualificationTests(unittest.TestCase):
             "This installer erases the disk you select and installs Rowyn on it.",
             script)
 
+    def test_port_script_repoints_moved_ubuntu_runtime_tools(self):
+        # Ubuntu 26.10 (stonking) packaging moved ntfsfix and the btrfs
+        # CLI from /usr/sbin to /usr/bin — verified against the archive
+        # debs (ntfs-3g 1:2026.7.7-2: ./usr/bin/ntfsfix, ntfsresize
+        # stays in /usr/sbin; btrfs-progs 7.1-1: ./usr/bin/btrfs, only
+        # mkfs.btrfs/fsck.btrfs in /usr/sbin). The port must repoint
+        # upstream's absolute-path invocations of both, count-asserted,
+        # or the generated daemon/disk helper call paths that do not
+        # exist on a real live system.
+        script = (ROOT / "build/ubuntu-installer-source.py").read_text()
+        self.assertIn(
+            "replace_count(text, '\"/usr/sbin/ntfsfix\"', "
+            "'\"/usr/bin/ntfsfix\"', 1)", script)
+        self.assertIn(
+            "replace_count(text, '\"/usr/sbin/btrfs\"', "
+            "'\"/usr/bin/btrfs\"', 6)", script)
+
     def test_port_script_carries_prepare_btrfs_target_fallback(self):
         # Upstream prepare_btrfs_target re-reads plan.target_partition,
         # which resize_ntfs plans never carry; the port falls back to
@@ -135,10 +152,18 @@ class InstallerAlongsideQualificationTests(unittest.TestCase):
     def test_live_preflight_requires_resize_path_tools(self):
         # The resize path shells out to these by absolute path; the
         # preflight (run in Prepare, before any mutation) must require
-        # them, and the live image must install their packages.
-        for binary in ("/usr/sbin/ntfsresize", "/usr/sbin/ntfsfix",
-                       "/usr/sbin/btrfs"):
+        # them, and the live image must install their packages. Paths
+        # are the ones the Ubuntu 26.10 (stonking) archive debs ship —
+        # ntfs-3g 1:2026.7.7-2 puts ntfsfix in /usr/bin and keeps
+        # ntfsresize in /usr/sbin; btrfs-progs 7.1-1 puts the btrfs CLI
+        # in /usr/bin (only mkfs.btrfs/fsck.btrfs stay in /usr/sbin).
+        # The /usr/sbin forms of ntfsfix/btrfs do not exist there; the
+        # old tuple failed the ISO's configure-live preflight on them.
+        for binary in ("/usr/sbin/ntfsresize", "/usr/bin/ntfsfix",
+                       "/usr/bin/btrfs"):
             self.assertIn(binary, live_preflight.REQUIRED)
+        for stale in ("/usr/sbin/ntfsfix", "/usr/sbin/btrfs"):
+            self.assertNotIn(stale, live_preflight.REQUIRED)
         containerfile = (ROOT / "build/ubuntu-live.Containerfile").read_text()
         live_stage = containerfile.split(
             "FROM ${UBUNTU_IMAGE} AS live", 1)[1]
@@ -329,13 +354,22 @@ class PinnedInstallerJunkCutTests(unittest.TestCase):
             daemon = (src / "installer_daemon.rs").read_text()
             self.assertIn("fn stamp_ntfs_attestation", daemon)
             self.assertIn("fn ntfs_volume_is_clean", daemon)
-            self.assertIn('"/usr/sbin/ntfsfix"', daemon)
+            # Ubuntu 26.10 ships ntfsfix in /usr/bin, not /usr/sbin
+            # (ntfs-3g 1:2026.7.7-2 deb listing); the port repoints the
+            # daemon's attestation probe.
+            self.assertIn('"/usr/bin/ntfsfix"', daemon)
+            self.assertNotIn('"/usr/sbin/ntfsfix"', daemon)
             journal = (src / "installer_journal.rs").read_text()
             self.assertIn("fn validate_shrink_preconditions", journal)
             self.assertIn("ntfs_verified_clean", journal)
             self.assertIn("dirty bit must be re-verified clear", journal)
             disk = (src / "installer_disk.rs").read_text()
             self.assertIn('"/usr/sbin/ntfsresize"', disk)
+            # The btrfs CLI likewise moved to /usr/bin in Ubuntu 26.10
+            # (btrfs-progs 7.1-1 deb listing); the port repoints every
+            # subvolume invocation in the disk helper.
+            self.assertIn('"/usr/bin/btrfs"', disk)
+            self.assertNotIn('"/usr/sbin/btrfs"', disk)
             self.assertIn("fn resize_ntfs_target", executor)
             for stage in ('"check"', '"info"', '"dry_run"', '"resize"'):
                 self.assertIn(stage, executor)
