@@ -69,6 +69,19 @@ class UpdateChannelWorkflowTests(unittest.TestCase):
         self.assertIn("skopeo copy --preserve-digests", self.workflow_text)
         self.assertIn("DEST_IMAGE}@${DESTINATION_DIGEST}", self.workflow_text)
         self.assertIn('DEST_IMAGE}:stable', self.workflow_text)
+        # Pass 2 channels: the same verified digest is also tagged
+        # :testing inside the promote step (no extra registry login —
+        # the workflow-wide ghcr.io login count is pinned elsewhere).
+        self.assertIn('DEST_IMAGE}:testing', self.workflow_text)
+        promote_step = next(
+            step for step in promote["steps"]
+            if step["name"] == "Promote exact digest to destination stable")
+        self.assertIn("docker://${DEST_IMAGE}:testing", promote_step["run"])
+        self.assertIn("testing_digest", promote_step["run"])
+        verify_step = next(
+            step for step in promote["steps"]
+            if step["name"] == "Verify destination stable tag digest")
+        self.assertIn("docker://${DEST_IMAGE}:testing", verify_step["run"])
 
     def test_promotion_is_signed_and_verified_before_stable_advances(self):
         jobs = self.workflow["jobs"]
@@ -266,6 +279,7 @@ class UpdateChannelWorkflowTests(unittest.TestCase):
                 "printf 'skopeo %s\\n' \"$*\" >> \"$TEST_LOG\"\n"
                 "case \"$*\" in\n"
                 "  *inspect*\":stable\"*) printf '%s\\n' \"$DESTINATION_DIGEST\" ;;\n"
+                "  *inspect*\":testing\"*) printf '%s\\n' \"$DESTINATION_DIGEST\" ;;\n"
                 "esac\n",
                 encoding="utf-8",
             )

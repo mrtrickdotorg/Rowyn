@@ -761,6 +761,16 @@ jobs:
           stable_digest="$(skopeo inspect --authfile "${auth_file}" \
             --format '{{.Digest}}' "docker://${DEST_IMAGE}:stable")"
           [[ "${stable_digest}" == "${DESTINATION_DIGEST}" ]]
+          # The testing channel tracks the same verified digest on
+          # every green run: it is the fast ring of the same image,
+          # not a separate build (see docs/update-channels.md).
+          skopeo copy --preserve-digests \
+            --src-authfile "${auth_file}" --dest-authfile "${auth_file}" \
+            "docker://${DEST_IMAGE}@${DESTINATION_DIGEST}" \
+            "docker://${DEST_IMAGE}:testing"
+          testing_digest="$(skopeo inspect --authfile "${auth_file}" \
+            --format '{{.Digest}}' "docker://${DEST_IMAGE}:testing")"
+          [[ "${testing_digest}" == "${DESTINATION_DIGEST}" ]]
 
       - name: Verify destination stable tag digest
         shell: bash --noprofile --norc -euo pipefail {0}
@@ -772,4 +782,7 @@ jobs:
           stable_digest="$(skopeo inspect --no-creds \
             --format '{{.Digest}}' "docker://${DEST_IMAGE}:stable")"
           [[ "${stable_digest}" == "${DESTINATION_DIGEST}" ]]
+          testing_digest="$(skopeo inspect --no-creds \
+            --format '{{.Digest}}' "docker://${DEST_IMAGE}:testing")"
+          [[ "${testing_digest}" == "${DESTINATION_DIGEST}" ]]
 
