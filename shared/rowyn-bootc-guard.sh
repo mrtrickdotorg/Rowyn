@@ -22,6 +22,13 @@
 #                 under the bootc flock, then finalize the staged deployment
 #   switch-testing
 #                 the same, targeting ghcr.io/mrtrickdotorg/rowyn:testing
+#                 Both channels are promoted from one verified digest, so
+#                 a switch whose target tag resolves to the booted image's
+#                 own digest has nothing to deploy — bootc refuses that
+#                 switch outright. The guard detects the verified
+#                 digest-equal case itself (see same_image_as_booted),
+#                 records the channel exactly as a completed switch would,
+#                 and reports success without invoking bootc.
 set -uo pipefail
 
 readonly LOCK_FILE=/run/rowyn-bootc.lock
@@ -45,6 +52,48 @@ except (KeyError, TypeError, ValueError, json.JSONDecodeError):
     sys.exit(1)
 ') || return 1
     printf '%s' "$ref"
+}
+
+booted_image_digest() {
+    local status_json digest
+    status_json=$(timeout 30 /usr/bin/bootc status --json) || return 1
+    digest=$(printf '%s' "$status_json" | /usr/bin/python3 -c '
+import json, re, sys
+try:
+    doc = json.load(sys.stdin)
+    digest = doc["status"]["booted"]["image"]["imageDigest"]
+    if not isinstance(digest, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+        raise ValueError("unsupported image digest")
+    print(digest)
+except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+    sys.exit(1)
+') || return 1
+    printf '%s' "$digest"
+}
+
+target_image_digest() {
+    # Resolve a channel tag to the manifest digest the registry serves
+    # for it, so a switch target can be compared with the booted
+    # deployment without invoking bootc. Any failure (no network, no
+    # skopeo, unexpected output) is "unresolved", never a match.
+    local ref=$1 digest
+    digest=$(timeout 60 /usr/bin/skopeo inspect --format '{{.Digest}}' "docker://$ref" 2>/dev/null) || return 1
+    if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+        return 1
+    fi
+    printf '%s' "$digest"
+}
+
+same_image_as_booted() {
+    # True only on a positively verified match of two independently
+    # resolved digests: the booted deployment's own digest (bootc
+    # status) and the target tag's registry digest (skopeo inspect).
+    # Anything unresolved is false, and the caller takes the normal
+    # bootc path, fail-closed exactly as before this check existed.
+    local ref=$1 booted target
+    booted=$(booted_image_digest) || return 1
+    target=$(target_image_digest "$ref") || return 1
+    [[ "$booted" == "$target" ]]
 }
 
 if (( $# != 1 )); then
@@ -95,32 +144,6 @@ if [[ -x /usr/libexec/rowyn-finalize-staged ]]; then
     /usr/libexec/rowyn-finalize-staged prepare-boot >/dev/null 2>&1 || true
 fi
 
-booted_ref=$(booted_image_reference) || {
-    echo "rowyn-bootc-guard: could not determine the booted Rowyn image reference" >&2
-    exit 1
-}
-# Already on the target channel's tag: a plain upgrade pulls its newest
-# digest. Anything else Rowyn-shaped — the pre-move kyth-os namespace,
-# the other channel's tag, a digest-pinned deployment — switches to the
-# target ref explicitly.
-if [[ "$booted_ref" == "$TARGET_REF" ]]; then
-    timeout 3600 /usr/bin/bootc upgrade
-else
-    case "$booted_ref" in
-        ghcr.io/kyth-os/rowyn:*|ghcr.io/kyth-os/rowyn@sha256:*|ghcr.io/mrtrickdotorg/rowyn:*|ghcr.io/mrtrickdotorg/rowyn@sha256:*)
-            timeout 3600 /usr/bin/bootc switch "$TARGET_REF"
-            ;;
-        *)
-            echo "rowyn-bootc-guard: unsupported booted Rowyn image reference" >&2
-            exit 1
-            ;;
-    esac
-fi
-status=$?
-if (( status != 0 )); then
-    exit "$status"
-fi
-
 record_channel() {
     # Persist the selection where the watcher and rowyn-safe-upgrade
     # read it: the /etc policy wins over the shipped default, so record
@@ -150,9 +173,62 @@ channel_name=stable
 if [[ "$TARGET_REF" == "$TESTING_REF" ]]; then
     channel_name=testing
 fi
-if ! record_channel "$channel_name"; then
-    echo "rowyn-bootc-guard: warning: could not record Channel=$channel_name in the /etc update policy; automatic staging may keep following the previous channel" >&2
+
+record_channel_or_warn() {
+    if ! record_channel "$channel_name"; then
+        echo "rowyn-bootc-guard: warning: could not record Channel=$channel_name in the /etc update policy; automatic staging may keep following the previous channel" >&2
+    fi
+}
+
+already_on_target_build() {
+    # The target channel's tag resolves to the image already booted:
+    # there is no deployment to stage or finalize, so record the
+    # channel exactly as a completed switch would and report success.
+    record_channel_or_warn
+    echo "Already running this build; channel set to $channel_name — future updates will follow it."
+    exit 0
+}
+
+booted_ref=$(booted_image_reference) || {
+    echo "rowyn-bootc-guard: could not determine the booted Rowyn image reference" >&2
+    exit 1
+}
+# Already on the target channel's tag: a plain upgrade pulls its newest
+# digest. Anything else Rowyn-shaped — the pre-move kyth-os namespace,
+# the other channel's tag, a digest-pinned deployment — switches to the
+# target ref explicitly, unless that ref resolves to the very image
+# already booted (the digest-equal case above).
+if [[ "$booted_ref" == "$TARGET_REF" ]]; then
+    timeout 3600 /usr/bin/bootc upgrade
+else
+    case "$booted_ref" in
+        ghcr.io/kyth-os/rowyn:*|ghcr.io/kyth-os/rowyn@sha256:*|ghcr.io/mrtrickdotorg/rowyn:*|ghcr.io/mrtrickdotorg/rowyn@sha256:*)
+            if same_image_as_booted "$TARGET_REF"; then
+                already_on_target_build
+            fi
+            timeout 3600 /usr/bin/bootc switch "$TARGET_REF"
+            ;;
+        *)
+            echo "rowyn-bootc-guard: unsupported booted Rowyn image reference" >&2
+            exit 1
+            ;;
+    esac
 fi
+status=$?
+if (( status != 0 )); then
+    # A switch refused because the target is the deployment already
+    # booted has met its goal — but only the independently verified
+    # digest equality proves that is what happened; bootc's wording
+    # alone never does. Re-resolve both digests: equal means record
+    # the channel and report success; anything else (including
+    # "could not resolve") propagates the failure unchanged.
+    if [[ "$booted_ref" != "$TARGET_REF" ]] && same_image_as_booted "$TARGET_REF"; then
+        already_on_target_build
+    fi
+    exit "$status"
+fi
+
+record_channel_or_warn
 
 if [[ -x /usr/libexec/rowyn-finalize-staged ]]; then
     exec /usr/libexec/rowyn-finalize-staged

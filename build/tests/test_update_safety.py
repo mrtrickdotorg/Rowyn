@@ -150,9 +150,16 @@ class Sandbox:
         fin = self.dir / "finalize"
         fin.write_text("#!/bin/sh\nexit 0\n")
         fin.chmod(0o755)
+        # Digest resolution is unavailable in the sandbox (the fake
+        # status carries no imageDigest, and this skopeo stub refuses),
+        # so the digest-equal switch path can never trigger here.
+        skopeo = self.dir / "skopeo"
+        skopeo.write_text("#!/bin/sh\nexit 1\n")
+        skopeo.chmod(0o755)
         text = SAFE_UPGRADE.read_text()
         text = text.replace("if (( EUID != 0 )); then", "if false; then")
         text = text.replace("/usr/bin/bootc", str(bootc))
+        text = text.replace("/usr/bin/skopeo", str(skopeo))
         text = text.replace("/run/rowyn-bootc.lock", str(self.dir / "lock"))
         text = text.replace("/usr/libexec/rowyn-finalize-staged", str(fin))
         self.script = self.dir / "rowyn-safe-upgrade"

@@ -47,3 +47,13 @@ Underneath:
 Switching back is the same action in the other direction; nothing
 about the machine's data changes either way, and every deployment
 keeps bootc's normal rollback.
+
+Because both tags point at one digest, the switch usually finds the
+machine **already running the target channel's build** — only the
+tag its deployment carries differs, and bootc refuses to "switch"
+to the deployment already booted. That case completes as a channel
+change, not an error: the guard (and the stager) verifies that the
+target tag's digest is the booted image's own digest, records the
+channel, and reports *Already running this build; channel set to
+…* — future updates then follow the newly recorded channel, and
+the next promoted build stages normally.

@@ -2,6 +2,7 @@
 """Rowyn's update helpers must match its composefs + systemd-boot layout."""
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -32,6 +33,19 @@ class SafeUpgradeTests(unittest.TestCase):
         self.assertIn('bootc switch "$TARGET_REF"', text)
         self.assertIn('/usr/bin/bootc upgrade', text)
 
+    def test_digest_equal_switch_is_handled_in_both_switch_paths(self):
+        # The guard (manual channel switch) and the stager (watcher /
+        # Hub staging) share the verified digest comparison: the
+        # booted digest from bootc status, the target tag's digest
+        # from skopeo inspect, never bootc's error wording.
+        for script in ("rowyn-bootc-guard.sh", "rowyn-safe-upgrade.sh"):
+            text = (ROOT / "shared" / script).read_text(encoding="utf-8")
+            self.assertIn("same_image_as_booted", text)
+            self.assertIn('"imageDigest"', text)
+            self.assertIn("/usr/bin/skopeo inspect", text)
+            # The decision never pattern-matches bootc's refusal text.
+            self.assertNotIn("same fs-verity digest as the existing", text)
+
     def test_only_the_physical_root_space_is_checked(self):
         text = SAFE_UPGRADE.read_text(encoding="utf-8")
         self.assertIn('check_free /sysroot "$SYSROOT_FREE_MIN_BYTES"', text)
@@ -42,24 +56,47 @@ class SafeUpgradeTests(unittest.TestCase):
 
 
 class BootcGuardOperationTests(unittest.TestCase):
+    BOOTED_DIGEST = "sha256:" + "a" * 64
+    OTHER_DIGEST = "sha256:" + "b" * 64
+
     FAKE_BOOTC = """#!/bin/sh
 case "$1" in
 status)
-    printf '{"status":{"booted":{"image":{"image":{"image":"%s"}}}}}' "$BOOTED_IMAGE_REF"
+    printf '%s' "$BOOTED_STATUS_JSON"
     ;;
 switch|upgrade)
     printf '%s' "$*" >> "$BOOTC_CALLS"
+    if [ "${BOOTC_SWITCH_FAILS:-0}" = 1 ]; then
+        echo "error: Switching: Composefs Switching: Target image has the same fs-verity digest as the existing Some(Booted) deployment." >&2
+        exit 1
+    fi
     ;;
 *) exit 9 ;;
 esac
 """
 
-    def run_guard(self, image_ref, operation="switch-latest"):
+    FAKE_SKOPEO = """#!/bin/sh
+if [ "${SKOPEO_FAIL_FIRST:-0}" = 1 ]; then
+    count=0
+    if [ -f "$SKOPEO_COUNTER" ]; then count=$(cat "$SKOPEO_COUNTER"); fi
+    count=$((count + 1))
+    printf '%s' "$count" > "$SKOPEO_COUNTER"
+    if [ "$count" = 1 ]; then exit 1; fi
+fi
+printf '%s' "$TARGET_IMAGE_DIGEST"
+"""
+
+    def run_guard(self, image_ref, operation="switch-latest", *,
+                  target_digest=OTHER_DIGEST, switch_fails=False,
+                  skopeo_fail_first=False):
         with tempfile.TemporaryDirectory(prefix="rowyn-bootc-guard-") as temp:
             base = Path(temp)
             bootc = base / "bootc"
             bootc.write_text(self.FAKE_BOOTC, encoding="utf-8")
             bootc.chmod(0o755)
+            skopeo = base / "skopeo"
+            skopeo.write_text(self.FAKE_SKOPEO, encoding="utf-8")
+            skopeo.chmod(0o755)
             finalize = base / "finalize"
             finalize.write_text("#!/bin/sh\necho \"$*\" >> \"$FINALIZE_CALLS\"\nexit 0\n",
                                 encoding="utf-8")
@@ -73,14 +110,24 @@ esac
                                       encoding="utf-8")
             text = (ROOT / "shared/rowyn-bootc-guard.sh").read_text(encoding="utf-8")
             text = text.replace("/usr/bin/bootc", str(bootc))
+            text = text.replace("/usr/bin/skopeo", str(skopeo))
             text = text.replace("/run/rowyn-bootc.lock", str(base / "lock"))
             text = text.replace("/usr/libexec/rowyn-finalize-staged", str(finalize))
             script = base / "guard"
             script.write_text(text, encoding="utf-8")
-            env = dict(os.environ, BOOTED_IMAGE_REF=image_ref,
+            status_json = json.dumps({"status": {"booted": {"image": {
+                "image": {"image": image_ref},
+                "imageDigest": self.BOOTED_DIGEST}}}})
+            env = dict(os.environ, BOOTED_STATUS_JSON=status_json,
+                       TARGET_IMAGE_DIGEST=target_digest,
+                       SKOPEO_COUNTER=str(base / "skopeo-counter"),
                        BOOTC_CALLS=str(calls), FINALIZE_CALLS=str(finalizer_calls),
                        ROWYN_POLICY_ETC=str(policy_etc),
                        ROWYN_POLICY_DEFAULT=str(policy_default))
+            if switch_fails:
+                env["BOOTC_SWITCH_FAILS"] = "1"
+            if skopeo_fail_first:
+                env["SKOPEO_FAIL_FIRST"] = "1"
             result = subprocess.run(["bash", str(script), operation],
                                     capture_output=True, text=True, timeout=30, env=env)
             recorded = (policy_etc.read_text(encoding="utf-8")
@@ -131,6 +178,52 @@ esac
         self.assertIn("switch ghcr.io/mrtrickdotorg/rowyn:stable", calls)
         self.assertIn("Channel=stable", recorded)
 
+    def test_switch_testing_with_equal_digests_records_channel_without_bootc(self):
+        # Both channels are promoted from one verified digest, so the
+        # testing tag resolves to the booted image itself: bootc would
+        # refuse the switch, and the guard must complete it as a
+        # channel change without invoking bootc at all.
+        result, calls, recorded = self.run_guard(
+            "ghcr.io/mrtrickdotorg/rowyn:stable", "switch-testing",
+            target_digest=self.BOOTED_DIGEST)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls, "")
+        self.assertIn("Channel=testing", recorded)
+        self.assertIn("AutoStage=yes", recorded)
+        self.assertIn("Already running this build; channel set to testing",
+                      result.stdout)
+
+    def test_switch_latest_with_equal_digests_records_stable(self):
+        result, calls, recorded = self.run_guard(
+            "ghcr.io/mrtrickdotorg/rowyn:testing", "switch-latest",
+            target_digest=self.BOOTED_DIGEST)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls, "")
+        self.assertIn("Channel=stable", recorded)
+        self.assertIn("Already running this build; channel set to stable",
+                      result.stdout)
+
+    def test_switch_refused_for_equal_digest_is_salvaged_by_recheck(self):
+        # The up-front digest resolution fails (skopeo's first call),
+        # bootc refuses the switch with the same-digest error, and the
+        # guard's independent re-check confirms the equality: the
+        # switch's goal was already met, so the channel is recorded.
+        result, calls, recorded = self.run_guard(
+            "ghcr.io/mrtrickdotorg/rowyn:stable", "switch-testing",
+            target_digest=self.BOOTED_DIGEST, switch_fails=True,
+            skopeo_fail_first=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("switch ghcr.io/mrtrickdotorg/rowyn:testing", calls)
+        self.assertIn("Channel=testing", recorded)
+
+    def test_failed_switch_with_different_digests_still_fails(self):
+        result, calls, recorded = self.run_guard(
+            "ghcr.io/mrtrickdotorg/rowyn:stable", "switch-testing",
+            switch_fails=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("switch ghcr.io/mrtrickdotorg/rowyn:testing", calls)
+        self.assertNotIn("Channel=testing", recorded)
+
 
 class SafeUpgradeProgressPipeTests(unittest.TestCase):
     """bootc's --progress-fd must be a real pipe ("not a pipe" otherwise).
@@ -178,9 +271,16 @@ esac
             finalize = temp_path / "finalize"
             finalize.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
             finalize.chmod(0o755)
+            # Digest resolution stays unavailable in this class: the
+            # fake status carries no imageDigest, and the skopeo stub
+            # refuses, so the digest-equal path can never trigger here.
+            skopeo = temp_path / "skopeo"
+            skopeo.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+            skopeo.chmod(0o755)
             text = SAFE_UPGRADE.read_text(encoding="utf-8")
             text = text.replace("if (( EUID != 0 )); then", "if false; then")
             text = text.replace("/usr/bin/bootc", str(bootc))
+            text = text.replace("/usr/bin/skopeo", str(skopeo))
             text = text.replace("/run/rowyn-bootc.lock", str(temp_path / "lock"))
             text = text.replace("/usr/libexec/rowyn-finalize-staged", str(finalize))
             script = temp_path / "rowyn-safe-upgrade"
@@ -221,15 +321,25 @@ esac
 class SafeUpgradeChannelTests(unittest.TestCase):
     """The policy channel selects the staged ref: a machine on testing
     stages testing; a channel change stages a switch; an unknown
-    channel fails closed before bootc runs."""
+    channel fails closed before bootc runs. Because both channels are
+    promoted from one verified digest, a channel change whose target
+    digest is the booted image's own digest is already current —
+    bootc switch refuses that identical target outright."""
+
+    BOOTED_DIGEST = "sha256:" + "a" * 64
+    OTHER_DIGEST = "sha256:" + "b" * 64
 
     FAKE_BOOTC = """#!/bin/sh
 printf '%s\\n' "$*" >> "$BOOTC_CALLS"
 case "$1" in
 status)
-    printf '{"status":{"booted":{"image":{"image":{"image":"%s"}}},"staged":{"image":{}}}}\n' "$BOOTED_IMAGE_REF"
+    printf '%s\n' "$BOOTED_STATUS_JSON"
     ;;
 switch|upgrade)
+    if [ "${BOOTC_SWITCH_FAILS:-0}" = 1 ]; then
+        echo "error: Switching: Composefs Switching: Target image has the same fs-verity digest as the existing Some(Booted) deployment." >&2
+        exit 1
+    fi
     for arg in "$@"; do
         if [ "$arg" = "--progress-fd" ] && [ -p /dev/fd/3 ]; then
             echo '{"type":"ProgressBytes","task":"pulling","bytes":10,"bytesTotal":100,"steps":0,"stepsTotal":1}' >&3
@@ -240,12 +350,28 @@ switch|upgrade)
 esac
 """
 
-    def run_script(self, booted_image_ref, policy_text):
+    FAKE_SKOPEO = """#!/bin/sh
+if [ "${SKOPEO_FAIL_FIRST:-0}" = 1 ]; then
+    count=0
+    if [ -f "$SKOPEO_COUNTER" ]; then count=$(cat "$SKOPEO_COUNTER"); fi
+    count=$((count + 1))
+    printf '%s' "$count" > "$SKOPEO_COUNTER"
+    if [ "$count" = 1 ]; then exit 1; fi
+fi
+printf '%s' "$TARGET_IMAGE_DIGEST"
+"""
+
+    def run_script(self, booted_image_ref, policy_text, *,
+                   target_digest=OTHER_DIGEST, switch_fails=False,
+                   skopeo_fail_first=False):
         with tempfile.TemporaryDirectory(prefix="rowyn-safe-upgrade-channel-") as temp:
             temp_path = Path(temp)
             bootc = temp_path / "bootc"
             bootc.write_text(self.FAKE_BOOTC, encoding="utf-8")
             bootc.chmod(0o755)
+            skopeo = temp_path / "skopeo"
+            skopeo.write_text(self.FAKE_SKOPEO, encoding="utf-8")
+            skopeo.chmod(0o755)
             finalize = temp_path / "finalize"
             finalize.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
             finalize.chmod(0o755)
@@ -255,14 +381,25 @@ esac
             text = SAFE_UPGRADE.read_text(encoding="utf-8")
             text = text.replace("if (( EUID != 0 )); then", "if false; then")
             text = text.replace("/usr/bin/bootc", str(bootc))
+            text = text.replace("/usr/bin/skopeo", str(skopeo))
             text = text.replace("/run/rowyn-bootc.lock", str(temp_path / "lock"))
             text = text.replace("/usr/libexec/rowyn-finalize-staged", str(finalize))
             script = temp_path / "rowyn-safe-upgrade"
             script.write_text(text, encoding="utf-8")
-            env = dict(os.environ, BOOTED_IMAGE_REF=booted_image_ref,
+            status_json = json.dumps({"status": {
+                "booted": {"image": {"image": {"image": booted_image_ref},
+                                     "imageDigest": self.BOOTED_DIGEST}},
+                "staged": {"image": {}}}})
+            env = dict(os.environ, BOOTED_STATUS_JSON=status_json,
+                       TARGET_IMAGE_DIGEST=target_digest,
+                       SKOPEO_COUNTER=str(temp_path / "skopeo-counter"),
                        BOOTC_CALLS=str(calls),
                        ROWYN_POLICY_ETC=str(policy),
                        ROWYN_POLICY_DEFAULT=str(temp_path / "absent-default"))
+            if switch_fails:
+                env["BOOTC_SWITCH_FAILS"] = "1"
+            if skopeo_fail_first:
+                env["SKOPEO_FAIL_FIRST"] = "1"
             result = subprocess.run(["bash", str(script)], capture_output=True,
                                     text=True, timeout=60, env=env)
             recorded = calls.read_text(encoding="utf-8") if calls.exists() else ""
@@ -281,6 +418,41 @@ esac
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("switch", calls)
         self.assertIn("ghcr.io/mrtrickdotorg/rowyn:testing", calls)
+
+    def test_channel_change_with_equal_digests_is_already_current(self):
+        # The testing tag resolves to the booted image's own digest:
+        # bootc switch would refuse it, so staging completes as
+        # already current and bootc is never asked to switch.
+        result, calls = self.run_script(
+            "ghcr.io/mrtrickdotorg/rowyn:stable", "Channel=testing\n",
+            target_digest=self.BOOTED_DIGEST)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("ROWYN_UPDATE_RESULT outcome=current reason=no_update",
+                      result.stdout)
+        self.assertNotIn("switch", calls)
+        self.assertNotIn("upgrade", calls)
+
+    def test_switch_refused_for_equal_digest_is_salvaged_by_recheck(self):
+        # The up-front digest resolution fails (skopeo's first call),
+        # bootc refuses the switch with the same-digest error, and the
+        # independent re-check confirms the equality: already current,
+        # not a failure the watcher would retry forever.
+        result, calls = self.run_script(
+            "ghcr.io/mrtrickdotorg/rowyn:stable", "Channel=testing\n",
+            target_digest=self.BOOTED_DIGEST, switch_fails=True,
+            skopeo_fail_first=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("switch", calls)
+        self.assertIn("ROWYN_UPDATE_RESULT outcome=current reason=no_update",
+                      result.stdout)
+
+    def test_failed_switch_with_different_digests_still_fails(self):
+        result, calls = self.run_script(
+            "ghcr.io/mrtrickdotorg/rowyn:stable", "Channel=testing\n",
+            switch_fails=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("switch", calls)
+        self.assertIn("ROWYN_UPDATE_RESULT outcome=failed", result.stdout)
 
     def test_unknown_channel_fails_closed(self):
         result, calls = self.run_script(

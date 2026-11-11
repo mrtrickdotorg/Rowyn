@@ -11,6 +11,14 @@
 #     promoted tag of the canonical image this machine follows, and a
 #     staged image older than the booted one is refused unless
 #     AllowDowngrade=yes
+#   * both channels are promoted from a single verified digest, so the
+#     followed channel's tag routinely resolves to the very image
+#     already booted while the booted deployment carries the other
+#     channel's tag; bootc switch refuses that identical target
+#     outright, so a verified digest-equal "switch" is reported as
+#     already current instead of failing every watcher run (the digest
+#     comparison is same_image_as_booted: two independently resolved
+#     digests, never bootc's error wording)
 #   * a refused downgrade is quarantined through rowyn-boot-health, so it
 #     can never be treated as a healthy boot even if it still boots
 #
@@ -494,6 +502,48 @@ except (KeyError, TypeError, ValueError, json.JSONDecodeError):
     printf '%s' "$ref"
 }
 
+booted_image_digest() {
+    local status_json digest
+    status_json=$(timeout 30 /usr/bin/bootc status --json) || return 1
+    digest=$(printf '%s' "$status_json" | /usr/bin/python3 -c '
+import json, re, sys
+try:
+    doc = json.load(sys.stdin)
+    digest = doc["status"]["booted"]["image"]["imageDigest"]
+    if not isinstance(digest, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+        raise ValueError("unsupported image digest")
+    print(digest)
+except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+    sys.exit(1)
+') || return 1
+    printf '%s' "$digest"
+}
+
+target_image_digest() {
+    # Resolve a channel tag to the manifest digest the registry serves
+    # for it, so a switch target can be compared with the booted
+    # deployment without invoking bootc. Any failure (no network, no
+    # skopeo, unexpected output) is "unresolved", never a match.
+    local ref=$1 digest
+    digest=$(timeout 60 /usr/bin/skopeo inspect --format '{{.Digest}}' "docker://$ref" 2>/dev/null) || return 1
+    if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+        return 1
+    fi
+    printf '%s' "$digest"
+}
+
+same_image_as_booted() {
+    # True only on a positively verified match of two independently
+    # resolved digests: the booted deployment's own digest (bootc
+    # status) and the target tag's registry digest (skopeo inspect).
+    # Anything unresolved is false, and the caller takes the normal
+    # bootc path, fail-closed exactly as before this check existed.
+    local ref=$1 booted target
+    booted=$(booted_image_digest) || return 1
+    target=$(target_image_digest "$ref") || return 1
+    [[ "$booted" == "$target" ]]
+}
+
 result_detail() {
     # bootc's own words are the job detail (the upstream helper relays the
     # same text,
@@ -557,6 +607,17 @@ main() {
         esac
     fi
 
+    if [[ "$operation" == switch ]] && same_image_as_booted "$update_ref"; then
+        # The followed channel's tag resolves to the image already
+        # booted, and bootc switch refuses an identical target
+        # outright. There is nothing to stage: the machine already
+        # runs the followed build, and the next promoted digest
+        # stages through this same path as a real switch.
+        echo "Rowyn is already running the latest image."
+        emit_result current no_update
+        exit 0
+    fi
+
     emit_marker 1 download "Starting image download"
 
     run_bootc_update "$operation" 1
@@ -577,6 +638,18 @@ main() {
         fail "bootc update timed out; retry later"
     fi
     if (( child_status != 0 )); then
+        # A switch refused because the target is the deployment
+        # already booted has met its goal — but only the independently
+        # verified digest equality proves that is what happened;
+        # bootc's wording alone never does. (This also covers the
+        # up-front check above having been unable to resolve a digest
+        # while bootc itself reached the registry.) Any other failure
+        # propagates unchanged.
+        if [[ "$operation" == switch ]] && same_image_as_booted "$update_ref"; then
+            echo "Rowyn is already running the latest image."
+            emit_result current no_update
+            exit 0
+        fi
         local detail
         detail=$(result_detail)
         if [[ -n "$detail" ]]; then
