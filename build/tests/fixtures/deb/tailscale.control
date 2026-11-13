@@ -1,0 +1,11 @@
+Package: tailscale
+Version: 1.92.5
+Architecture: amd64
+Maintainer: Tailscale Inc <info@tailscale.com>
+Installed-Size: 52103
+Depends: libc6, iptables, iproute2, nftables
+Section: net
+Priority: optional
+Description: The easiest, most secure way to use WireGuard and 2FA
+ Tailscale is a zero config VPN that makes devices and applications
+ accessible anywhere in the world, securely and effortlessly.

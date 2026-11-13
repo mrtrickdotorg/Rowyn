@@ -1,0 +1,11 @@
+Package: discord
+Version: 0.0.124
+Architecture: amd64
+Maintainer: Discord Inc. <linux@discord.com>
+Installed-Size: 189345
+Depends: libc6, libasound2, libatomic1, libcairo2, libgtk-3-0, libnotify4, libnss3, libpango-1.0-0, libx11-6, libxss1, libxtst6, xdg-utils, libappindicator3-1
+Section: net
+Priority: optional
+Description: All-in-one voice and text chat
+ Discord is a voice, video and text communication platform for
+ communities and friends.

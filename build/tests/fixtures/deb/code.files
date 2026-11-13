@@ -1,0 +1,15 @@
+/usr/share/code/code
+/usr/share/code/chrome-sandbox
+/usr/share/code/chrome_crashpad_handler
+/usr/share/code/libEGL.so
+/usr/share/code/libGLESv2.so
+/usr/share/code/libffmpeg.so
+/usr/share/code/resources/app/package.json
+/usr/share/code/resources/app/extensions/
+/usr/share/code/resources/app/out/
+/usr/share/applications/code.desktop
+/usr/share/applications/code-url-handler.desktop
+/usr/share/pixmaps/vscode.png
+/usr/share/zsh/vendor-completions/_code
+/usr/share/bash-completion/completions/code
+/usr/share/mime/packages/code-workspace.xml

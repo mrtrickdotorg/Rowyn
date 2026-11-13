@@ -1,0 +1,302 @@
+#!/usr/bin/python3
+"""Inspect a .deb and classify it for Rowyn's guarded install path.
+
+Rowyn's host is an immutable bootc image, so a downloaded .deb is never
+installed on the host. Supported .debs are installed inside the dedicated
+``rowyn-deb`` Distrobox instead (see the Hub's Apps page). This tool is
+the single classifier both entry points use: the .deb file handler shows
+its report to the user, and the Hub backend re-runs it before any
+install and refuses to proceed on a different verdict.
+
+Classification is deliberately concrete. A package is refused as a
+system package when its own control metadata or file list shows it is
+an OS component rather than an application:
+
+- kernel-module: ships files under a modules tree or a dkms.conf
+- dkms-dependency: is a -dkms package or depends on dkms
+- system-service: ships a systemd *system* unit (user units are fine)
+- boot-integration: writes into /boot, kernel or initramfs hooks
+- essential-package: Essential/Priority-required or a core OS name
+- host-configuration-only: ships host device (udev) rules but no
+  launchable application payload at all
+
+Non-blocking observations (host udev rules next to a real app, a vendor
+apt source, a bundled cron updater) are reported as notes: inside the
+container those files are inert, and the user should know.
+
+Output: JSON (default) or KEY=VALUE lines (--format lines) for the
+shell handler. Exit status is 0 for a completed inspection regardless
+of verdict; 2 for an unreadable/invalid package.
+"""
+import hashlib
+import json
+import re
+import subprocess
+import sys
+
+# Packages whose .deb duplicates an app Rowyn already routes through
+# Flathub. Informational only: the Flatpak is offered first either way.
+FLATPAK_HINTS = {
+    "code": ("Visual Studio Code", "com.visualstudio.code"),
+    "discord": ("Discord", "com.discordapp.Discord"),
+    "slack-desktop": ("Slack", "com.slack.Slack"),
+    "spotify-client": ("Spotify", "com.spotify.Client"),
+    "steam": ("Steam", "com.valvesoftware.Steam"),
+    "steam-launcher": ("Steam", "com.valvesoftware.Steam"),
+    "zoom": ("Zoom", "us.zoom.Zoom"),
+}
+
+CORE_NAME_PATTERNS = (
+    re.compile(r"^linux-(image|modules|headers|generic|lowlatency)"),
+    re.compile(r"^kernel"),
+    re.compile(r"^systemd($|-)"),
+    re.compile(r"^udev$"),
+    re.compile(r"^grub"),
+    re.compile(r"^shim"),
+    re.compile(r"^initramfs-tools"),
+    re.compile(r"^dkms$"),
+)
+
+SYSTEM_UNIT_DIRS = ("/lib/systemd/system/", "/usr/lib/systemd/system/")
+UDEV_RULE_DIRS = ("/lib/udev/rules.d/", "/usr/lib/udev/rules.d/")
+MODULE_DIRS = ("/lib/modules/", "/usr/lib/modules/")
+BOOT_PREFIXES = ("/boot/", "/etc/kernel/", "/usr/share/initramfs-tools/",
+                 "/etc/initramfs-tools/")
+DESKTOP_DIR = "/usr/share/applications/"
+BIN_DIRS = ("/usr/bin/", "/bin/", "/usr/local/bin/")
+
+
+def parse_control(text):
+    """Parse one dpkg control stanza (continuation lines unfolded)."""
+    fields = {}
+    current = None
+    for line in text.splitlines():
+        if not line.strip():
+            break
+        if line[0] in " \t" and current:
+            fields[current] += "\n" + line[1:]
+            continue
+        name, sep, value = line.partition(":")
+        if not sep:
+            continue
+        current = name.strip()
+        fields[current] = value.strip()
+    return fields
+
+
+def _norm(path):
+    path = path.strip()
+    if path.startswith("./"):
+        path = path[1:]
+    if not path.startswith("/"):
+        path = "/" + path
+    return path
+
+
+def classify(fields, files):
+    """Return (verdict, reasons, notes) for parsed control + file list.
+
+    reasons/notes are lists of (signal, human text) pairs. Pure: the
+    test-suite feeds verbatim production fixtures through here.
+    """
+    name = fields.get("Package", "")
+    depends = " ".join(
+        fields.get(key, "") for key in ("Depends", "Pre-Depends"))
+    depends_names = {
+        part.strip().split(" ")[0].split("(")[0]
+        for part in re.split(r"[,|]", depends) if part.strip()}
+    files = [_norm(path) for path in files]
+    reasons = []
+    notes = []
+
+    desktop_files = sorted(
+        path for path in files
+        if path.startswith(DESKTOP_DIR) and path.endswith(".desktop"))
+    binaries = sorted(
+        path for path in files
+        if not path.endswith("/") and any(
+            path.startswith(directory)
+            and path[len(directory):] != ""
+            and "/" not in path[len(directory):]
+            for directory in BIN_DIRS))
+    launchable = bool(desktop_files or binaries)
+
+    if any(path.startswith(MODULE_DIRS) for path in files) or \
+            any(path.endswith("/dkms.conf") for path in files):
+        reasons.append((
+            "kernel-module",
+            "it ships kernel modules, which only the OS image itself "
+            "can provide"))
+    if name.endswith("-dkms") or "dkms" in depends_names:
+        reasons.append((
+            "dkms-dependency",
+            "it builds kernel modules with DKMS, which only works in "
+            "the OS image itself"))
+    if any(path.startswith(SYSTEM_UNIT_DIRS) and
+           path.rsplit("/", 1)[-1].endswith(
+               (".service", ".socket", ".timer", ".target", ".mount",
+                ".path"))
+           for path in files):
+        reasons.append((
+            "system-service",
+            "it installs a system service that must run on the host, "
+            "not inside an app container"))
+    if any(path.startswith(BOOT_PREFIXES) for path in files):
+        reasons.append((
+            "boot-integration",
+            "it hooks into the kernel/boot process, which belongs to "
+            "the OS image"))
+    if fields.get("Essential", "").lower() == "yes" or \
+            fields.get("Priority", "").lower() == "required" or \
+            any(pattern.search(name) for pattern in CORE_NAME_PATTERNS):
+        reasons.append((
+            "essential-package",
+            "it is a core operating-system package, not an application"))
+    udev_rules = [path for path in files
+                  if path.startswith(UDEV_RULE_DIRS)]
+    if udev_rules and not launchable:
+        reasons.append((
+            "host-configuration-only",
+            "its payload is device rules for the host and it contains "
+            "no application to run"))
+    elif udev_rules:
+        notes.append((
+            "host-device-rules",
+            "it also ships device rules for the host; those do not "
+            "take effect from inside the container"))
+    if any(path.startswith("/etc/apt/sources.list.d/") for path in files):
+        notes.append((
+            "vendor-source",
+            "it adds the vendor's software source inside the "
+            "container, which is how it will receive its updates"))
+    if any(path.startswith("/etc/cron.daily/") for path in files):
+        notes.append((
+            "bundled-updater",
+            "it bundles its own updater, which cannot run inside the "
+            "container; update it by installing a newer .deb"))
+
+    verdict = "system" if reasons else "user-app"
+    return verdict, reasons, notes, desktop_files, binaries
+
+
+def read_ar_members(path):
+    """List the member names of a .deb (an ar archive) in pure Python."""
+    members = []
+    with open(path, "rb") as handle:
+        if handle.read(8) != b"!<arch>\n":
+            raise ValueError("not a Debian package (bad ar magic)")
+        while True:
+            header = handle.read(60)
+            if len(header) < 60:
+                break
+            name = header[0:16].decode("ascii", "replace").strip()
+            try:
+                size = int(header[48:58].decode("ascii", "replace").strip())
+            except ValueError:
+                break
+            members.append(name.rstrip("/"))
+            handle.seek(size + (size % 2), 1)
+    return members
+
+
+def run_dpkg_deb(arguments):
+    done = subprocess.run(
+        ["/usr/bin/dpkg-deb"] + arguments,
+        capture_output=True, text=True, timeout=60)
+    if done.returncode != 0:
+        raise ValueError("dpkg-deb could not read the package: "
+                         + done.stderr.strip().splitlines()[-1]
+                         if done.stderr.strip() else
+                         "dpkg-deb could not read the package")
+    return done.stdout
+
+
+def inspect(path):
+    with open(path, "rb") as handle:
+        digest = hashlib.sha256()
+        size = 0
+        while True:
+            chunk = handle.read(1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+            size += len(chunk)
+    members = read_ar_members(path)
+    fields = parse_control(run_dpkg_deb(["-f", path]))
+    listing = run_dpkg_deb(["-c", path])
+    files = []
+    for line in listing.splitlines():
+        parts = line.split(None, 5)
+        if len(parts) == 6:
+            files.append(parts[5])
+    verdict, reasons, notes, desktop_files, binaries = classify(fields, files)
+    name = fields.get("Package", "")
+    description = fields.get("Description", "")
+    hint = FLATPAK_HINTS.get(name)
+    return {
+        "package": name,
+        "version": fields.get("Version", ""),
+        "architecture": fields.get("Architecture", ""),
+        "maintainer": fields.get("Maintainer", ""),
+        "description": description.splitlines()[0] if description else "",
+        "installed_size_kib": int(fields.get("Installed-Size", "0") or 0),
+        "file_size_bytes": size,
+        "sha256": digest.hexdigest(),
+        "signature": ("embedded" if any(
+            member.startswith("_gpg") for member in members)
+            else "none"),
+        "verdict": verdict,
+        "reasons": [{"signal": signal, "text": text}
+                    for signal, text in reasons],
+        "notes": [{"signal": signal, "text": text}
+                  for signal, text in notes],
+        "desktop_files": desktop_files,
+        "binaries": binaries,
+        "flatpak_hint": (
+            {"label": hint[0], "id": hint[1]} if hint else None),
+    }
+
+
+def main(argv):
+    args = [arg for arg in argv[1:] if arg != "--format"]
+    fmt = "json"
+    if "--format" in argv:
+        index = argv.index("--format")
+        fmt = argv[index + 1]
+        args = [arg for arg in argv[1:index] + argv[index + 2:]]
+    if len(args) != 1:
+        print("usage: rowyn-deb-inspect [--format json|lines] PACKAGE.deb",
+              file=sys.stderr)
+        return 2
+    try:
+        report = inspect(args[0])
+    except (OSError, ValueError) as error:
+        print(f"rowyn-deb-inspect: {error}", file=sys.stderr)
+        return 2
+    if fmt == "lines":
+        def clean(value):
+            return str(value).replace("\n", " ").replace("\r", " ")
+        print("package=" + clean(report["package"]))
+        print("version=" + clean(report["version"]))
+        print("maintainer=" + clean(report["maintainer"]))
+        print("description=" + clean(report["description"]))
+        print("installed_size_kib=" + str(report["installed_size_kib"]))
+        print("file_size_bytes=" + str(report["file_size_bytes"]))
+        print("signature=" + report["signature"])
+        print("verdict=" + report["verdict"])
+        print("reasons=" + clean("; ".join(
+            reason["text"] for reason in report["reasons"])))
+        print("notes=" + clean("; ".join(
+            note["text"] for note in report["notes"])))
+        hint = report["flatpak_hint"]
+        print("flatpak_hint=" + (
+            clean(f"{hint['label']} ({hint['id']})") if hint else ""))
+        print("desktop_files=" + clean(" ".join(report["desktop_files"])))
+        print("binaries=" + clean(" ".join(report["binaries"])))
+        return 0
+    print(json.dumps(report, indent=2, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

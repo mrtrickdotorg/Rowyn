@@ -1,0 +1,9 @@
+/usr/bin/dockerd
+/usr/bin/docker-proxy
+/usr/bin/docker-init
+/lib/systemd/system/docker.service
+/lib/systemd/system/docker.socket
+/usr/share/doc/docker-ce/
+/usr/share/man/man8/dockerd.8.gz
+/usr/share/bash-completion/completions/docker
+/etc/default/docker

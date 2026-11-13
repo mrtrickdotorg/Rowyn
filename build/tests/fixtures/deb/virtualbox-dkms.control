@@ -1,0 +1,20 @@
+Package: virtualbox-dkms
+Source: virtualbox
+Priority: optional
+Section: multiverse/kernel
+Installed-Size: 6902
+Maintainer: Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>
+Architecture: amd64
+Version: 7.2.20-dfsg-2
+Recommends: virtualbox (>= 7.2.20-dfsg-2)
+Provides: virtualbox-modules
+Depends: dkms (>= 2.1.0.0)
+Filename: pool/multiverse/v/virtualbox/virtualbox-dkms_7.2.20-dfsg-2_amd64.deb
+Size: 883670
+SHA512: 369ed6f834c853cb6d632243b2fc8961e7208b72e3ed646c47fc07b561e5834acee3143f3c2235e62e9543cd6d4f5a1c640640d159a40ae3c21ea7a5deb334cc
+Homepage: https://www.virtualbox.org
+Description: x86 virtualization solution - kernel module sources for dkms
+Description-md5: 4d42f0fe51c4a92f2aed5071f84524ae
+Original-Maintainer: Debian Virtualbox Team <team+debian-virtualbox@tracker.debian.org>
+Origin: Ubuntu
+Bugs: https://bugs.launchpad.net/ubuntu/+filebug

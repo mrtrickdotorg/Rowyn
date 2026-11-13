@@ -1,0 +1,10 @@
+/opt/zoom/zoom
+/opt/zoom/Qt/
+/opt/zoom/libQt5Core.so.5
+/opt/zoom/zoomdiagnostic
+/opt/zoom/timezones.db
+/usr/bin/zoom
+/usr/share/applications/Zoom.desktop
+/usr/share/doc/zoom/
+/usr/share/mime/packages/zoom.xml
+/usr/share/pixmaps/Zoom.png

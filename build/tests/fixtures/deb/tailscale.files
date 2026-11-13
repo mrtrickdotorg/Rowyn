@@ -1,0 +1,5 @@
+/usr/bin/tailscale
+/usr/sbin/tailscaled
+/lib/systemd/system/tailscaled.service
+/usr/share/doc/tailscale/
+/etc/default/tailscaled

@@ -1,0 +1,21 @@
+Package: steam-launcher
+Source: steam
+Version: 1:1.0.0.87
+Architecture: amd64
+Maintainer: Valve Corporation <linux@steampowered.com>
+Installed-Size: 20091
+Pre-Depends: dpkg (>= 1.17.0)
+Depends: apt (>= 1.1), apt (>= 1.6) | apt-transport-https, ca-certificates, coreutils (>= 8.23-1~), curl, default-dbus-session-bus | dbus-session-bus | dbus-x11, file, libc6 (>= 2.15), libnss3 (>= 2:3.26), lsof, pkexec | policykit-1, python3 (>= 3.4), python3-apt, xdg-user-dirs, xterm | gnome-terminal | konsole, xz-utils, zenity
+Recommends: steam-libs-amd64, steam-libs-i386, sudo, xdg-desktop-portal, xdg-desktop-portal-gtk | xdg-desktop-portal-backend, xdg-utils | steamos-base-files
+Conflicts: steam-devices, steam-installer
+Breaks: steam64
+Replaces: steam, steam-devices, steam-installer, steam64
+Provides: steam, steam-devices, steam-installer
+Section: games
+Priority: optional
+Multi-Arch: foreign
+Homepage: http://www.steampowered.com/
+Description: Launcher for the Steam software distribution service
+ Steam is a software distribution service with an online store, automated
+ installation, automatic updates, achievements, SteamCloud synchronized
+ savegame and screenshot functionality, and many social features.

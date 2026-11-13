@@ -1,0 +1,29 @@
+Package: docker-ce
+Architecture: amd64
+Version: 5:26.0.0-1~ubuntu.24.04~noble
+Priority: optional
+Section: admin
+Maintainer: Docker <support@docker.com>
+Installed-Size: 106389
+Depends: containerd.io (>= 1.6.24), docker-ce-cli, iptables, libseccomp2 (>= 2.3.0), libc6 (>= 2.34), libsystemd0
+Recommends: apparmor, ca-certificates, docker-ce-rootless-extras, git, libltdl7, pigz, procps, xz-utils
+Suggests: aufs-tools, cgroupfs-mount | cgroup-lite
+Conflicts: docker (<< 1.5~), docker-engine, docker-engine-cs, docker.io, lxc-docker, lxc-docker-virtual-package
+Replaces: docker-engine
+Filename: dists/noble/pool/stable/amd64/docker-ce_26.0.0-1~ubuntu.24.04~noble_amd64.deb
+Size: 25097128
+MD5sum: fb4aa0891601c32e898ba96d535b88b2
+SHA1: 8afce561af2b57b1df91b794951ccb04be2e519c
+SHA256: a7d507487e1ffcc81127464d9dae6ed39d65188b467abb887aab861ea78c8ef8
+SHA512: e406c9414fbd76c5686cc9ad58805558cea9fcbc1ddb26f2c4311e89f7faff8b7854dc4dfa3c502ce1ec12c03d271b70ed6b28032a625c761c12044833d177fb
+Homepage: https://www.docker.com
+Description: Docker: the open-source application container engine
+ Docker is a product for you to build, ship and run any application as a
+ lightweight container
+ .
+ Docker containers are both hardware-agnostic and platform-agnostic. This means
+ they can run anywhere, from your laptop to the largest cloud compute instance and
+ everything in between - and they don't require you to use a particular
+ language, framework or packaging system. That makes them great building blocks
+ for deploying and scaling web apps, databases, and backend services without
+ depending on a particular stack or provider.
