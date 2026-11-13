@@ -1212,6 +1212,486 @@ def apply_rowyn_deb_path(root):
         raise SystemExit("Apps defaults-access anchor drifted (deb path)")
     apps.write_text(text.replace(anchor, anchor + " <RowynDebCard />\n", 1))
 
+def apply_rowyn_update_status(root):
+    """Home/Updates passive status reads Rowyn's watcher record.
+
+    Upstream's check_update_status consumes the upstream watcher's
+    snapshot file (a flat update-watcher-status.json in the upstream
+    UpdateSnapshot schema, honored only within a 600-second TTL). Rowyn
+    replaced that watcher with rowyn-update-watcher +
+    rowyn-update-watcher-status, which publish a different, stricter
+    record to /var/lib/rowyn/update-watcher/status.json on every
+    automatic attempt (the same record the readiness command reads).
+    Nothing on a Rowyn system ever writes the upstream snapshot, so the
+    passive status was permanently "idle" — the Home card showed
+    "Update status unavailable / No recent update check." forever even
+    though checks ran and the Updates page worked. Project the real
+    record instead: one writer, one file, two readers (readiness + this
+    projection), validated with the same field/pair/freshness rules the
+    writer and the readiness reader enforce."""
+    crate = root / "src/rowyn-shared-rs"
+    status = crate / "src/system/update_status.rs"
+    text = status.read_text()
+
+    hook_old = (
+        "    let watcher = read_update_snapshot(600);\n"
+        "    project_cached_status(data.as_ref(), watcher.as_ref())\n")
+    hook_new = (
+        "    let watcher = read_update_snapshot(600);\n"
+        "    if let (Some(data), Some(record)) = (data.as_ref(), read_rowyn_watcher_status()) {\n"
+        "        return rowyn_watcher_status(data, &record);\n"
+        "    }\n"
+        "    project_cached_status(data.as_ref(), watcher.as_ref())\n")
+    text = replace_once(text, hook_old, hook_new)
+
+    section = '''
+// --- Rowyn watcher status -------------------------------------------------
+// Rowyn's automatic watcher (rowyn-update-watcher, supervised by
+// rowyn-update-watcher-run) records every attempt through
+// rowyn-update-watcher-status into /var/lib/rowyn/update-watcher/status.json
+// — a different schema from the upstream watcher snapshot above, and the
+// same record the Hub readiness command reads. The upstream snapshot is
+// never written on a Rowyn system, so the passive update status projects
+// this record: current/staged checks with their real timestamps,
+// deferrals that never ran a check, and failures — never a success the
+// record does not support. Validation mirrors the writer's rules and the
+// readiness reader's freshness bounds (a running record older than
+// 45 minutes, or a finished record older than 48 hours, is not a current
+// statement about the system and is treated as absent).
+
+pub const ROWYN_WATCHER_STATUS_PATH: &str = "/var/lib/rowyn/update-watcher/status.json";
+
+const ROWYN_WATCHER_RUNNING_MAX_AGE: i64 = 45 * 60;
+const ROWYN_WATCHER_FINISHED_MAX_AGE: i64 = 48 * 60 * 60;
+const ROWYN_WATCHER_MAX_TIME: i64 = 253402300799;
+const ROWYN_WATCHER_MAX_BYTES: usize = 8192;
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RowynWatcherRecord {
+    schema_version: i64,
+    started_at: i64,
+    finished_at: Option<i64>,
+    outcome: String,
+    reason_code: String,
+    last_success_at: Option<i64>,
+    last_staged_at: Option<i64>,
+}
+
+fn rowyn_watcher_pair(outcome: &str, reason: &str) -> bool {
+    matches!(
+        (outcome, reason),
+        ("running", "attempt_started")
+            | ("current", "no_update")
+            | ("staged", "update_staged")
+            | ("deferred", "battery")
+            | ("deferred", "metered")
+            | ("deferred", "upgrade_locked")
+            | ("failed", "runtime_auth_io")
+            | ("failed", "upgrade_failed")
+            | ("failed", "unknown_failure")
+            | ("disabled", "policy_disabled")
+            | ("invalid_policy", "invalid_policy")
+            | ("interrupted", "cancelled")
+    )
+}
+
+fn rowyn_watcher_record_valid(record: &RowynWatcherRecord, now: i64) -> bool {
+    if record.schema_version != 1 || !rowyn_watcher_pair(&record.outcome, &record.reason_code) {
+        return false;
+    }
+    let times = [
+        Some(record.started_at),
+        record.finished_at,
+        record.last_success_at,
+        record.last_staged_at,
+    ];
+    if times
+        .iter()
+        .flatten()
+        .any(|t| *t < 0 || *t > now || *t > ROWYN_WATCHER_MAX_TIME)
+    {
+        return false;
+    }
+    if (record.outcome == "running") != record.finished_at.is_none() {
+        return false;
+    }
+    if record.finished_at.is_some_and(|f| f < record.started_at) {
+        return false;
+    }
+    if let Some(success) = record.last_success_at {
+        if !matches!(record.outcome.as_str(), "current" | "staged") && success > record.started_at
+        {
+            return false;
+        }
+    }
+    if let Some(staged) = record.last_staged_at {
+        if record.last_success_at.is_none_or(|success| staged > success) {
+            return false;
+        }
+    }
+    if matches!(record.outcome.as_str(), "current" | "staged")
+        && record.last_success_at != record.finished_at
+    {
+        return false;
+    }
+    if record.outcome == "staged" && record.last_staged_at != record.finished_at {
+        return false;
+    }
+    true
+}
+
+/// Read and validate the Rowyn watcher record. `now` is injectable so
+/// tests never depend on the wall clock.
+pub fn read_rowyn_watcher_status_in(
+    path: impl AsRef<Path>,
+    now: i64,
+) -> Option<RowynWatcherRecord> {
+    let text = std::fs::read_to_string(path).ok()?;
+    if text.len() > ROWYN_WATCHER_MAX_BYTES {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let object = value.as_object()?;
+    let expected: std::collections::BTreeSet<&str> = [
+        "schema_version",
+        "started_at",
+        "finished_at",
+        "outcome",
+        "reason_code",
+        "last_success_at",
+        "last_staged_at",
+    ]
+    .into_iter()
+    .collect();
+    if object.keys().map(String::as_str).collect::<std::collections::BTreeSet<&str>>() != expected {
+        return None;
+    }
+    let record: RowynWatcherRecord = serde_json::from_value(value).ok()?;
+    if !rowyn_watcher_record_valid(&record, now) {
+        return None;
+    }
+    if record.outcome == "running"
+        && now.saturating_sub(record.started_at) > ROWYN_WATCHER_RUNNING_MAX_AGE
+    {
+        return None;
+    }
+    if record
+        .finished_at
+        .is_some_and(|f| now.saturating_sub(f) > ROWYN_WATCHER_FINISHED_MAX_AGE)
+    {
+        return None;
+    }
+    Some(record)
+}
+
+pub fn read_rowyn_watcher_status() -> Option<RowynWatcherRecord> {
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs() as i64;
+    read_rowyn_watcher_status_in(ROWYN_WATCHER_STATUS_PATH, now)
+}
+
+/// "2025-11-13 00:05 UTC" for 1762992300 — civil-from-days conversion,
+/// no external crates, so the card can quote a real check time.
+fn format_epoch_utc(ts: i64) -> String {
+    let days = ts.div_euclid(86_400);
+    let secs = ts.rem_euclid(86_400);
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let mut year = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    if month <= 2 {
+        year += 1;
+    }
+    format!(
+        "{year:04}-{month:02}-{day:02} {:02}:{:02} UTC",
+        secs / 3_600,
+        (secs % 3_600) / 60
+    )
+}
+
+/// Project the watcher record over live bootc facts. Staged/rollback
+/// truth comes from bootc itself (a staged record whose deployment is
+/// gone has been applied or removed, and reads as up to date); the
+/// record supplies the check verdict and its timestamp.
+fn rowyn_watcher_status(data: &serde_json::Value, record: &RowynWatcherRecord) -> UpdateStatus {
+    let staged = crate::system::bootc::deployment_present(data, "staged");
+    let rollback = crate::system::bootc::deployment_present(data, "rollback");
+    let booted = crate::system::registry::booted_image_digest(data);
+    let finished = record.finished_at.unwrap_or(record.started_at);
+    let (check_state, detail, blocked_reason): (&str, String, Option<String>) =
+        match record.outcome.as_str() {
+            "current" => (
+                "uptodate",
+                format!("Last checked {}.", format_epoch_utc(finished)),
+                None,
+            ),
+            "staged" => {
+                if staged {
+                    (
+                        "available",
+                        format!(
+                            "An update was staged at {}. Restart to apply it.",
+                            format_epoch_utc(finished)
+                        ),
+                        None,
+                    )
+                } else {
+                    (
+                        "uptodate",
+                        format!(
+                            "Last checked {}. The update it staged is no longer pending.",
+                            format_epoch_utc(finished)
+                        ),
+                        None,
+                    )
+                }
+            }
+            "running" => (
+                "busy",
+                "An automatic update check is in progress.".to_string(),
+                None,
+            ),
+            "deferred" => {
+                let why = match record.reason_code.as_str() {
+                    "battery" => "this device was on battery power",
+                    "metered" => "this device was on a metered connection",
+                    _ => "another update operation was in progress",
+                };
+                let mut detail = format!(
+                    "The automatic update check at {} was deferred: {}.",
+                    format_epoch_utc(record.started_at),
+                    why
+                );
+                if let Some(success) = record.last_success_at {
+                    detail += &format!(
+                        " The last completed check was at {}.",
+                        format_epoch_utc(success)
+                    );
+                }
+                ("deferred", detail, None)
+            }
+            "failed" => {
+                let why = match record.reason_code.as_str() {
+                    "runtime_auth_io" => "it could not open the runtime authorization data",
+                    "upgrade_failed" => "the update did not complete",
+                    _ => "an unknown error occurred",
+                };
+                (
+                    "error",
+                    format!(
+                        "The automatic update check at {} failed: {}.",
+                        format_epoch_utc(finished),
+                        why
+                    ),
+                    None,
+                )
+            }
+            "disabled" => (
+                "disabled",
+                "Automatic update checks are disabled by policy. Open Updates to check manually."
+                    .to_string(),
+                None,
+            ),
+            "invalid_policy" => {
+                let reason = "The update policy is invalid, so automatic update checks \
+                              refuse to run. Review the update policy and try again."
+                    .to_string();
+                ("blocked", reason.clone(), Some(reason))
+            }
+            "interrupted" => (
+                "error",
+                format!(
+                    "The automatic update check at {} was interrupted before it finished.",
+                    format_epoch_utc(record.started_at)
+                ),
+                None,
+            ),
+            _ => ("idle", "No recent update check.".to_string(), None),
+        };
+    UpdateStatus {
+        booted,
+        staged,
+        rollback,
+        remote_digest: None,
+        blocked_reason,
+        retry_cmd: None,
+        check_state: check_state.to_string(),
+        detail,
+    }
+}
+
+#[cfg(test)]
+mod rowyn_watcher_status_tests {
+    use super::*;
+    use std::fs;
+    use tempfile::tempdir;
+
+    // The documents below are byte-shaped like the real writer's output
+    // (rowyn-update-watcher-status: compact JSON, fixed key order,
+    // trailing newline); build/tests/test_update_status_contract.py
+    // pins the writer to this shape so the two cannot drift apart.
+    const NOW: i64 = 1_762_992_600; // 2025-11-13 00:10 UTC
+
+    fn write_record(dir: &Path, body: &str) -> std::path::PathBuf {
+        let path = dir.join("status.json");
+        fs::write(&path, body).unwrap();
+        path
+    }
+
+    fn current_body() -> String {
+        "{\\"schema_version\\":1,\\"started_at\\":1762992000,\\"finished_at\\":1762992300,\
+         \\"outcome\\":\\"current\\",\\"reason_code\\":\\"no_update\\",\
+         \\"last_success_at\\":1762992300,\\"last_staged_at\\":null}\\n"
+            .to_string()
+    }
+
+    fn bootc_data(staged: bool) -> serde_json::Value {
+        let staged_json = if staged {
+            serde_json::json!({"image": {"imageDigest": "sha256:staged"}})
+        } else {
+            serde_json::Value::Null
+        };
+        serde_json::json!({
+            "status": {
+                "booted": {"image": {"imageDigest": "sha256:booted"}},
+                "staged": staged_json,
+                "rollback": null
+            }
+        })
+    }
+
+    #[test]
+    fn formats_epoch_as_utc_civil_time() {
+        assert_eq!(format_epoch_utc(0), "1970-01-01 00:00 UTC");
+        assert_eq!(format_epoch_utc(1_700_000_000), "2023-11-14 22:13 UTC");
+        assert_eq!(format_epoch_utc(1_762_992_300), "2025-11-13 00:05 UTC");
+    }
+
+    #[test]
+    fn current_record_projects_uptodate_with_real_check_time() {
+        let dir = tempdir().unwrap();
+        let path = write_record(dir.path(), &current_body());
+        let record = read_rowyn_watcher_status_in(&path, NOW).unwrap();
+        let status = rowyn_watcher_status(&bootc_data(false), &record);
+        assert_eq!(status.check_state, "uptodate");
+        assert_eq!(status.detail, "Last checked 2025-11-13 00:05 UTC.");
+        assert!(!status.staged);
+    }
+
+    #[test]
+    fn staged_record_with_live_staged_deployment_reads_as_staged() {
+        let dir = tempdir().unwrap();
+        let body = "{\\"schema_version\\":1,\\"started_at\\":1762992000,\\"finished_at\\":1762992300,\
+                    \\"outcome\\":\\"staged\\",\\"reason_code\\":\\"update_staged\\",\
+                    \\"last_success_at\\":1762992300,\\"last_staged_at\\":1762992300}\\n";
+        let path = write_record(dir.path(), body);
+        let record = read_rowyn_watcher_status_in(&path, NOW).unwrap();
+        let status = rowyn_watcher_status(&bootc_data(true), &record);
+        assert!(status.staged);
+        assert_eq!(status.check_state, "available");
+        // The same record after the staged deployment applied (no staged
+        // section in bootc status) must not keep claiming a stage.
+        let status = rowyn_watcher_status(&bootc_data(false), &record);
+        assert!(!status.staged);
+        assert_eq!(status.check_state, "uptodate");
+    }
+
+    #[test]
+    fn deferred_failed_disabled_and_blocked_records_project_honestly() {
+        let dir = tempdir().unwrap();
+        let deferred = "{\\"schema_version\\":1,\\"started_at\\":1762992000,\\"finished_at\\":1762992100,\
+                        \\"outcome\\":\\"deferred\\",\\"reason_code\\":\\"battery\\",\
+                        \\"last_success_at\\":1762992300,\\"last_staged_at\\":null}\\n";
+        // A deferred record may carry an earlier success; the writer's
+        // carry-over keeps it at or before this attempt's start.
+        let deferred = deferred.replace("1762992300", "1762991500");
+        let path = write_record(dir.path(), &deferred);
+        let record = read_rowyn_watcher_status_in(&path, NOW).unwrap();
+        let status = rowyn_watcher_status(&bootc_data(false), &record);
+        assert_eq!(status.check_state, "deferred");
+        assert!(status.detail.contains("deferred"), "detail: {}", status.detail);
+        assert!(status.detail.contains("last completed check"), "detail: {}", status.detail);
+
+        let failed = "{\\"schema_version\\":1,\\"started_at\\":1762992000,\\"finished_at\\":1762992100,\
+                      \\"outcome\\":\\"failed\\",\\"reason_code\\":\\"upgrade_failed\\",\
+                      \\"last_success_at\\":null,\\"last_staged_at\\":null}\\n";
+        let path = write_record(dir.path(), failed);
+        let record = read_rowyn_watcher_status_in(&path, NOW).unwrap();
+        let status = rowyn_watcher_status(&bootc_data(false), &record);
+        assert_eq!(status.check_state, "error");
+
+        let disabled = "{\\"schema_version\\":1,\\"started_at\\":1762992000,\\"finished_at\\":1762992001,\
+                        \\"outcome\\":\\"disabled\\",\\"reason_code\\":\\"policy_disabled\\",\
+                        \\"last_success_at\\":null,\\"last_staged_at\\":null}\\n";
+        let path = write_record(dir.path(), disabled);
+        let record = read_rowyn_watcher_status_in(&path, NOW).unwrap();
+        let status = rowyn_watcher_status(&bootc_data(false), &record);
+        assert_eq!(status.check_state, "disabled");
+
+        let invalid = "{\\"schema_version\\":1,\\"started_at\\":1762992000,\\"finished_at\\":1762992001,\
+                       \\"outcome\\":\\"invalid_policy\\",\\"reason_code\\":\\"invalid_policy\\",\
+                       \\"last_success_at\\":null,\\"last_staged_at\\":null}\\n";
+        let path = write_record(dir.path(), invalid);
+        let record = read_rowyn_watcher_status_in(&path, NOW).unwrap();
+        let status = rowyn_watcher_status(&bootc_data(false), &record);
+        assert_eq!(status.check_state, "blocked");
+        assert!(status.blocked_reason.is_some());
+    }
+
+    #[test]
+    fn running_record_is_busy_only_while_fresh() {
+        let dir = tempdir().unwrap();
+        let body = "{\\"schema_version\\":1,\\"started_at\\":1762992400,\\"finished_at\\":null,\
+                    \\"outcome\\":\\"running\\",\\"reason_code\\":\\"attempt_started\\",\
+                    \\"last_success_at\\":null,\\"last_staged_at\\":null}\\n";
+        let path = write_record(dir.path(), body);
+        let record = read_rowyn_watcher_status_in(&path, NOW).unwrap();
+        let status = rowyn_watcher_status(&bootc_data(false), &record);
+        assert_eq!(status.check_state, "busy");
+        // 45 minutes later the same record is stale, not a live check.
+        assert!(read_rowyn_watcher_status_in(&path, NOW + 46 * 60).is_none());
+    }
+
+    #[test]
+    fn missing_stale_and_malformed_records_are_absent() {
+        let dir = tempdir().unwrap();
+        assert!(read_rowyn_watcher_status_in(dir.path().join("missing.json"), NOW).is_none());
+        // A finished record older than 48 hours is history, not status.
+        let path = write_record(dir.path(), &current_body());
+        assert!(read_rowyn_watcher_status_in(&path, NOW + 49 * 3600).is_none());
+        // An outcome/reason pair the writer can never emit is rejected.
+        let bad_pair = current_body().replace("no_update", "update_staged");
+        let path = write_record(dir.path(), &bad_pair);
+        assert!(read_rowyn_watcher_status_in(&path, NOW).is_none());
+        // A missing field is rejected (no silent defaulting).
+        let missing = current_body().replace(",\\"last_staged_at\\":null", "");
+        let path = write_record(dir.path(), &missing);
+        assert!(read_rowyn_watcher_status_in(&path, NOW).is_none());
+        // A future timestamp is rejected.
+        let future = current_body().replace("1762992300", "1763080000");
+        let path = write_record(dir.path(), &future);
+        assert!(read_rowyn_watcher_status_in(&path, NOW).is_none());
+    }
+}
+'''
+    anchor = "#[cfg(test)]\nmod tests {"
+    text = replace_once(text, anchor, section.strip("\n") + "\n\n" + anchor)
+    status.write_text(text)
+
+    banner = root / "src/rowyn-hub-web/src/components/UpdateStatusBanner.tsx"
+    text = banner.read_text()
+    text = replace_once(
+        text,
+        "const UPDATE_SOURCE_STATES: UpdateBannerState[] = ['current', 'available', 'staged', 'restartready', 'staging'];",
+        "const UPDATE_SOURCE_STATES: UpdateBannerState[] = ['current', 'available', 'staged', 'restartready', 'staging', 'deferred', 'disabled'];")
+    banner.write_text(text)
+
+
 def port_source(root):
     changes = []
     web = root / "src/rowyn-hub-web"
@@ -2719,6 +3199,13 @@ mod audit_fix_tests {
         "D3 guarded .deb path: rowyn_deb commands registered (state, "
         "inspect, start, job, cancel); the Apps page gains the "
         "RowynDebCard for container installs of supported app .debs")
+
+    apply_rowyn_update_status(root)
+    changes.append(
+        "update status: the passive Hub status projects Rowyn's watcher "
+        "record (/var/lib/rowyn/update-watcher/status.json) instead of the "
+        "upstream watcher snapshot nothing on Rowyn writes — the Home "
+        "card now reports real check outcomes with timestamps")
 
     (root / "ROWYN-PORT-NOTICE").write_text(
         f"Pinned upstream System Hub source {PIN}, Apache-2.0 (LICENSE).\n"

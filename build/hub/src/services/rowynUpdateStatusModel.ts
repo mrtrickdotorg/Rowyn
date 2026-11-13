@@ -1,6 +1,6 @@
 import type { UpdatesSnapshot } from "./liveData";
 
-export type UpdateBannerState = "unavailable" | "current" | "available" | "staging" | "staged" | "restartready" | "blocked" | "failed";
+export type UpdateBannerState = "unavailable" | "current" | "available" | "staging" | "staged" | "restartready" | "blocked" | "failed" | "deferred" | "disabled";
 
 // Reasons the update service reports when it cannot be read at all.
 const READ_FAILURE = /could not read|not installed|no such file|timed out|unavailable/i;
@@ -33,11 +33,16 @@ export function projectUpdateBanner(snapshot: UpdatesSnapshot | null, readFailed
   }
   if (staged) return { state: "restartready", label: "Restart required", guidance: "An update is staged and will apply when you restart. Open Updates to review details." };
   if (["busy", "checking"].includes(check)) return { state: "staging", label: "Update check in progress", guidance: "Update status is being checked. Open Updates for details." };
+  // A deferred check never ran, so it is neither current nor failed; a
+  // policy-disabled watcher is a deliberate off, not a missing reading.
+  // The backend detail carries the specifics (reason, last check time).
+  if (check === "deferred") return { state: "deferred", label: "Update check deferred", guidance: status?.detail || "The last automatic update check was deferred. Open Updates for details." };
+  if (check === "disabled") return { state: "disabled", label: "Automatic checks off", guidance: status?.detail || "Automatic update checks are disabled. Open Updates to check manually." };
   if (check === "error" || check === "failed") return { state: "failed", label: "Update status unavailable", guidance: status?.detail || "The update check failed. Refresh to try again." };
   if (check === "staged") return { state: "staged", label: "Update staged", guidance: "An update is staged. Open Updates to review restart information." };
   // A remote digest may identify the currently running image, and the pending
   // map always contains keys even when its counts are zero. Neither proves an update.
   if (check === "available") return { state: "available", label: "Update available", guidance: "An update is available. Open Updates to review it; nothing will be installed from this banner." };
-  if (check === "uptodate" || check === "current") return { state: "current", label: "System is up to date", guidance: "No system update is currently available." };
+  if (check === "uptodate" || check === "current") return { state: "current", label: "System is up to date", guidance: status?.detail || "No system update is currently available." };
   return { state: "unavailable", label: "Update status unavailable", guidance: status?.detail || "Refresh to check update status." };
 }

@@ -55,3 +55,25 @@ test('busy, blocked, failed, available and current statuses project explicitly',
   assert.equal(projectUpdateBanner(fixture({ check_state: 'available' })).state, 'available');
   assert.equal(projectUpdateBanner(fixture({ check_state: 'uptodate' })).state, 'current');
 });
+
+test('up-to-date guidance carries the real last-check time from the backend', () => {
+  const projected = projectUpdateBanner(fixture({ check_state: 'uptodate', detail: 'Last checked 2025-11-13 00:05 UTC.' }));
+  assert.equal(projected.state, 'current');
+  assert.equal(projected.label, 'System is up to date');
+  assert.equal(projected.guidance, 'Last checked 2025-11-13 00:05 UTC.');
+  // Without a backend detail the generic sentence remains.
+  assert.equal(projectUpdateBanner(fixture({ check_state: 'uptodate' })).guidance, 'No system update is currently available.');
+});
+
+test('deferred and disabled checks are honest states, never current or failed', () => {
+  const deferred = projectUpdateBanner(fixture({ check_state: 'deferred', detail: 'The automatic update check at 2025-11-13 00:00 UTC was deferred: this device was on battery power. The last completed check was at 2025-11-12 23:51 UTC.' }));
+  assert.equal(deferred.state, 'deferred');
+  assert.equal(deferred.label, 'Update check deferred');
+  assert.match(deferred.guidance, /battery power/);
+  const disabled = projectUpdateBanner(fixture({ check_state: 'disabled', detail: 'Automatic update checks are disabled by policy. Open Updates to check manually.' }));
+  assert.equal(disabled.state, 'disabled');
+  assert.equal(disabled.label, 'Automatic checks off');
+  assert.match(disabled.guidance, /disabled by policy/);
+  assert.notEqual(deferred.state, 'current');
+  assert.notEqual(disabled.state, 'failed');
+});
