@@ -30,6 +30,7 @@ SURFACES = (
     "Containerfile",
     ".github/workflows/installer-iso.yml",
     "build/hub/src-tauri/src/commands/rowyn_development.rs",
+    "build/hub/src-tauri/src/commands/rowyn_deb.rs",
     "build/hub/src/services/rowynDevelopmentModel.ts",
     "docs/building.md",
 )
