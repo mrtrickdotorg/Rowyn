@@ -99,11 +99,30 @@ honest about the three possible answers:
 
 ## "I downloaded a .deb file" (Chrome, Zoom, …)
 
-Rowyn installs graphical apps as Flatpaks, so a `.deb` from a website
-does not install by double-clicking — on purpose: Flatpaks are
+Rowyn still installs graphical apps as Flatpaks first: Flatpaks are
 sandboxed, update in one place, and cannot scatter files across the
 signed system image. Almost every app offered as a `.deb` download is
-also on Flathub: open the Hub's **Apps** page (or Discover) and search
-for it there. Opening a `.deb` in Dolphin explains this and points you
-at the same place. Command-line tools belong in Distrobox, which the
-Hub's Development page sets up.
+also on Flathub — open the Hub's **Apps** page (or Discover) and
+search for it there first.
+
+When an app only exists as a `.deb`, Rowyn has a guarded path for it
+(decision D3). Double-clicking the file inspects the package and shows
+you exactly what it is — name, version, who published it, its size,
+and whether it is signed — then offers the Flatpak if one exists. If
+you choose the `.deb`, the Hub installs it into a dedicated **app
+container** (a Distrobox named `rowyn-deb`) instead of the system:
+the app appears in your application menu, its files stay out of the
+signed system image, and it survives Rowyn updates. The first install
+downloads the container environment once. You can see every app
+installed this way on the Hub's Apps page — marked as app-container
+(.deb) apps — and remove them there; updates for them work the
+Windows way (download the newer `.deb` and install it over the old
+one).
+
+Some `.deb` files are refused, with the reason on screen: packages
+that are really part of an operating system — kernel modules and
+DKMS drivers, background system services, boot components — cannot
+work inside a container. Those belong in the Rowyn system image
+itself and arrive with Rowyn updates. Command-line *development*
+tools belong in the separate Distrobox the Hub's Development page
+sets up.
