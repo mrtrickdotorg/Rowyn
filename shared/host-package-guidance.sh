@@ -163,7 +163,7 @@ if dpkg_mutation "\$@"; then
     cat >&2 <<'GUIDANCE'
 Rowyn's installed host is an immutable system image; this package change was not run.
 
-Installing a .deb or changing dpkg's package state on the host is unsupported.
+Installing a .deb or changing dpkg's package state on the host is not how .debs are installed on Rowyn: open the .deb from your file manager (or the Hub's Apps page) and Rowyn installs supported app .debs into its dedicated app container instead; system packages are refused there with the reason.
 For graphical applications, open Discover and install the Flatpak app from Flathub.
 For command-line or development packages, use an Ubuntu Distrobox instead:
   distrobox create --name ubuntu-dev --image docker.io/library/ubuntu:26.10
@@ -220,6 +220,9 @@ Covered dpkg mutating operations:
   --merge-avail, --clear-avail, --forget-old-unavail
 
 For graphical applications, use Discover and install a Flatpak from Flathub.
+A downloaded .deb is installed through the rowyn-deb-handler / Hub Apps page
+flow: app .debs go into the dedicated rowyn-deb Distrobox, system packages
+are refused with the reason. Host dpkg state is never changed by that flow.
 For command-line or development packages, create or enter the Ubuntu Distrobox
 chosen by the user, then run apt-get inside that independent container. This
 composition helper does not edit the container or the user's Distrobox choice.

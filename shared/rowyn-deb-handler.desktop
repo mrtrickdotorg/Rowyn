@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=Installing software on Rowyn
-Comment=Why .deb packages open here, and where to get the app instead
+Comment=Inspects a .deb and routes it: Flatpak first, or the guarded app-container install
 Exec=/usr/bin/rowyn-deb-handler %f
 Icon=system-software-install
 Terminal=false

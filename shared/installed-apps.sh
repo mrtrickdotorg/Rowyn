@@ -85,7 +85,7 @@ PersistentInstallation=/var/lib/flatpak
 NativeGuiPackages=disabled
 SnapGuiPackages=disabled
 PackageKitGuiPackages=disabled
-DebPackages=explainer
+DebPackages=flatpak-first+guarded-distrobox
 FlatpakRemote=flathub
 FlatpakRemoteConfig=/etc/flatpak/remotes.d/flathub.flatpakrepo
 EOF
@@ -93,18 +93,23 @@ chmod 0644 "$policy"
 
 # A downloaded .deb must not dead-end: with the PackageKit backend gone,
 # double-clicking one would otherwise do nothing at all. Register the
-# explainer as the KDE default handler for the .deb MIME type (a default
+# handler as the KDE default handler for the .deb MIME type (a default
 # only — a user's own mimeapps.list wins). kde-mimeapps.list is the
 # KDE-session default file, so the browser defaults in mimeapps.list are
-# not disturbed.
-for artifact in rowyn-deb-handler rowyn-deb-handler.desktop; do
+# not disturbed. The handler inspects with rowyn-deb-inspect (the single
+# classifier the Hub backend also uses): Flatpak first, then the
+# guarded Distrobox install path for app .debs, and an honest refusal
+# for system packages (D3, decided Nov 12, 2026).
+for artifact in rowyn-deb-handler rowyn-deb-handler.desktop rowyn-deb-inspect; do
     [[ -f "$script_dir/$artifact" ]] || {
-        echo "missing .deb explainer artifact: $artifact" >&2
+        echo "missing .deb handler artifact: $artifact" >&2
         exit 1
     }
 done
 install -Dm755 "$script_dir/rowyn-deb-handler" \
     "$(root_path /usr/bin/rowyn-deb-handler)"
+install -Dm755 "$script_dir/rowyn-deb-inspect" \
+    "$(root_path /usr/bin/rowyn-deb-inspect)"
 install -Dm644 "$script_dir/rowyn-deb-handler.desktop" \
     "$(root_path /usr/share/applications/rowyn-deb-handler.desktop)"
 install -d "$(root_path /etc/xdg)"

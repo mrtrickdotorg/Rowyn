@@ -1,40 +1,189 @@
 #!/bin/sh
-# The .deb explainer: Rowyn installs graphical apps as Flatpaks, so a
-# downloaded .deb must not dead-end silently (the PackageKit backend is
-# removed by policy). This handler tells the user why, in plain terms,
-# and offers the route that works: search for the same app in the Hub's
-# Apps page, which covers the curated catalog and all of Flathub.
-# Command-line .deb tools belong in Distrobox; the text says so.
+# The .deb handler (D3, decided Nov 12, 2026): Rowyn installs graphical
+# apps as Flatpaks first, so a downloaded .deb opens here instead of
+# dead-ending (the PackageKit backend is removed by policy, and the
+# immutable host image cannot take a .deb at all). The handler inspects
+# the package with rowyn-deb-inspect — the same classifier the Hub
+# backend re-runs before installing — and then:
+#
+#   user app  -> identity on screen, Flatpak offered first, and the
+#                guarded fallback: install into the dedicated
+#                "rowyn-deb" Distrobox from the Hub's Apps page.
+#   system    -> an honest refusal: kernel modules, system services
+#   package      and other OS components belong to the signed system
+#                image, not to an app container.
+#
+# The handler itself installs nothing; it stages the chosen file for
+# the Hub (which re-inspects and confirms again) or routes to search.
 set -eu
 
 file=${1:-}
-package=""
-if [ -n "$file" ] && [ -f "$file" ]; then
-    package=$(dpkg-deb -f "$file" Package 2>/dev/null || true)
-fi
-if [ -z "$package" ] && [ -n "$file" ]; then
-    package=$(basename "$file")
-fi
-subject=${package:-"This file"}
 
-text="$subject is a Debian package (.deb).
+report=""
+if [ -n "$file" ] && [ -f "$file" ] && command -v rowyn-deb-inspect >/dev/null 2>&1; then
+    report=$(rowyn-deb-inspect --format lines "$file" 2>/dev/null || true)
+fi
+
+field() {
+    printf '%s\n' "$report" | sed -n "s/^$1=//p" | head -n 1
+}
+
+open_hub_apps() {
+    if command -v rowyn-hub-shell >/dev/null 2>&1; then
+        exec rowyn-hub-shell --page Apps
+    fi
+    exit 0
+}
+
+stage_for_hub() {
+    state_dir=${XDG_STATE_HOME:-"$HOME/.local/state"}/rowyn
+    mkdir -p "$state_dir"
+    canonical=$(readlink -f "$file" 2>/dev/null || printf '%s' "$file")
+    printf '%s\n' "$canonical" > "$state_dir/deb-pending.tmp"
+    mv "$state_dir/deb-pending.tmp" "$state_dir/deb-pending"
+    open_hub_apps
+}
+
+have_kdialog() {
+    command -v kdialog >/dev/null 2>&1
+}
+
+notify() {
+    if command -v notify-send >/dev/null 2>&1; then
+        notify-send "$1" "$2"
+    fi
+}
+
+if [ -z "$report" ]; then
+    # No inspection (older image or unreadable file): the original
+    # explainer behaviour.
+    package=""
+    if [ -n "$file" ] && [ -f "$file" ]; then
+        package=$(dpkg-deb -f "$file" Package 2>/dev/null || true)
+    fi
+    if [ -z "$package" ] && [ -n "$file" ]; then
+        package=$(basename "$file")
+    fi
+    subject=${package:-"This file"}
+    text="$subject is a Debian package (.deb).
 
 Rowyn installs graphical apps as Flatpaks instead of .deb packages: Flatpaks are sandboxed, update in one place, and never scatter files across the signed system image. Most apps offered as .deb downloads are also on Flathub — often including this one.
 
 Open the Hub's Apps page to search for it there. (Command-line tools belong in Distrobox instead — the Hub's Development page sets that up.)"
-
-if command -v kdialog >/dev/null 2>&1; then
-    if kdialog --title "Installing software on Rowyn" \
-            --yes-label "Search in the Hub" --no-label "Close" \
-            --yesno "$text" 2>/dev/null; then
-        exec /usr/bin/rowyn-hub-shell --page Apps
+    if have_kdialog; then
+        if kdialog --title "Installing software on Rowyn" \
+                --yes-label "Search in the Hub" --no-label "Close" \
+                --yesno "$text" 2>/dev/null; then
+            open_hub_apps
+        fi
+        exit 0
     fi
+    notify "Installing software on Rowyn" \
+        "$subject is a .deb package. Rowyn installs graphical apps as Flatpaks — search for it in the Hub's Apps page or Discover instead."
     exit 0
 fi
 
-# No dialog tool: at least leave a notification rather than silence.
-if command -v notify-send >/dev/null 2>&1; then
-    notify-send "Installing software on Rowyn" \
-        "$subject is a .deb package. Rowyn installs graphical apps as Flatpaks — search for it in the Hub's Apps page or Discover instead."
+package=$(field package)
+version=$(field version)
+maintainer=$(field maintainer)
+description=$(field description)
+verdict=$(field verdict)
+reasons=$(field reasons)
+notes=$(field notes)
+hint=$(field flatpak_hint)
+signature=$(field signature)
+file_size=$(field file_size_bytes)
+installed_kib=$(field installed_size_kib)
+desktop_files=$(field desktop_files)
+binaries=$(field binaries)
+
+identity="$package $version"
+[ -n "$description" ] && identity="$identity — $description"
+identity="$identity
+Maintainer: $maintainer"
+
+if [ "$verdict" = "system" ]; then
+    text="$identity
+
+This package cannot be installed on Rowyn — not on the host, and not in the app container either — because $reasons.
+
+Packages like this are part of an operating system. Rowyn's system image is signed and updated as a whole, so system components arrive with Rowyn updates instead. If this app also exists as a Flatpak, that version will work — search for it in the Hub's Apps page."
+    if have_kdialog; then
+        if kdialog --title "Cannot install this package" \
+                --yes-label "Search in the Hub" --no-label "Close" \
+                --yesno "$text" 2>/dev/null; then
+            open_hub_apps
+        fi
+        exit 0
+    fi
+    notify "Cannot install this package" \
+        "$package is a system package; Rowyn can only install app .debs, into its app container. See the Hub's Apps page."
+    exit 0
 fi
+
+# A user application: Flatpak first, guarded .deb path second.
+size_line=""
+if [ -n "$file_size" ]; then
+    size_line="Download: $((file_size / 1048576)) MB"
+fi
+if [ -n "$installed_kib" ] && [ "$installed_kib" -gt 0 ] 2>/dev/null; then
+    size_line="$size_line · Installed: $((installed_kib / 1024)) MB"
+fi
+if [ "$signature" = "embedded" ]; then
+    signature_line="Signature: this file carries an embedded signature."
+else
+    signature_line="Signature: no embedded signature. That is normal for vendor .deb downloads — only continue if you downloaded this file from the vendor's own website."
+fi
+hint_line=""
+if [ -n "$hint" ]; then
+    hint_line="
+This app is also on Flathub as $hint — the Flatpak is sandboxed, updates with everything else, and is the better-supported route."
+fi
+notes_line=""
+if [ -n "$notes" ]; then
+    notes_line="
+Good to know: $notes."
+fi
+if [ -z "$desktop_files" ] && [ -z "$binaries" ]; then
+    text="$identity
+
+This package contains no application or command Rowyn could add to your menu — it may be fonts or data for another program — so there is nothing to install.$hint_line"
+    if have_kdialog; then
+        if kdialog --title "Nothing to install" \
+                --yes-label "Search in the Hub" --no-label "Close" \
+                --yesno "$text" 2>/dev/null; then
+            open_hub_apps
+        fi
+        exit 0
+    fi
+    notify "Nothing to install" \
+        "$package contains no application or command; there is nothing to install."
+    exit 0
+fi
+text="$identity
+$size_line
+$signature_line
+
+Rowyn installs apps as Flatpaks first.$hint_line
+
+If you need this exact .deb, Rowyn can install it into a dedicated app container (the “rowyn-deb” Distrobox) instead: the app appears in your application menu, its files stay out of the signed system image, and it survives Rowyn updates. The first install downloads the container environment once. You can review and remove container apps any time on the Hub's Apps page.$notes_line
+
+How do you want to continue?"
+if have_kdialog; then
+    # kdialog exit codes: 0 = Yes (install), 1 = No (search),
+    # anything else = cancelled/closed.
+    rc=0
+    kdialog --title "Install $package" \
+        --yes-label "Install in app container" \
+        --no-label "Search in the Hub" \
+        --cancel-label "Not now" \
+        --yesnocancel "$text" 2>/dev/null || rc=$?
+    case $rc in
+        0) stage_for_hub ;;
+        1) open_hub_apps ;;
+    esac
+    exit 0
+fi
+notify "Installing software on Rowyn" \
+    "$package can be installed into Rowyn's app container — open the Hub's Apps page, or search there for the Flatpak version first."
 exit 0
