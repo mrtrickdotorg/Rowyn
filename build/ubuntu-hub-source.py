@@ -2211,6 +2211,29 @@ def port_source(root):
     # ======================================================================
     audit_notes = []
 
+    # --- Recovery: the clear-quarantine instruction ------------------------
+    # The shared crate builds the terminal command a user is handed to
+    # clear a boot-health quarantine. Upstream's form names its own
+    # helper as a bare PATH command and passes the digest with a
+    # --digest flag; Rowyn's helper ships at
+    # /usr/libexec/rowyn-boot-health (never on PATH) and its
+    # clear-quarantine takes the digest as a positional argument, so
+    # the upstream instruction cannot run on a Rowyn system in either
+    # respect. Repoint it at the shipped helper's real interface; the
+    # contract is pinned in build/tests/test_recovery_status_contract.py.
+    # Runs pre-rename on the upstream literal; the replacement carries
+    # no upstream tokens, so the rename pass leaves it untouched.
+    recovery_status = root / "src/rowyn-shared-rs/src/system/recovery_status.rs"
+    text = recovery_status.read_text()
+    text = replace_once(
+        text,
+        '"sudo kyth-boot-health clear-quarantine --digest {}"',
+        '"sudo /usr/libexec/rowyn-boot-health clear-quarantine {}"')
+    recovery_status.write_text(text)
+    audit_notes.append(
+        "recovery_status.rs: clear-quarantine instruction repointed to "
+        "/usr/libexec/rowyn-boot-health with a positional digest")
+
     # --- B3: no `just` recipe buttons ---------------------------------------
     # Every RecipeButton runs /usr/bin/just against /usr/share/ublue-os/
     # justfile; Rowyn ships neither and the recipes are Fedora-only. The
