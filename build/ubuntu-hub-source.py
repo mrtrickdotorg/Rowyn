@@ -1180,6 +1180,38 @@ def apply_rowyn_streaming(root):
     catalog.write_text(replace_once(text, wivrn, wivrn + moonlight))
 
 
+def apply_rowyn_deb_path(root):
+    """D3 guarded .deb path (Nov 2026, Patrick's decision): the Apps
+    page gains the RowynDebCard, backed by the rowyn_deb commands —
+    .deb installs land in the dedicated rowyn-deb Distrobox, never on
+    the immutable host, and only after rowyn-deb-inspect clears the
+    package as a user app (system packages are refused)."""
+    web = root / "src/rowyn-hub-web"
+    commands = web / "src-tauri/src/commands/mod.rs"
+    commands.write_text(commands.read_text() + '\npub(crate) mod rowyn_deb;\n')
+    main = web / "src-tauri/src/main.rs"
+    text = main.read_text()
+    anchor = "            commands::rowyn_sunshine::rowyn_sunshine_autostart_enable,\n"
+    if text.count(anchor) != 1:
+        raise SystemExit("generate_handler sunshine registration anchor drifted (deb path)")
+    main.write_text(text.replace(
+        anchor,
+        anchor
+        + "            commands::rowyn_deb::rowyn_deb_state,\n"
+        + "            commands::rowyn_deb::rowyn_deb_inspect,\n"
+        + "            commands::rowyn_deb::rowyn_deb_start,\n"
+        + "            commands::rowyn_deb::rowyn_deb_job,\n"
+        + "            commands::rowyn_deb::rowyn_deb_cancel,\n",
+        1))
+
+    apps = web / "src/pages/Apps.tsx"
+    text = apps.read_text()
+    text = 'import { RowynDebCard } from "../components/RowynDebCard";\n' + text
+    anchor = " <AppsDefaultsAccess />\n"
+    if text.count(anchor) != 1:
+        raise SystemExit("Apps defaults-access anchor drifted (deb path)")
+    apps.write_text(text.replace(anchor, anchor + " <RowynDebCard />\n", 1))
+
 def port_source(root):
     changes = []
     web = root / "src/rowyn-hub-web"
@@ -2681,6 +2713,12 @@ mod audit_fix_tests {
     changes.append(
         "pass 2 streaming: rowyn_sunshine commands registered (status, "
         "firewall, start-at-login); Moonlight joins the Gaming pack")
+
+    apply_rowyn_deb_path(root)
+    changes.append(
+        "D3 guarded .deb path: rowyn_deb commands registered (state, "
+        "inspect, start, job, cancel); the Apps page gains the "
+        "RowynDebCard for container installs of supported app .debs")
 
     (root / "ROWYN-PORT-NOTICE").write_text(
         f"Pinned upstream System Hub source {PIN}, Apache-2.0 (LICENSE).\n"
