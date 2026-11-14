@@ -23,12 +23,15 @@ REPOSITORY = "library/ubuntu"
 REFERENCE = "26.10"
 PIN = re.compile(r"^docker\.io/library/ubuntu@sha256:[0-9a-f]{64}$")
 PIN_TEXT = re.compile(r"docker\.io/library/ubuntu@sha256:[0-9a-f]{64}")
-# Every surface that starts from the same official Ubuntu image moves
-# together: the payload, the live ISO, the managed development container that
-# the Hub creates, and the documentation that names the pin.
+# Every surface that carries a copy of the same official Ubuntu image moves
+# together: the payload, the managed development container that the Hub
+# creates, and the documentation that names the pin. The live ISO is
+# deliberately NOT a surface: installer-iso.yml resolves this pin at build
+# time (`--pinned`), because the scheduled bump pushes with the default
+# GITHUB_TOKEN, which GitHub refuses for workflow-file changes — a pin copy
+# inside a workflow file makes every bump unpushable.
 SURFACES = (
     "Containerfile",
-    ".github/workflows/installer-iso.yml",
     "build/hub/src-tauri/src/commands/rowyn_development.rs",
     "build/hub/src-tauri/src/commands/rowyn_deb.rs",
     "build/hub/src/services/rowynDevelopmentModel.ts",

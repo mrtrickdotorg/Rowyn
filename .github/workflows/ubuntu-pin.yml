@@ -13,10 +13,6 @@ on:
 
 permissions:
   contents: write
-  # The bump also moves the pin copy inside installer-iso.yml; pushing a
-  # change to a workflow file requires the workflows permission, without
-  # which GitHub rejects the commit push outright.
-  workflows: write
 
 concurrency:
   group: rowyn-ubuntu-pin
@@ -90,7 +86,7 @@ jobs:
           fi
           git config user.name "rowyn-ci"
           git config user.email "rowyn-ci@users.noreply.github.com"
-          git add Containerfile .github/workflows/installer-iso.yml \
+          git add Containerfile \
             build/hub/src-tauri/src/commands/rowyn_development.rs \
             build/hub/src-tauri/src/commands/rowyn_deb.rs \
             build/hub/src/services/rowynDevelopmentModel.ts \

@@ -41,6 +41,7 @@ class UbuntuPinBump(unittest.TestCase):
                 module.apply(root, "docker.io/library/ubuntu:26.10")
 
     def test_scheduled_workflow_moves_pins_and_commits_to_main(self):
+        module = load()
         workflow = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn('cron: "41 5 * * *"', workflow)
         self.assertIn("workflow_dispatch:", workflow)
@@ -59,6 +60,21 @@ class UbuntuPinBump(unittest.TestCase):
         self.assertNotIn("gh pr create", workflow)
         self.assertNotIn("pull_request", workflow)
         self.assertRegex(workflow, r"uses: actions/checkout@[0-9a-f]{40}")
+        # The bump pushes with the default GITHUB_TOKEN, which GitHub refuses
+        # for workflow-file changes regardless of the permissions block: no
+        # pin surface may be a workflow file and the commit step must not
+        # stage one, or every scheduled bump dies at the push.
+        self.assertFalse(
+            any(name.startswith(".github/workflows/") for name in module.SURFACES),
+            "a workflow-file pin surface makes the scheduled bump unpushable")
+        self.assertNotIn("installer-iso.yml", workflow)
+        self.assertNotIn("workflows: write", workflow)
+
+    def test_iso_workflow_derives_the_pin_instead_of_carrying_it(self):
+        module = load()
+        iso = (ROOT / ".github/workflows/installer-iso.yml").read_text(encoding="utf-8")
+        self.assertNotIn(module.pinned(ROOT), iso)
+        self.assertIn("UBUNTU_LIVE_IMAGE=$(python3 build/ubuntu-pin-bump.py --pinned)", iso)
 
     def test_no_other_file_hardcodes_the_digest(self):
         module = load()

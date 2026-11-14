@@ -47,7 +47,9 @@ concurrency:
 env:
   IMAGE_REPOSITORY: ghcr.io/mrtrickdotorg/rowyn
   UPSTREAM_INSTALLER_COMMIT: 2baf8496b5aa904c0784f4290df743ee17edae48
-  UBUNTU_LIVE_IMAGE: docker.io/library/ubuntu@sha256:262df65c0ec6bf8d9dcc87454f4330a05fae4b97825f45854af3b136666584c2
+  # No UBUNTU_LIVE_IMAGE literal here by design: the digest pin lives only in
+  # the Containerfile (the scheduled bump's token cannot push workflow-file
+  # changes), and the iso job resolves it from there via ubuntu-pin-bump.py.
 
 jobs:
   validate:
@@ -113,6 +115,10 @@ jobs:
           # for an existing digest can be rebuilt with current ISO tooling.
           ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || 'refs/heads/main' }}
           persist-credentials: false
+
+      - name: Resolve the pinned Ubuntu live image
+        shell: bash --noprofile --norc -euo pipefail {0}
+        run: echo "UBUNTU_LIVE_IMAGE=$(python3 build/ubuntu-pin-bump.py --pinned)" >> "${GITHUB_ENV}"
 
       - name: Resolve exact signed image
         id: source
