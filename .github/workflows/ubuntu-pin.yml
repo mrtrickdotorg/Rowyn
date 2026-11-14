@@ -13,6 +13,10 @@ on:
 
 permissions:
   contents: write
+  # The bump also moves the pin copy inside installer-iso.yml; pushing a
+  # change to a workflow file requires the workflows permission, without
+  # which GitHub rejects the commit push outright.
+  workflows: write
 
 concurrency:
   group: rowyn-ubuntu-pin
