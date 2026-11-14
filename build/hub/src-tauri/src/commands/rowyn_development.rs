@@ -12,7 +12,7 @@ const NAME: &str = "rowyn-ubuntu-dev";
 // Digest-pinned: the 26.10 tag moves, and a moving tag cannot decide which
 // image the managed environment is verified against.
 const IMAGE: &str =
-    "docker.io/library/ubuntu@sha256:262df65c0ec6bf8d9dcc87454f4330a05fae4b97825f45854af3b136666584c2";
+    "docker.io/library/ubuntu@sha256:b5194b8e58989da0865ebc80078bf9f5f8742ec6a867c53f6ae699f6036756f7";
 // Containers created before the digest pin report the tag; the Rowyn labels
 // still decide ownership.
 const IMAGE_TAG_ALIAS: &str = "docker.io/library/ubuntu:26.10";

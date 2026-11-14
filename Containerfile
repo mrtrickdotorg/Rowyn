@@ -24,7 +24,7 @@ COPY build-assets/ /assets
 
 # Digest-pinned; must equal UBUNTU_LIVE_IMAGE in .github/workflows/installer-iso.yml
 # (build/ubuntu-only-check.py enforces this). The guard makes a wrong digest fail fast.
-FROM docker.io/library/ubuntu@sha256:262df65c0ec6bf8d9dcc87454f4330a05fae4b97825f45854af3b136666584c2 AS base
+FROM docker.io/library/ubuntu@sha256:b5194b8e58989da0865ebc80078bf9f5f8742ec6a867c53f6ae699f6036756f7 AS base
 RUN . /etc/os-release && test "$ID" = ubuntu && test "$VERSION_ID" = 26.10
 
 # USN-8996-1 (CVE-2026-109518): no published Ubuntu 26.10 image carries the APT
