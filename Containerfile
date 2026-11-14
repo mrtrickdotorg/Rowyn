@@ -400,7 +400,7 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     /ctx/shared/performance-defaults.sh --root /
 
-# Desktop tuning: I/O schedulers, journald caps, Baloo off, PipeWire
+# Desktop tuning: I/O schedulers, journald caps, Baloo filename-only, PipeWire
 # low-latency quantum and the performance power profile applied only while
 # GameMode is active, systemd-oomd thresholds, sleep policy, slice weights,
 # PowerDevil profile defaults, and the timezone-derived Wi-Fi regulatory

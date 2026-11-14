@@ -384,7 +384,11 @@ jobs:
             test -x /usr/bin/rowyn-tune
             test -f /usr/lib/systemd/user/rowyn-gaming.slice
             test -e /usr/lib/x86_64-linux-gnu/libmimalloc.so.3 || ldconfig -p | grep -Fq libmimalloc.so.3
-            grep -Fqx "Indexing-Enabled=false" /etc/xdg/baloofilerc
+            grep -Fqx "Indexing-Enabled=true" /etc/xdg/baloofilerc
+            grep -Fqx "only basic indexing=true" /etc/xdg/baloofilerc
+            grep -Fq "exclude folders" /etc/xdg/baloofilerc
+            grep -Fqx "IOWeight=25" /usr/lib/systemd/system/plocate-updatedb.service.d/90-rowyn.conf
+            grep -Fqx "IOWeight=25" /usr/lib/systemd/system/man-db.service.d/90-rowyn.conf
             test ! -e /etc/systemd/system/network-online.target.wants/NetworkManager-wait-online.service
             test "$(systemctl is-enabled NetworkManager-wait-online.service || true)" != enabled
             test -x /usr/libexec/rowyn-gamemode-audio

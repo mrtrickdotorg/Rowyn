@@ -98,13 +98,34 @@ class DesktopTuningTests(unittest.TestCase):
                 "ForwardToSyslog": "no",
             }})
 
-    def test_baloo_off_in_xdg_only(self):
+    def test_baloo_filename_only_in_xdg_only(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.assertEqual(self.run_helper(root).returncode, 0)
-            self.assertEqual(ini(root / BALOO),
-                             {"Basic Settings": {"Indexing-Enabled": "false"}})
+            parsed = ini(root / BALOO)
+            # Filename search on, content extraction off: the extractor
+            # is Baloo's expensive half. "only basic indexing" is the
+            # [General] key Baloo's own config writer emits.
+            self.assertEqual(parsed["Basic Settings"], {"Indexing-Enabled": "true"})
+            self.assertEqual(parsed["General"]["only basic indexing"], "true")
+            excludes = parsed["General"]["exclude folders[$e]"].split(",")
+            for folder in ("$HOME/snap", "$HOME/VirtualBox VMs", "$HOME/VMs",
+                           "$HOME/.local/share/containers"):
+                self.assertIn(folder, excludes)
             self.assertFalse((root / "etc/skel").exists())
+
+    def test_background_reindexers_are_deprioritized(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.assertEqual(self.run_helper(root).returncode, 0)
+            for unit in ("plocate-updatedb.service", "man-db.service"):
+                path = root / f"usr/lib/systemd/system/{unit}.d/90-rowyn.conf"
+                self.assertEqual(ini(path), {"Service": {
+                    "Nice": "10",
+                    "IOSchedulingClass": "idle",
+                    "CPUWeight": "25",
+                    "IOWeight": "25",
+                }}, unit)
 
     def test_gamemode_audio_helper_and_config(self):
         with tempfile.TemporaryDirectory() as tmp:

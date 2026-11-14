@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install Rowyn's small desktop tuning defaults: per-device I/O schedulers,
-# journald size caps, Baloo indexing off, low-latency PipeWire and the
+# journald size caps, Baloo filename-only indexing, low-latency PipeWire and the
 # performance power profile applied only while a game runs under GameMode,
 # systemd-oomd thresholds, sleep policy, user/system slice weights, PowerDevil
 # AC/battery power-profile defaults and the Wi-Fi regulatory domain service.
@@ -79,12 +79,23 @@ ForwardToSyslog=no
 EOF2
 
 # KDE reads /etc/xdg through XDG_CONFIG_DIRS; a user's ~/.config/baloofilerc
-# overrides this, so indexing can be re-enabled in System Settings.
+# overrides this, so a user can change any of it in System Settings.
+# Filename (basic) indexing only: the content extractor is the expensive
+# half of Baloo (it opens and parses every document), while filename
+# search in Dolphin/KRunner is what users actually feel. KMail search is
+# Akonadi's own index and does not depend on Baloo content extraction.
+# Baloo indexes $HOME and skips hidden trees on its own; the excludes
+# name the non-hidden trees that are pure churn (a leftover snap dir,
+# VM image folders, container storage).
 write_file /etc/xdg/baloofilerc 0644 <<'EOF2'
-# Rowyn: no background file indexing by default. Re-enable in
+# Rowyn: filename indexing on, content indexing off. Change in
 # System Settings > Search > File Search.
 [Basic Settings]
-Indexing-Enabled=false
+Indexing-Enabled=true
+
+[General]
+only basic indexing=true
+exclude folders[$e]=$HOME/snap,$HOME/VirtualBox VMs,$HOME/VMs,$HOME/.local/share/containers
 EOF2
 
 write_file /usr/libexec/rowyn-gamemode-audio 0755 <<'EOF2'
@@ -223,6 +234,30 @@ AllowHibernation=no
 AllowHybridSleep=no
 AllowSuspendThenHibernate=no
 SuspendState=mem standby freeze
+EOF2
+
+# Background batch work must never compete with the foreground: the two
+# periodic re-indexers a desktop carries (plocate's database rebuild and
+# man-db's cache regeneration) run at idle I/O priority and a quarter of
+# the default CPU/IO weight. The timers stay — locate and man work —
+# they just yield. Drop-ins for a unit a given image lacks are ignored
+# by systemd, so these are safe whether or not the package is present.
+write_file /usr/lib/systemd/system/plocate-updatedb.service.d/90-rowyn.conf 0644 <<'EOF2'
+# Rowyn: the locate database rebuild yields to foreground work.
+[Service]
+Nice=10
+IOSchedulingClass=idle
+CPUWeight=25
+IOWeight=25
+EOF2
+
+write_file /usr/lib/systemd/system/man-db.service.d/90-rowyn.conf 0644 <<'EOF2'
+# Rowyn: man-db cache regeneration yields to foreground work.
+[Service]
+Nice=10
+IOSchedulingClass=idle
+CPUWeight=25
+IOWeight=25
 EOF2
 
 # Slice weights: interactive desktop work beats background system services

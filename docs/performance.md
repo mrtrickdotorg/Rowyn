@@ -56,3 +56,23 @@ Established state (shipped before this audit, verified by
   cgroup before the kernel OOM killer picks something session-critical.
   The contract test fails if zram's aggressive swappiness ever ships
   without oomd enabled alongside it.
+
+## Background-noise discipline
+
+- **Baloo**: filename (basic) indexing on, content indexing off
+  (`/etc/xdg/baloofilerc`). The content extractor — which opens and
+  parses every document — is Baloo's CPU/IO storm; filename search in
+  Dolphin and KRunner keeps working without it. Excluded from the
+  crawl: `~/snap`, `~/VirtualBox VMs`, `~/VMs` and container storage
+  (hidden trees are skipped by Baloo anyway). **Trade-off, chosen
+  deliberately:** full-text file-content search no longer returns
+  results (filename matches still do). KMail/Akonadi mail search uses
+  Akonadi's own index and is unaffected.
+- **Periodic re-indexers yield**: `plocate-updatedb` and `man-db` keep
+  their timers but run at Nice 10, idle I/O scheduling and
+  CPUWeight/IOWeight 25 via drop-ins, so a database rebuild can never
+  stutter the foreground. Inside the session, `user.slice` already
+  carries CPUWeight/IOWeight 1000 against system.slice's 100.
+- **Not adopted**: ananicy — the drop-in route covers the offenders
+  actually present in this payload; adding a rules daemon for two
+  units would be machinery without a problem.
