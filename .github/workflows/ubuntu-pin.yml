@@ -3,9 +3,10 @@ name: Rowyn Ubuntu digest pin
 # The payload and the live ISO start from one digest-pinned Ubuntu image
 # (build/ubuntu-only-check.py enforces that they agree). Canonical replaces
 # that image behind the tag, so resolve it on a schedule, move every pin
-# together, validate, and commit to main: the normal main-branch runs then
-# build, smoke-test and sign the result. The repository takes no pull
-# requests, so this never opens one.
+# together, validate, and commit to main. A commit pushed with the workflow
+# token starts no runs of its own, so a landed bump then dispatches Rowyn
+# CI explicitly to build, smoke-test and sign the new pin. The repository
+# takes no pull requests, so this never opens one.
 on:
   schedule:
     - cron: "41 5 * * *"
@@ -13,6 +14,9 @@ on:
 
 permissions:
   contents: write
+  # A landed bump dispatches Rowyn CI through the Actions API with this
+  # same token; without actions: write that dispatch is refused.
+  actions: write
 
 concurrency:
   group: rowyn-ubuntu-pin
@@ -74,6 +78,7 @@ jobs:
           ./build/validate.sh
 
       - name: Commit the pin to main
+        id: commit
         if: steps.resolve.outputs.changed == 'true'
         shell: bash --noprofile --norc -euo pipefail {0}
         env:
@@ -82,6 +87,7 @@ jobs:
         run: |
           if git diff --quiet; then
             echo "::notice::pin already matched; nothing to commit"
+            echo "committed=false" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
           git config user.name "rowyn-ci"
@@ -94,3 +100,20 @@ jobs:
           git commit -m "$(printf 'chore(image): pin Ubuntu to %s\n\nScheduled digest bump: %s -> %s.\n' \
             "${NEWEST#*@}" "${PINNED#*@}" "${NEWEST#*@}")"
           git push origin main
+          echo "committed=true" >> "${GITHUB_OUTPUT}"
+
+      - name: Dispatch Rowyn CI for the landed bump
+        if: steps.commit.outputs.committed == 'true'
+        shell: bash --noprofile --norc -euo pipefail {0}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # The bump commit above was pushed with the workflow token, and
+          # token pushes start no other workflow runs — without this step
+          # the new pin would sit unbuilt until an unrelated push happened
+          # to run Rowyn CI on main. Starting a run by dispatch is the one
+          # route the built-in token is allowed, so dispatch Rowyn CI on
+          # main now and let it build, sign and promote the new pin. If the
+          # dispatch itself is refused this step fails the run: a bump that
+          # lands but never builds has to be loud, not silent.
+          gh workflow run build.yml --repo "${{ github.repository }}" --ref main

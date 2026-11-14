@@ -4,6 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "build" / "ubuntu-pin-bump.py"
 WORKFLOW = ROOT / ".github" / "workflows" / "ubuntu-pin.yml"
@@ -69,6 +71,42 @@ class UbuntuPinBump(unittest.TestCase):
             "a workflow-file pin surface makes the scheduled bump unpushable")
         self.assertNotIn("installer-iso.yml", workflow)
         self.assertNotIn("workflows: write", workflow)
+
+    def test_workflow_permissions_are_exactly_what_the_bump_and_dispatch_need(self):
+        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        # contents pushes the bump commit; actions dispatches Rowyn CI for
+        # it. Nothing else — in particular no workflows scope, which GitHub
+        # rejects in this position and which the bump must never need.
+        self.assertEqual(workflow["permissions"],
+                         {"contents": "write", "actions": "write"})
+        self.assertNotIn("workflows: write", WORKFLOW.read_text(encoding="utf-8"))
+
+    def test_landed_bump_dispatches_rowyn_ci_and_noop_does_not(self):
+        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        steps = workflow["jobs"]["bump"]["steps"]
+        names = [step["name"] for step in steps]
+        by_name = {step["name"]: step for step in steps}
+
+        commit = by_name["Commit the pin to main"]
+        self.assertEqual(commit["id"], "commit")
+        run = commit["run"]
+        # The committed signal exists only on the path that actually
+        # pushed: it is written after the push succeeds, while the
+        # nothing-to-commit exit reports false. A run whose resolve step
+        # found no change skips the commit step entirely, so the signal
+        # stays unset there too.
+        self.assertLess(run.index("git push origin main"),
+                        run.index('echo "committed=true" >> "${GITHUB_OUTPUT}"'))
+        self.assertIn('echo "committed=false" >> "${GITHUB_OUTPUT}"', run)
+
+        dispatch = by_name["Dispatch Rowyn CI for the landed bump"]
+        self.assertEqual(dispatch["if"],
+                         "steps.commit.outputs.committed == 'true'")
+        self.assertIn("gh workflow run build.yml", dispatch["run"])
+        self.assertIn("--ref main", dispatch["run"])
+        # The dispatch can only follow the commit it reacts to.
+        self.assertLess(names.index("Commit the pin to main"),
+                        names.index("Dispatch Rowyn CI for the landed bump"))
 
     def test_iso_workflow_derives_the_pin_instead_of_carrying_it(self):
         module = load()
