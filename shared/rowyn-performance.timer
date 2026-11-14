@@ -1,0 +1,12 @@
+[Unit]
+Description=Sample the Rowyn performance baseline for this boot
+
+[Timer]
+# First sample once boot timing is final; later samples keep the
+# suspend counters current through the boot.
+OnBootSec=2min
+OnUnitActiveSec=15min
+Unit=rowyn-performance.service
+
+[Install]
+WantedBy=timers.target

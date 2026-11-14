@@ -1,0 +1,11 @@
+[Unit]
+Description=Record the Rowyn performance baseline sample for this boot
+After=graphical.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/rowyn-performance-record
+# Sampling must never disturb the system it measures.
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=60

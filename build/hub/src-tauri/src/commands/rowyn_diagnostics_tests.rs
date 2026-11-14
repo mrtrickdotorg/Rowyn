@@ -35,6 +35,9 @@ fn live_read_only_snapshot_has_all_sections_and_controller_helper_result() {
         "CPU model",
         "NVIDIA module version",
         "Update health record",
+        "Boot time",
+        "Suspend / resume",
+        "Update cycle",
         "Memory",
         "GPU drivers",
         "Bootc image",
@@ -280,4 +283,118 @@ fn focused_probe_arguments_are_fixed_and_read_only() {
     assert_eq!(args(Probe::WifiRadio).1, vec!["radio","wifi"]);
     assert_eq!(args(Probe::Audio).1, vec!["--user","is-active","pipewire.service","wireplumber.service"]);
     assert_eq!(args(Probe::Displays).1, vec!["-o"]);
+}
+
+/// Performance fixtures are byte-shaped like the writers emit them:
+/// rowyn-performance-record's compact history JSON and
+/// rowyn-update-watcher-status's compact status JSON. The Python
+/// contract tests pin the writers to this shape; these pin the reader.
+const HISTORY_ONE_BOOT: &str = r#"{"schema_version":1,"boots":[{"boot_id":"3f2a1c4e-1111-4222-8333-444455556666","sampled_at":1763131800,"boot":{"firmware":2.847,"loader":1.203,"kernel":3.112,"initrd":1.456,"userspace":8.923,"total":17.541,"target":"graphical","target_seconds":8.923},"suspend":{"success":3,"fail":0}}]}"#;
+
+#[test]
+fn epoch_formatter_matches_date_u_vectors() {
+    assert_eq!(fmt_epoch_utc(0), "1970-01-01 00:00 UTC");
+    assert_eq!(fmt_epoch_utc(1_763_131_800), "2025-11-14 14:50 UTC");
+    assert_eq!(fmt_epoch_utc(1_709_164_800), "2024-02-29 00:00 UTC");
+    assert_eq!(fmt_seconds(17.541), "17.5s");
+    assert_eq!(fmt_seconds(0.197), "0.2s");
+    assert_eq!(fmt_seconds(125.0), "2m 5.0s");
+}
+
+#[test]
+fn boot_time_reading_projects_the_latest_boot() {
+    let reading = boot_time_reading(Ok(HISTORY_ONE_BOOT.into()));
+    assert_eq!(reading.name, "Boot time");
+    assert_eq!(reading.state, "ok");
+    let mut lines = reading.detail.lines();
+    assert_eq!(
+        lines.next(),
+        Some("17.5s total · desktop reached in 8.9s"),
+        "detail was: {}",
+        reading.detail
+    );
+    let segments = lines.next().unwrap_or_default();
+    for needle in ["firmware 2.8s", "kernel 3.1s", "initrd 1.5s", "userspace 8.9s"] {
+        assert!(segments.contains(needle), "segments line: {segments}");
+    }
+    assert!(reading.detail.contains("Recorded 2025-11-14 14:50 UTC · 1 boot(s)"));
+}
+
+#[test]
+fn boot_time_reading_handles_userspace_only_and_missing_data() {
+    // A VM/container boot reports no firmware/loader/kernel/initrd and
+    // reaches default.target; the projection must not invent segments.
+    let userspace_only = r#"{"schema_version":1,"boots":[{"boot_id":"b","sampled_at":1763131800,"boot":{"userspace":2.132,"total":2.132,"target":"default","target_seconds":0.197},"suspend":null}]}"#;
+    let reading = boot_time_reading(Ok(userspace_only.into()));
+    assert_eq!(reading.state, "ok");
+    assert!(reading.detail.starts_with("2.1s total · session target reached in 0.2s"));
+    assert!(!reading.detail.contains("firmware"));
+
+    let no_timing = r#"{"schema_version":1,"boots":[{"boot_id":"b","sampled_at":1763131800,"boot":null,"suspend":null}]}"#;
+    assert_eq!(boot_time_reading(Ok(no_timing.into())).state, "unavailable");
+    assert_eq!(boot_time_reading(Err("unavailable: missing".into())).state, "unavailable");
+    assert_eq!(boot_time_reading(Ok("not json".into())).state, "unavailable");
+    assert_eq!(
+        boot_time_reading(Ok(r#"{"schema_version":2,"boots":[]}"#.into())).state,
+        "unavailable"
+    );
+}
+
+#[test]
+fn suspend_reading_aggregates_and_flags_failures() {
+    let two_boots = r#"{"schema_version":1,"boots":[{"boot_id":"new","sampled_at":1763131800,"boot":null,"suspend":{"success":2,"fail":1}},{"boot_id":"old","sampled_at":1763045400,"boot":null,"suspend":{"success":3,"fail":0}}]}"#;
+    let reading = suspend_reading(Ok(two_boots.into()));
+    assert_eq!(reading.state, "attention");
+    assert!(
+        reading.detail.contains("5 of 6 suspends succeeded (83%) across 2 recorded boot(s)."),
+        "detail was: {}",
+        reading.detail
+    );
+    assert!(reading.detail.contains("Latest boot: 2 of 3 succeeded."));
+
+    let clean = suspend_reading(Ok(HISTORY_ONE_BOOT.into()));
+    assert_eq!(clean.state, "ok");
+    assert!(clean.detail.contains("3 of 3 suspends succeeded (100%)"));
+
+    let none = r#"{"schema_version":1,"boots":[{"boot_id":"b","sampled_at":1763131800,"boot":null,"suspend":null}]}"#;
+    assert_eq!(suspend_reading(Ok(none.into())).state, "unavailable");
+
+    let zero = r#"{"schema_version":1,"boots":[{"boot_id":"b","sampled_at":1763131800,"boot":null,"suspend":{"success":0,"fail":0}}]}"#;
+    let reading = suspend_reading(Ok(zero.into()));
+    assert_eq!(reading.state, "ok");
+    assert!(reading.detail.contains("No suspend attempted"));
+}
+
+#[test]
+fn update_cycle_reading_projects_watcher_outcomes() {
+    let now = 1_763_140_000u64;
+    let staged = r#"{"schema_version":1,"started_at":1763128272,"finished_at":1763128320,"outcome":"staged","reason_code":"update_staged","last_success_at":1763128320,"last_staged_at":1763128320}"#;
+    let reading = update_cycle_reading(Ok(staged.into()), now);
+    assert_eq!(reading.state, "ok");
+    assert!(
+        reading.detail.contains("Last check 2025-11-14 13:52 UTC · took 48.0s · update staged; it applies on the next boot."),
+        "detail was: {}",
+        reading.detail
+    );
+    assert!(reading.detail.contains("Last update staged 2025-11-14 13:52 UTC."));
+
+    let failed = r#"{"schema_version":1,"started_at":1763128272,"finished_at":1763128300,"outcome":"failed","reason_code":"upgrade_failed","last_success_at":null,"last_staged_at":null}"#;
+    let reading = update_cycle_reading(Ok(failed.into()), now);
+    assert_eq!(reading.state, "attention");
+    assert!(reading.detail.contains("Reason: upgrade_failed."));
+
+    let running = r#"{"schema_version":1,"started_at":1763139000,"finished_at":null,"outcome":"running","reason_code":"attempt_started","last_success_at":null,"last_staged_at":null}"#;
+    let reading = update_cycle_reading(Ok(running.into()), now);
+    assert_eq!(reading.state, "ok");
+    assert!(reading.detail.contains("in progress since"));
+
+    // A timestamp beyond the reader's clock must be dropped, not shown.
+    let future = r#"{"schema_version":1,"started_at":1763128272,"finished_at":9999999999,"outcome":"current","reason_code":"no_update","last_success_at":9999999999,"last_staged_at":null}"#;
+    let reading = update_cycle_reading(Ok(future.into()), now);
+    assert_eq!(reading.state, "ok");
+    assert!(reading.detail.contains("Last check outcome: system up to date."));
+    assert!(!reading.detail.contains("9999999999"));
+
+    assert_eq!(update_cycle_reading(Err("unavailable: missing".into()), now).state, "unavailable");
+    assert_eq!(update_cycle_reading(Ok("{}".into()), now).state, "unavailable");
 }

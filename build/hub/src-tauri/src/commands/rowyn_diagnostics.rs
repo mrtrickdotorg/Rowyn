@@ -295,6 +295,236 @@ fn parse_controller(raw: &str) -> Result<Vec<Reading>, String> {
         })
         .collect()
 }
+/// Format an epoch second as "YYYY-MM-DD HH:MM UTC" (civil-from-days,
+/// no date crate). Only used for display; tests pin known vectors.
+fn fmt_epoch_utc(epoch: u64) -> String {
+    let days = (epoch / 86_400) as i64;
+    let secs = epoch % 86_400;
+    let (hour, minute) = (secs / 3600, (secs % 3600) / 60);
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let year = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = if month <= 2 { year + 1 } else { year };
+    format!("{year:04}-{month:02}-{day:02} {hour:02}:{minute:02} UTC")
+}
+
+fn fmt_seconds(value: f64) -> String {
+    if value >= 60.0 {
+        let minutes = (value / 60.0).floor() as u64;
+        format!("{minutes}m {:.1}s", value - minutes as f64 * 60.0)
+    } else {
+        format!("{value:.1}s")
+    }
+}
+
+fn perf_reading(name: &str, state: &str, detail: String) -> Reading {
+    Reading {
+        name: name.into(),
+        state: state.into(),
+        detail: safe_text(&detail),
+    }
+}
+
+fn valid_history(doc: &serde_json::Value) -> Option<&Vec<serde_json::Value>> {
+    if doc.get("schema_version").and_then(serde_json::Value::as_i64) != Some(1) {
+        return None;
+    }
+    let boots = doc.get("boots")?.as_array()?;
+    let entry_ok = |entry: &serde_json::Value| {
+        entry.get("boot_id").and_then(serde_json::Value::as_str).is_some_and(|id| !id.is_empty())
+            && entry.get("sampled_at").and_then(serde_json::Value::as_u64).is_some_and(|ts| ts > 0)
+            && (entry.get("boot").is_none_or(|boot| boot.is_null() || boot.is_object()))
+            && (entry.get("suspend").is_none_or(|suspend| {
+                suspend.is_null()
+                    || (suspend.get("success").and_then(serde_json::Value::as_u64).is_some()
+                        && suspend.get("fail").and_then(serde_json::Value::as_u64).is_some())
+            }))
+    };
+    boots.iter().all(entry_ok).then_some(boots)
+}
+
+/// Boot timing from the baseline history (rowyn-performance-record).
+/// The newest entry is the current boot; unmeasured segments stay absent.
+fn boot_time_reading(raw: Result<String, String>) -> Reading {
+    let name = "Boot time";
+    let Ok(raw) = raw else {
+        return perf_reading(name, "unavailable", "No performance baseline recorded yet.".into());
+    };
+    let Ok(doc) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return perf_reading(name, "unavailable", "The performance history is not readable.".into());
+    };
+    let Some(boots) = valid_history(&doc) else {
+        return perf_reading(name, "unavailable", "The performance history is not readable.".into());
+    };
+    let Some(latest) = boots.iter().max_by_key(|entry| {
+        entry.get("sampled_at").and_then(serde_json::Value::as_u64).unwrap_or(0)
+    }) else {
+        return perf_reading(name, "unavailable", "No performance baseline recorded yet.".into());
+    };
+    let Some(boot) = latest.get("boot").filter(|boot| boot.is_object()) else {
+        return perf_reading(name, "unavailable", "Boot timing was not reported for the latest boot.".into());
+    };
+    let Some(total) = boot.get("total").and_then(serde_json::Value::as_f64) else {
+        return perf_reading(name, "unavailable", "Boot timing was not reported for the latest boot.".into());
+    };
+    let headline = match (
+        boot.get("target").and_then(serde_json::Value::as_str),
+        boot.get("target_seconds").and_then(serde_json::Value::as_f64),
+    ) {
+        (Some("graphical"), Some(at)) => {
+            format!("{} total · desktop reached in {}", fmt_seconds(total), fmt_seconds(at))
+        }
+        (Some(_), Some(at)) => {
+            format!("{} total · session target reached in {}", fmt_seconds(total), fmt_seconds(at))
+        }
+        _ => format!("{} total", fmt_seconds(total)),
+    };
+    let segments: Vec<String> = ["firmware", "loader", "kernel", "initrd", "userspace"]
+        .iter()
+        .filter_map(|key| {
+            boot.get(*key)
+                .and_then(serde_json::Value::as_f64)
+                .map(|value| format!("{} {}", key, fmt_seconds(value)))
+        })
+        .collect();
+    let sampled_at = latest
+        .get("sampled_at")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let mut lines = vec![headline];
+    if !segments.is_empty() {
+        lines.push(segments.join(" · "));
+    }
+    lines.push(format!(
+        "Recorded {} · {} boot(s) in the baseline history.",
+        fmt_epoch_utc(sampled_at),
+        boots.len()
+    ));
+    perf_reading(name, "ok", lines.join("\n"))
+}
+
+/// Suspend reliability aggregated over every recorded boot that reported
+/// kernel suspend statistics; boots without them are skipped, not zeroed.
+fn suspend_reading(raw: Result<String, String>) -> Reading {
+    let name = "Suspend / resume";
+    let Ok(raw) = raw else {
+        return perf_reading(name, "unavailable", "Suspend has not been reported on this system.".into());
+    };
+    let Ok(doc) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return perf_reading(name, "unavailable", "Suspend has not been reported on this system.".into());
+    };
+    let Some(boots) = valid_history(&doc) else {
+        return perf_reading(name, "unavailable", "Suspend has not been reported on this system.".into());
+    };
+    let reported: Vec<&serde_json::Value> = boots
+        .iter()
+        .filter(|entry| entry.get("suspend").is_some_and(|suspend| suspend.is_object()))
+        .collect();
+    if reported.is_empty() {
+        return perf_reading(name, "unavailable", "Suspend has not been reported on this system.".into());
+    }
+    let (mut success, mut fail) = (0u64, 0u64);
+    for entry in &reported {
+        success += entry["suspend"].get("success").and_then(serde_json::Value::as_u64).unwrap_or(0);
+        fail += entry["suspend"].get("fail").and_then(serde_json::Value::as_u64).unwrap_or(0);
+    }
+    let attempts = success + fail;
+    if attempts == 0 {
+        return perf_reading(
+            name,
+            "ok",
+            format!("No suspend attempted in {} recorded boot(s).", reported.len()),
+        );
+    }
+    let percent = (success as f64 * 100.0 / attempts as f64).round() as u64;
+    let mut lines = vec![format!(
+        "{success} of {attempts} suspends succeeded ({percent}%) across {} recorded boot(s).",
+        reported.len()
+    )];
+    if let Some(latest) = reported.iter().max_by_key(|entry| {
+        entry.get("sampled_at").and_then(serde_json::Value::as_u64).unwrap_or(0)
+    }) {
+        let latest_success = latest["suspend"].get("success").and_then(serde_json::Value::as_u64).unwrap_or(0);
+        let latest_fail = latest["suspend"].get("fail").and_then(serde_json::Value::as_u64).unwrap_or(0);
+        lines.push(format!(
+            "Latest boot: {latest_success} of {} succeeded.",
+            latest_success + latest_fail
+        ));
+    }
+    perf_reading(name, if fail > 0 { "attention" } else { "ok" }, lines.join("\n"))
+}
+
+/// Update-cycle timing from the watcher's own status record — the same
+/// file the Home update card projects. Check duration and staged time
+/// are recorded facts; an apply duration is not, so none is shown.
+fn update_cycle_reading(raw: Result<String, String>, now: u64) -> Reading {
+    let name = "Update cycle";
+    let Ok(raw) = raw else {
+        return perf_reading(name, "unavailable", "No update check recorded yet.".into());
+    };
+    let Ok(doc) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return perf_reading(name, "unavailable", "The update check record is not readable.".into());
+    };
+    let ts = |key: &str| {
+        doc.get(key)
+            .and_then(serde_json::Value::as_i64)
+            .filter(|value| *value > 0 && (*value as u64) <= now + 300)
+            .map(|value| value as u64)
+    };
+    let outcome = doc.get("outcome").and_then(serde_json::Value::as_str).unwrap_or("");
+    let reason = doc.get("reason_code").and_then(serde_json::Value::as_str).unwrap_or("");
+    let (started, finished) = (ts("started_at"), ts("finished_at"));
+    let (headline, state) = match outcome {
+        "running" => (
+            match started {
+                Some(at) => format!("Update check in progress since {}.", fmt_epoch_utc(at)),
+                None => "Update check in progress.".into(),
+            },
+            "ok",
+        ),
+        "current" | "staged" | "failed" | "interrupted" | "deferred" => {
+            let what = match outcome {
+                "current" => "system up to date",
+                "staged" => "update staged; it applies on the next boot",
+                "failed" => "check failed",
+                "interrupted" => "check interrupted",
+                _ => "check deferred",
+            };
+            let headline = match (finished, started) {
+                (Some(done), Some(began)) if done >= began => format!(
+                    "Last check {} · took {} · {}.",
+                    fmt_epoch_utc(done),
+                    fmt_seconds((done - began) as f64),
+                    what
+                ),
+                (Some(done), _) => format!("Last check {} · {}.", fmt_epoch_utc(done), what),
+                _ => format!("Last check outcome: {what}."),
+            };
+            (
+                headline,
+                if matches!(outcome, "failed" | "interrupted") { "attention" } else { "ok" },
+            )
+        }
+        "disabled" => ("Automatic update checks are off.".into(), "ok"),
+        "invalid_policy" => ("The update policy is invalid; checks cannot run.".into(), "attention"),
+        _ => return perf_reading(name, "unavailable", "The update check record is not readable.".into()),
+    };
+    let mut lines = vec![headline];
+    if !reason.is_empty() && matches!(outcome, "deferred" | "failed" | "interrupted") {
+        lines.push(format!("Reason: {reason}."));
+    }
+    if let Some(staged_at) = ts("last_staged_at") {
+        lines.push(format!("Last update staged {}.", fmt_epoch_utc(staged_at)));
+    }
+    perf_reading(name, state, lines.join("\n"))
+}
+
 fn controllers() -> Result<Vec<Reading>, String> {
     let _guard = ReadGuard::take(&CONTROLLER_RUNNING)?;
     parse_controller(&probe(Probe::Controller)?)
@@ -353,6 +583,15 @@ fn collect() -> Result<Snapshot, String> {
                 .into_iter().filter_map(|key| value.get(key).map(|item| (key.to_owned(), item.clone()))).collect();
             serde_json::to_string_pretty(&selected).map_err(|_| "error: could not format update health".into())
         })),
+        boot_time_reading(read_fixed("/var/lib/rowyn/performance/history.json")),
+        suspend_reading(read_fixed("/var/lib/rowyn/performance/history.json")),
+        update_cycle_reading(
+            read_fixed("/var/lib/rowyn/update-watcher/status.json"),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+        ),
         section(
             "Memory",
             read_fixed("/proc/meminfo").map(|text| {

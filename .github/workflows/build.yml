@@ -261,6 +261,8 @@ jobs:
             test -x /usr/bin/rowyn-telemetry-record
             test -e /etc/systemd/system/timers.target.wants/rowyn-probe.timer
             test -e /etc/systemd/user/timers.target.wants/rowyn-probe-user.timer
+            test -x /usr/libexec/rowyn-performance-record
+            test -e /etc/systemd/system/timers.target.wants/rowyn-performance.timer
             if ldd /usr/bin/rowyn-hub-shell | grep -Fq "not found"; then
               echo "rowyn-hub-shell has unresolved runtime libraries" >&2
               exit 1

@@ -517,6 +517,19 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     systemctl enable rowyn-probe.timer && \
     systemctl --global enable rowyn-probe-user.timer
 
+# Performance baseline: a timer-driven recorder samples each boot's
+# systemd-analyze timing and kernel suspend statistics into
+# /var/lib/rowyn/performance/history.json, which the Hub's Diagnostics
+# page projects (boot time, suspend ratio, update cycle). Measurements
+# only — nothing here tunes or changes the system it samples.
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    install -Dm755 /ctx/shared/rowyn-performance-record /usr/libexec/rowyn-performance-record && \
+    python3 -c "import py_compile; py_compile.compile('/usr/libexec/rowyn-performance-record', cfile='/tmp/rowyn-performance-record.pyc', doraise=True)" && \
+    rm -f /tmp/rowyn-performance-record.pyc && \
+    install -Dm644 /ctx/shared/rowyn-performance.service /usr/lib/systemd/system/rowyn-performance.service && \
+    install -Dm644 /ctx/shared/rowyn-performance.timer /usr/lib/systemd/system/rowyn-performance.timer && \
+    systemctl enable rowyn-performance.timer
+
 # Boot health: a deployment that has never been confirmed healthy runs bounded
 # local checks once per boot; three failures quarantine the digest and roll the
 # machine back. Rowyn's own systemd + bootc implementation, not greenboot.

@@ -1,0 +1,253 @@
+#!/usr/bin/python3
+"""Record one performance sample for the current boot.
+
+The baseline harness behind the Hub's Diagnostics performance readings.
+Each run upserts the entry for the *current* boot (identified by the
+kernel boot id) into /var/lib/rowyn/performance/history.json:
+
+* boot timing, parsed from `systemd-analyze` (firmware/loader/kernel/
+  initrd/userspace splits, the total, and when the session target was
+  reached) — segments the platform does not report stay null;
+* suspend statistics for this boot from /sys/power/suspend_stats
+  (success/fail counters) — null when the kernel does not expose them.
+
+Honesty rules, shared with the telemetry writer: a value Rowyn did not
+measure is null, never estimated. The file is a measurement log, not
+policy or safety state, so a corrupt history is replaced rather than
+wedging the recorder (individual malformed entries are dropped).
+
+The newest 30 boots are kept. Writes are atomic (temp file + rename)
+under an flock, mirroring rowyn-update-watcher-status.
+
+Test hooks (all optional): ROWYN_PERFORMANCE_DIR, ROWYN_PERFORMANCE_NOW
+(epoch seconds), ROWYN_PERFORMANCE_ANALYZE_FILE (read canned
+`systemd-analyze` output instead of running it),
+ROWYN_PERFORMANCE_BOOT_ID_FILE, ROWYN_PERFORMANCE_SYSFS (the
+suspend_stats directory).
+"""
+import fcntl
+import json
+import os
+import re
+import secrets
+import stat
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+DIR = Path(os.environ.get("ROWYN_PERFORMANCE_DIR", "/var/lib/rowyn/performance"))
+MAX_TIME = 253402300799
+MAX_BOOTS = 30
+SEGMENTS = ("firmware", "loader", "kernel", "initrd", "userspace")
+BOOT_FIELDS = set(SEGMENTS) | {"total", "target", "target_seconds"}
+
+_DURATION = r"(?:(\d+)\s*min\s*)?(\d+(?:\.\d+)?)\s*(ms|s)"
+_SEGMENT_RE = re.compile(_DURATION + r"\s*\((firmware|loader|kernel|initrd|userspace)\)")
+_TOTAL_RE = re.compile(r"=\s*" + _DURATION + r"\s*$", re.MULTILINE)
+_TARGET_RE = re.compile(r"(graphical|default)\.target reached after\s*" + _DURATION + r"\s+in userspace")
+
+
+def _seconds(minutes, amount, unit):
+    value = float(amount)
+    if unit == "ms":
+        value /= 1000.0
+    if minutes:
+        value += int(minutes) * 60
+    return round(value, 3)
+
+
+def parse_analyze(text):
+    """Parse `systemd-analyze` output into the boot record, or None.
+
+    Only the "Startup finished in" summary and the "<target> reached"
+    line are read; anything unparseable yields None (not measured),
+    never a partial guess dressed up as a measurement.
+    """
+    if not text or "Startup finished in" not in text:
+        return None
+    boot = {}
+    for match in _SEGMENT_RE.finditer(text):
+        boot[match.group(4)] = _seconds(match.group(1), match.group(2), match.group(3))
+    if not boot:
+        return None
+    total = _TOTAL_RE.search(text)
+    if total:
+        boot["total"] = _seconds(total.group(1), total.group(2), total.group(3))
+    else:
+        boot["total"] = round(sum(boot[name] for name in SEGMENTS if name in boot), 3)
+    target = _TARGET_RE.search(text)
+    if target:
+        boot["target"] = target.group(1)
+        boot["target_seconds"] = _seconds(target.group(2), target.group(3), target.group(4))
+    return boot
+
+
+def read_analyze():
+    canned = os.environ.get("ROWYN_PERFORMANCE_ANALYZE_FILE")
+    try:
+        if canned:
+            text = Path(canned).read_text(encoding="utf-8", errors="replace")
+        else:
+            result = subprocess.run(
+                ["/usr/bin/systemd-analyze"],
+                capture_output=True, text=True, timeout=20,
+                env=dict(os.environ, LC_ALL="C"),
+            )
+            if result.returncode != 0:
+                return None
+            text = result.stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return parse_analyze(text)
+
+
+def read_suspend():
+    stats_dir = Path(os.environ.get(
+        "ROWYN_PERFORMANCE_SYSFS", "/sys/power/suspend_stats"))
+    try:
+        success = int((stats_dir / "success").read_text(encoding="ascii").strip())
+        fail = int((stats_dir / "fail").read_text(encoding="ascii").strip())
+    except (OSError, ValueError):
+        return None
+    if success < 0 or fail < 0:
+        return None
+    return {"success": success, "fail": fail}
+
+
+def valid_boot(value):
+    if value is None:
+        return True
+    if not isinstance(value, dict) or not set(value) <= BOOT_FIELDS:
+        return False
+    for name in SEGMENTS + ("total", "target_seconds"):
+        item = value.get(name)
+        if item is not None and (isinstance(item, bool)
+                                 or not isinstance(item, (int, float))
+                                 or not 0 <= item <= 86400):
+            return False
+    if value.get("target") not in (None, "graphical", "default"):
+        return False
+    return "total" in value
+
+
+def valid_entry(entry):
+    if not isinstance(entry, dict) or set(entry) != {"boot_id", "sampled_at", "boot", "suspend"}:
+        return False
+    if not isinstance(entry["boot_id"], str) or not 1 <= len(entry["boot_id"]) <= 64:
+        return False
+    sampled = entry["sampled_at"]
+    if type(sampled) is not int or not 0 <= sampled <= MAX_TIME:
+        return False
+    suspend = entry["suspend"]
+    if suspend is not None:
+        if not isinstance(suspend, dict) or set(suspend) != {"success", "fail"}:
+            return False
+        if any(type(suspend[k]) is not int or suspend[k] < 0 for k in ("success", "fail")):
+            return False
+    return valid_boot(entry["boot"])
+
+
+def valid_doc(doc):
+    return (isinstance(doc, dict) and set(doc) == {"schema_version", "boots"}
+            and type(doc["schema_version"]) is int and doc["schema_version"] == 1
+            and isinstance(doc["boots"], list)
+            and all(valid_entry(entry) for entry in doc["boots"]))
+
+
+def load_history(path):
+    """Best-effort load: a malformed file or entry is dropped, not fatal.
+
+    This is a measurement log; losing history must never wedge the
+    recorder the way losing policy state would.
+    """
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"schema_version": 1, "boots": []}
+    if not (isinstance(doc, dict) and doc.get("schema_version") == 1
+            and isinstance(doc.get("boots"), list)):
+        return {"schema_version": 1, "boots": []}
+    return {"schema_version": 1,
+            "boots": [entry for entry in doc["boots"] if valid_entry(entry)]}
+
+
+def now_epoch():
+    token = os.environ.get("ROWYN_PERFORMANCE_NOW")
+    if token is None:
+        return int(time.time())
+    if not token.isascii() or not token.isdecimal():
+        raise ValueError("invalid ROWYN_PERFORMANCE_NOW")
+    value = int(token)
+    if not 0 <= value <= MAX_TIME:
+        raise ValueError("invalid ROWYN_PERFORMANCE_NOW")
+    return value
+
+
+def main():
+    if len(sys.argv) != 1:
+        return 2
+    try:
+        now = now_epoch()
+        boot_id_path = Path(os.environ.get(
+            "ROWYN_PERFORMANCE_BOOT_ID_FILE",
+            "/proc/sys/kernel/random/boot_id"))
+        boot_id = boot_id_path.read_text(encoding="ascii").strip()
+        if not boot_id or len(boot_id) > 64:
+            return 1
+        entry = {
+            "boot_id": boot_id,
+            "sampled_at": now,
+            "boot": read_analyze(),
+            "suspend": read_suspend(),
+        }
+        if not valid_entry(entry):
+            return 1
+        DIR.mkdir(parents=True, exist_ok=True)
+        # The directory is ours (root service): force the mode rather
+        # than inheriting whatever umask the environment carried.
+        os.chmod(DIR, 0o755)
+        if stat.S_IMODE(DIR.stat().st_mode) & 0o022:
+            return 1
+        lockfd = os.open(DIR / ".history.lock",
+                         os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        try:
+            fcntl.flock(lockfd, fcntl.LOCK_EX)
+            doc = load_history(DIR / "history.json")
+            boots = [old for old in doc["boots"] if old["boot_id"] != boot_id]
+            boots.append(entry)
+            boots.sort(key=lambda item: item["sampled_at"], reverse=True)
+            doc = {"schema_version": 1, "boots": boots[:MAX_BOOTS]}
+            if not valid_doc(doc):
+                return 1
+            name = ".history." + secrets.token_hex(8)
+            fd = os.open(DIR / name,
+                         os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            try:
+                with os.fdopen(fd, "w") as stream:
+                    json.dump(doc, stream, separators=(",", ":"))
+                    stream.write("\n")
+                    stream.flush()
+                    os.fchmod(stream.fileno(), 0o644)
+                    os.fsync(stream.fileno())
+                os.rename(DIR / name, DIR / "history.json")
+                dfd = os.open(DIR, os.O_RDONLY | os.O_DIRECTORY)
+                try:
+                    os.fsync(dfd)
+                finally:
+                    os.close(dfd)
+            except BaseException:
+                try:
+                    os.unlink(DIR / name)
+                except OSError:
+                    pass
+                raise
+            return 0
+        finally:
+            os.close(lockfd)
+    except (OSError, ValueError):
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
