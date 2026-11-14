@@ -240,6 +240,10 @@ jobs:
             test -s /etc/locale.gen
             grep -qx LANG=en_US.UTF-8 /etc/default/locale
             test "$(readlink /etc/systemd/system/ufw.service)" = /dev/null
+            test "$(readlink /etc/systemd/system/apt-daily.timer)" = /dev/null
+            test "$(readlink /etc/systemd/system/apt-daily-upgrade.timer)" = /dev/null
+            test "$(readlink /etc/systemd/system/unattended-upgrades.service)" = /dev/null
+            test "$(readlink /etc/systemd/system/motd-news.timer)" = /dev/null
             test -x /usr/bin/rowyn-hub-shell
             test -x /usr/bin/kup-daemon
             test -x /usr/bin/bup

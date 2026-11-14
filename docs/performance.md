@@ -35,6 +35,47 @@ first baseline on a new install is the *second* boot after the update
 that ships the recorder (the first boot has no recorder running yet —
 its timing is never back-filled or guessed).
 
+## Boot-path audit (2026-11-14)
+
+The payload's boot surface is small and every item was decided
+explicitly; `test_boot_units.py` pins the sets below so a change has
+to update the audit to land.
+
+**Changed — masked:**
+| Unit | Why |
+|---|---|
+| `apt-daily{,-upgrade}.{service,timer}` | Periodic apt churn (network + /var) for package state the image model makes meaningless; host apt is guidance-blocked. |
+| `unattended-upgrades.service` | Would download and attempt deb upgrades against an immutable /usr. Inert if the package is absent; masked regardless. |
+| `motd-news.{service,timer}` | Fetches Canonical news/marketing for the login banner. |
+
+**Already in place (verified, kept):** `systemd-networkd{,-wait-online}`
+and `ufw` masked (NetworkManager and firewalld own their roles);
+`NetworkManager-wait-online` **disabled, deliberately not masked** —
+the update watcher and the Flatpak preinstall unit order themselves
+`After/Wants network-online.target`, and masking is one step further
+than the evidence justifies. The initramfs is already minimal for a
+generic-hardware image (`hostonly=no` is the deliberate price of one
+image for every machine; only the bootc and plymouth modules are
+added, and GPU drivers are explicitly omitted so `rowyn-gpu-select`
+decides in the real root).
+
+**Audited, kept unchanged:** `fwupd-refresh.timer` (firmware metadata
+is a stability input, and the fetch is small), `fstrim.timer` (SSD
+health), `man-db`/`plocate-updatedb` (deprioritized, not removed —
+see below), CUPS/avahi (socket-activated; ~zero boot cost, printing
+must just work), and the KDE session's package autostarts — the
+payload ships exactly one of its own (`rowyn-first-run`, marker-gated
+to the first login). Akonadi/PIM autostarts belong to their packages,
+PIM is payload-native by design, and its agents are D-Bus activated
+on demand; removing or delaying them would trade a working mail
+client for unmeasured milliseconds.
+
+**Honest limit:** which of these masks saves how many seconds is a
+number only a real install can produce — the harness's boot split is
+exactly how it will be seen (timer-driven apt work does not appear in
+the boot split at all; its cost was jitter and network/disk churn
+during the session, which is why it was removed on principle).
+
 ## Memory pressure
 
 Established state (shipped before this audit, verified by

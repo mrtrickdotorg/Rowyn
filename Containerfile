@@ -590,6 +590,19 @@ RUN mkdir -p /etc/NetworkManager/system-connections /etc/NetworkManager/conf.d &
     systemctl mask systemd-networkd.service systemd-networkd-wait-online.service ufw.service && \
     netplan generate --root-dir /
 
+# Boot/periodic audit (docs/performance.md records the full table):
+# host-package machinery has no place on an image-based system. apt's
+# daily update/upgrade timers and unattended-upgrades would churn /var
+# and the network against a host that only ever changes by image update
+# (the update watcher owns that cadence, and host apt installs are
+# guidance-blocked anyway), and motd-news fetches Canonical news for the
+# login banner. Masking a unit whose package is absent is inert, so the
+# set is masked unconditionally.
+RUN systemctl mask apt-daily.service apt-daily.timer \
+        apt-daily-upgrade.service apt-daily-upgrade.timer \
+        unattended-upgrades.service \
+        motd-news.service motd-news.timer
+
 # Keep host package guidance out of the Ubuntu live installer and install it
 # only after all image-build APT transactions and stateless normalization.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
