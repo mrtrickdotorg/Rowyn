@@ -192,14 +192,23 @@ jobs:
           go version
           gobin="$(go env GOBIN)"
           if [[ -z "${gobin}" ]]; then gobin="$(go env GOPATH)/bin"; fi
+          # The provisioned graphroot is a Btrfs mount, so Buildah
+          # must be compiled WITH its btrfs graph driver (CGO + the
+          # btrfs headers): a CGO-less build with the usual
+          # exclude_graphdriver_btrfs tag fails at storage init with
+          # "driver not supported" before the first stage runs.
+          if [[ ! -f /usr/include/btrfs/version.h ]]; then
+            sudo apt-get update -o Acquire::Retries=3
+            sudo apt-get install -y --no-install-recommends gcc libbtrfs-dev
+          fi
           # One retry: a cold module cache pulls ~500 MB through the
           # module proxy, and a transient proxy failure should not
           # fail the build.
-          CGO_ENABLED=0 go install \
-            -tags 'containers_image_openpgp exclude_graphdriver_btrfs exclude_graphdriver_devmapper' \
+          CGO_ENABLED=1 go install \
+            -tags 'containers_image_openpgp exclude_graphdriver_devmapper' \
             "go.podman.io/buildah/cmd/buildah@${BUILDAH_VERSION}" \
-          || { sleep 15; CGO_ENABLED=0 go install \
-            -tags 'containers_image_openpgp exclude_graphdriver_btrfs exclude_graphdriver_devmapper' \
+          || { sleep 15; CGO_ENABLED=1 go install \
+            -tags 'containers_image_openpgp exclude_graphdriver_devmapper' \
             "go.podman.io/buildah/cmd/buildah@${BUILDAH_VERSION}"; }
           sudo install -m 0755 "${gobin}/buildah" /usr/local/bin/buildah
           buildah --version
@@ -220,6 +229,10 @@ jobs:
           echo "8cacae171bb0e5f9e275adac2eeb2c6ec8c69fdedff7b008eadd8cdd25b0d349  ${RUNNER_TEMP}/crun" | sha256sum -c -
           sudo install -m 0755 "${RUNNER_TEMP}/crun" /usr/local/bin/crun
           [[ "$(crun --version)" == *"crun version 1.31"* ]]
+          # Exercise the graph driver against the provisioned Btrfs
+          # graphroot now, so a driver-less Buildah fails here with
+          # its name on it instead of inside the image build.
+          sudo buildah info >/dev/null
 
       # The source-date epoch is the commit's own timestamp, so a
       # rebuild of the same commit (the daily cadence rebuild) is
