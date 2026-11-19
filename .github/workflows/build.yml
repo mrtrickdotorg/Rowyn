@@ -250,17 +250,15 @@ jobs:
         run: |
           source_date_epoch="$(git log -1 --format=%ct "${GITHUB_SHA}")"
           [[ "${source_date_epoch}" =~ ^[0-9]+$ ]]
-          # OCI isolation on the stock Btrfs storage, with the
-          # pinned crun from the setup step. RUN steps use the host
-          # network: standalone Buildah does not find the runner's
-          # netavark helpers where Podman's vendored Buildah did,
-          # and the build is offline by design except for the base
-          # stage's apt upgrade, which the host network serves.
-          # (Chroot isolation built successfully but flattened the
-          # final stage's layers into one on the Btrfs driver, and
-          # forcing the overlay driver broke Podman's smoke runs.)
+          # Chroot isolation (OCI RUN creation fails outright with
+          # standalone Buildah on this runner) on the stock Btrfs
+          # storage, plus --layers: the Buildah CLI defaults it off
+          # (Podman's build defaults it on), and without it the
+          # final stage's steps were committed as a single layer
+          # instead of one layer per step.
           sudo buildah build \
-            --network host \
+            --isolation chroot \
+            --layers \
             --rewrite-timestamp \
             --source-date-epoch "${source_date_epoch}" \
             --build-arg "ROWYN_SOURCE_REVISION=${GITHUB_SHA}" \
