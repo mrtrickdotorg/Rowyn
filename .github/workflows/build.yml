@@ -237,7 +237,13 @@ jobs:
         run: |
           source_date_epoch="$(git log -1 --format=%ct "${GITHUB_SHA}")"
           [[ "${source_date_epoch}" =~ ^[0-9]+$ ]]
+          # Chroot isolation: standalone Buildah's OCI-runtime path
+          # depends on the runner's crun/netavark vintages matching
+          # Buildah 1.46's runtime spec, which they do not. Chroot
+          # RUN steps need no OCI runtime and share the host network
+          # namespace, which the base stage's apt upgrade relies on.
           sudo buildah build \
+            --isolation chroot \
             --rewrite-timestamp \
             --source-date-epoch "${source_date_epoch}" \
             --build-arg "ROWYN_SOURCE_REVISION=${GITHUB_SHA}" \
