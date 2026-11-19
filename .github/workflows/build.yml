@@ -165,9 +165,55 @@ jobs:
           test "$(git -C "${RUNNER_TEMP}/upstream-hub" rev-parse HEAD)" = "${UPSTREAM_HUB_COMMIT}"
           python3 build/ubuntu-hub-source.py "${RUNNER_TEMP}/upstream-hub" hub-source
 
+      # The runner's stock Podman 4.9 (Buildah 1.33) predates
+      # --rewrite-timestamp: without it, files created during RUN steps
+      # carry wall-clock mtimes, so two builds of the same commit never
+      # produce the same image and every rebuild is a full re-download
+      # for clients. Build a pinned current Buildah from source (the
+      # module path is the project's podman.io vanity path) and build
+      # with it instead. The version and the flag are asserted, so a
+      # silent fall back to non-reproducible builds fails the run.
+      - name: Install pinned Buildah for reproducible builds
+        shell: bash --noprofile --norc -euo pipefail {0}
+        env:
+          BUILDAH_VERSION: v1.46.1
+        run: |
+          command -v go >/dev/null || { echo "Go toolchain missing on runner" >&2; exit 1; }
+          go version
+          gobin="$(go env GOBIN)"
+          if [[ -z "${gobin}" ]]; then gobin="$(go env GOPATH)/bin"; fi
+          CGO_ENABLED=0 go install \
+            -tags 'containers_image_openpgp exclude_graphdriver_btrfs exclude_graphdriver_devmapper' \
+            "go.podman.io/buildah/cmd/buildah@${BUILDAH_VERSION}"
+          sudo install -m 0755 "${gobin}/buildah" /usr/local/bin/buildah
+          buildah --version
+          [[ "$(buildah --version)" == *"version 1.46.1"* ]]
+          buildah build --help | grep -Fq -- '--rewrite-timestamp'
+
+      # SOURCE_DATE_EPOCH is the commit's own timestamp, so a rebuild
+      # of the same commit (the daily cadence rebuild) is byte-identical
+      # to the original build: same digest, and clients download
+      # nothing. --rewrite-timestamp clamps every file mtime in every
+      # layer to that epoch; the Containerfile additionally wipes the
+      # timestamp-bearing apt/dpkg logs from each install layer,
+      # because rewriting cannot fix file *content* that embeds the
+      # build time (docs/updates.md).
       - name: Build image (offline Containerfile)
         shell: bash --noprofile --norc -euo pipefail {0}
-        run: sudo podman build --build-arg "ROWYN_SOURCE_REVISION=${GITHUB_SHA}" -t rowyn:ci .
+        run: |
+          source_date_epoch="$(git log -1 --format=%ct "${GITHUB_SHA}")"
+          [[ "${source_date_epoch}" =~ ^[0-9]+$ ]]
+          sudo env "SOURCE_DATE_EPOCH=${source_date_epoch}" buildah build \
+            --rewrite-timestamp \
+            --timestamp "${source_date_epoch}" \
+            --build-arg "ROWYN_SOURCE_REVISION=${GITHUB_SHA}" \
+            -t rowyn:ci .
+          # The smoke checks below drive the image with the runner's
+          # Podman 4.9. Both tools share the rootful containers storage
+          # provisioned above, so the Buildah-built image must be
+          # visible there; fail loudly if a future storage-format
+          # change ever breaks that assumption.
+          sudo podman image exists rowyn:ci
 
       - name: Inspect image and run image smoke checks
         shell: bash --noprofile --norc -euo pipefail {0}
@@ -492,17 +538,24 @@ jobs:
           image_ref="${IMAGE_REPOSITORY}:${GITHUB_SHA}"
           digest_file="${RUNNER_TEMP}/rowyn-image.digest"
 
-          printf '%s' "${GHCR_TOKEN}" | sudo podman login ghcr.io -u "${GHCR_USERNAME}" --password-stdin
-          sudo podman tag rowyn:ci "${image_ref}"
-          sudo podman tag rowyn:ci "${IMAGE_REPOSITORY}:spike"
+          printf '%s' "${GHCR_TOKEN}" | sudo buildah login ghcr.io -u "${GHCR_USERNAME}" --password-stdin
+          sudo buildah tag rowyn:ci "${image_ref}"
+          sudo buildah tag rowyn:ci "${IMAGE_REPOSITORY}:spike"
 
-          sudo podman push --digestfile "${digest_file}" "${image_ref}"
+          # zstd layers: smaller than gzip on this payload and much
+          # faster to decompress on clients. The push is also where
+          # reproducibility becomes a client property — the same local
+          # image must produce the same manifest digest on every push,
+          # which the spike assertion below pins.
+          sudo buildah push --compression-format zstd --digestfile "${digest_file}" "${image_ref}"
           image_digest="$(cat "${digest_file}")"
           [[ "${image_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
 
           # Keep the human-friendly spike tag, but never use it as the input to
           # a downstream job. The ISO consumes image_ref@image_digest below.
-          sudo podman push "${IMAGE_REPOSITORY}:spike"
+          spike_digest_file="${RUNNER_TEMP}/rowyn-spike.digest"
+          sudo buildah push --compression-format zstd --digestfile "${spike_digest_file}" "${IMAGE_REPOSITORY}:spike"
+          [[ "$(cat "${spike_digest_file}")" == "${image_digest}" ]]
 
           {
             echo "image_ref=${image_ref}"
@@ -649,7 +702,16 @@ jobs:
           [[ "${source_digest}" == "${IMAGE_DIGEST}" ]]
           echo "${GHCR_TOKEN}" | sudo podman login ghcr.io \
             -u "${GHCR_USERNAME}" --password-stdin
+          # Reproducible derivative: the marker file's mtime is the
+          # commit timestamp and the image clock is pinned to it, so
+          # promoting an unchanged build yields the identical
+          # destination digest instead of a fresh one whose only
+          # difference is when it was built.
+          source_date_epoch="$(git log -1 --format=%ct "${GITHUB_SHA}")"
+          [[ "${source_date_epoch}" =~ ^[0-9]+$ ]]
+          touch -d "@${source_date_epoch}" build/registry-migration-destination-v1
           sudo podman build --pull=always --format oci \
+            --timestamp "${source_date_epoch}" \
             --build-arg "ROWYN_BASE_IMAGE=${SOURCE_IMAGE}@${IMAGE_DIGEST}" \
             -f build/destination-derivative.Containerfile \
             -t "${DEST_IMAGE}:${GITHUB_SHA}-destination" .
@@ -661,7 +723,7 @@ jobs:
             "${DEST_IMAGE}:${GITHUB_SHA}-destination" -ec 'test -s "$1"' sh "${marker}"
           sudo podman run --rm --entrypoint /usr/bin/bootc \
             "${DEST_IMAGE}:${GITHUB_SHA}-destination" container lint
-          sudo podman push --digestfile "${push_digest_file}" \
+          sudo podman push --compression-format zstd --digestfile "${push_digest_file}" \
             "${DEST_IMAGE}:${GITHUB_SHA}-destination"
           destination_digest="$(cat "${push_digest_file}")"
           [[ "${destination_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
