@@ -245,6 +245,15 @@ jobs:
           # driver loses nothing.
           printf '[storage]\ndriver = "overlay"\ngraphroot = "/var/lib/containers/storage"\nrunroot = "/run/containers/storage"\n' \
             | sudo tee /etc/containers/storage.conf >/dev/null
+          # The provisioning step already initialized Podman's DB
+          # under the Btrfs driver, and Podman refuses to run at all
+          # when the configured driver differs from the recorded one.
+          # Storage is still empty (the base image is pulled inside
+          # the build), so wipe the graphroot/runroot contents —
+          # both are dedicated mounts whose contents are scratch —
+          # and let the reset below initialize fresh under overlay.
+          sudo find /var/lib/containers/storage -mindepth 1 -delete
+          sudo find /run/containers/storage -mindepth 1 -delete
           sudo podman system reset --force
           sudo buildah info > "${RUNNER_TEMP}/buildah-info.txt"
           grep -Fq '"GraphDriverName": "overlay"' "${RUNNER_TEMP}/buildah-info.txt"
