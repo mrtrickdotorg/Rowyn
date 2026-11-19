@@ -177,6 +177,11 @@ jobs:
         shell: bash --noprofile --norc -euo pipefail {0}
         env:
           BUILDAH_VERSION: v1.46.1
+          # Buildah 1.46.1's go.mod requires Go 1.26.8; the runner's
+          # preinstalled Go may be older, and not every image lets the
+          # toolchain auto-upgrade. Pin the exact toolchain so go
+          # downloads and runs it regardless of the image's default.
+          GOTOOLCHAIN: go1.26.8
         run: |
           command -v go >/dev/null || { echo "Go toolchain missing on runner" >&2; exit 1; }
           go version
