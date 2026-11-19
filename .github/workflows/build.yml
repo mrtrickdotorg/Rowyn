@@ -233,6 +233,21 @@ jobs:
           # graphroot now, so a driver-less Buildah fails here with
           # its name on it instead of inside the image build.
           sudo buildah info >/dev/null
+          # Force the overlay graph driver for the rest of this job.
+          # On the Btrfs driver, a chroot-isolated build of the final
+          # stage produced empty diffs for every step (the whole
+          # rootfs landed in one layer): Btrfs snapshot diffing does
+          # not see chroot writes the way the overlay driver's
+          # directory diffing does. The graphroot stays the same
+          # Btrfs mount (overlay on Btrfs is a normal combination);
+          # only the layer bookkeeping changes. Storage is still
+          # empty at this point, so re-resetting under the new
+          # driver loses nothing.
+          printf '[storage]\ndriver = "overlay"\ngraphroot = "/var/lib/containers/storage"\nrunroot = "/run/containers/storage"\n' \
+            | sudo tee /etc/containers/storage.conf >/dev/null
+          sudo podman system reset --force
+          sudo buildah info > "${RUNNER_TEMP}/buildah-info.txt"
+          grep -Fq '"GraphDriverName": "overlay"' "${RUNNER_TEMP}/buildah-info.txt"
 
       # The source-date epoch is the commit's own timestamp, so a
       # rebuild of the same commit (the daily cadence rebuild) is
@@ -250,13 +265,15 @@ jobs:
         run: |
           source_date_epoch="$(git log -1 --format=%ct "${GITHUB_SHA}")"
           [[ "${source_date_epoch}" =~ ^[0-9]+$ ]]
-          # OCI isolation with the pinned crun from the setup step.
-          # (Chroot isolation was tried and flattened the final
-          # stage's layers into one — its diffs against the Btrfs
-          # graph driver came back empty for the stage built on a
-          # locally built base, so every step recorded an empty layer
-          # and the whole rootfs landed in the last one.)
+          # Chroot isolation plus the overlay graph driver forced
+          # in the setup step: chroot RUN steps need no OCI runtime
+          # (the runner's crun/netavark vintages do not match
+          # Buildah 1.46's), and overlay's directory diffing records
+          # each step's layer faithfully, which the Btrfs driver's
+          # snapshot diffing did not for the stage built on the
+          # locally built base.
           sudo buildah build \
+            --isolation chroot \
             --rewrite-timestamp \
             --source-date-epoch "${source_date_epoch}" \
             --build-arg "ROWYN_SOURCE_REVISION=${GITHUB_SHA}" \
