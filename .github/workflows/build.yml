@@ -208,6 +208,18 @@ jobs:
           # takes SIGPIPE, and pipefail would fail the step (141).
           buildah build --help > "${RUNNER_TEMP}/buildah-build-help.txt"
           grep -Fq -- '--rewrite-timestamp' "${RUNNER_TEMP}/buildah-build-help.txt"
+          # Buildah 1.46 emits OCI runtime-spec 1.3.0 configs, which
+          # the runner's crun 1.14 (Ubuntu 24.04) rejects with
+          # "unknown version specified" on the first RUN step. A
+          # current crun, checksum-pinned from the project's release
+          # CHECKSUMS file, shadows the stock one on PATH for both
+          # the build and the Podman smoke checks.
+          curl -fsSL --retry 3 \
+            "https://github.com/containers/crun/releases/download/1.31/crun-1.31-linux-amd64" \
+            -o "${RUNNER_TEMP}/crun"
+          echo "8cacae171bb0e5f9e275adac2eeb2c6ec8c69fdedff7b008eadd8cdd25b0d349  ${RUNNER_TEMP}/crun" | sha256sum -c -
+          sudo install -m 0755 "${RUNNER_TEMP}/crun" /usr/local/bin/crun
+          [[ "$(crun --version)" == *"crun version 1.31"* ]]
 
       # The source-date epoch is the commit's own timestamp, so a
       # rebuild of the same commit (the daily cadence rebuild) is
