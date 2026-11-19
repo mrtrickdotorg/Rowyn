@@ -182,30 +182,42 @@ jobs:
           go version
           gobin="$(go env GOBIN)"
           if [[ -z "${gobin}" ]]; then gobin="$(go env GOPATH)/bin"; fi
+          # One retry: a cold module cache pulls ~500 MB through the
+          # module proxy, and a transient proxy failure should not
+          # fail the build.
           CGO_ENABLED=0 go install \
             -tags 'containers_image_openpgp exclude_graphdriver_btrfs exclude_graphdriver_devmapper' \
-            "go.podman.io/buildah/cmd/buildah@${BUILDAH_VERSION}"
+            "go.podman.io/buildah/cmd/buildah@${BUILDAH_VERSION}" \
+          || { sleep 15; CGO_ENABLED=0 go install \
+            -tags 'containers_image_openpgp exclude_graphdriver_btrfs exclude_graphdriver_devmapper' \
+            "go.podman.io/buildah/cmd/buildah@${BUILDAH_VERSION}"; }
           sudo install -m 0755 "${gobin}/buildah" /usr/local/bin/buildah
           buildah --version
           [[ "$(buildah --version)" == *"version 1.46.1"* ]]
-          buildah build --help | grep -Fq -- '--rewrite-timestamp'
+          # No pipe into grep -q here: grep exits on the match, Buildah
+          # takes SIGPIPE, and pipefail would fail the step (141).
+          buildah build --help > "${RUNNER_TEMP}/buildah-build-help.txt"
+          grep -Fq -- '--rewrite-timestamp' "${RUNNER_TEMP}/buildah-build-help.txt"
 
-      # SOURCE_DATE_EPOCH is the commit's own timestamp, so a rebuild
-      # of the same commit (the daily cadence rebuild) is byte-identical
-      # to the original build: same digest, and clients download
-      # nothing. --rewrite-timestamp clamps every file mtime in every
-      # layer to that epoch; the Containerfile additionally wipes the
-      # timestamp-bearing apt/dpkg logs from each install layer,
-      # because rewriting cannot fix file *content* that embeds the
-      # build time (docs/updates.md).
+      # The source-date epoch is the commit's own timestamp, so a
+      # rebuild of the same commit (the daily cadence rebuild) is
+      # byte-identical to the original build: same digest, and clients
+      # download nothing. --rewrite-timestamp clamps every file mtime
+      # in every layer to that epoch; the Containerfile additionally
+      # wipes the timestamp-bearing apt/dpkg logs from each install
+      # layer, because rewriting cannot fix file *content* that embeds
+      # the build time (docs/updates.md). Buildah 1.46 refuses
+      # --timestamp combined with a source-date epoch ("ambiguous"),
+      # so the epoch goes through --source-date-epoch alone, which
+      # also stamps the image config.
       - name: Build image (offline Containerfile)
         shell: bash --noprofile --norc -euo pipefail {0}
         run: |
           source_date_epoch="$(git log -1 --format=%ct "${GITHUB_SHA}")"
           [[ "${source_date_epoch}" =~ ^[0-9]+$ ]]
-          sudo env "SOURCE_DATE_EPOCH=${source_date_epoch}" buildah build \
+          sudo buildah build \
             --rewrite-timestamp \
-            --timestamp "${source_date_epoch}" \
+            --source-date-epoch "${source_date_epoch}" \
             --build-arg "ROWYN_SOURCE_REVISION=${GITHUB_SHA}" \
             -t rowyn:ci .
           # The smoke checks below drive the image with the runner's
