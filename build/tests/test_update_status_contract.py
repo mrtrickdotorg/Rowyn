@@ -84,6 +84,16 @@ class WriterShapeTests(unittest.TestCase):
         self.assertEqual(doc["last_staged_at"], 1762992300)
         self.assert_canonical_shape(doc)
 
+    def test_staged_metered_cap_finish_shape(self):
+        self.run_helper("start", 1762992000)
+        self.run_helper("finish", "staged", "metered_cap", 1762992300)
+        doc = json.loads(self.raw())
+        self.assertEqual(doc["outcome"], "staged")
+        self.assertEqual(doc["reason_code"], "metered_cap")
+        self.assertEqual(doc["last_success_at"], 1762992300)
+        self.assertEqual(doc["last_staged_at"], 1762992300)
+        self.assert_canonical_shape(doc)
+
     def test_deferred_finish_carries_prior_success(self):
         self.run_helper("start", 1762991000)
         self.run_helper("finish", "current", "no_update", 1762991500)
@@ -134,6 +144,15 @@ class GeneratorProjectionTests(unittest.TestCase):
 
     def test_up_to_date_detail_carries_the_check_time(self):
         self.assertIn('format!("Last checked {}.', self.script)
+
+    def test_metered_cap_pair_projects_and_names_the_cap(self):
+        # The writer's staged/metered_cap pair (a stage forced by the
+        # 72-hour metered deferral cap in rowyn-safe-upgrade) must be a
+        # valid pair for the generated reader, and its projection must
+        # tell the user why a download ran on a metered link.
+        self.assertIn('("staged", "metered_cap")', self.script)
+        self.assertIn("72-hour deferral limit", self.script)
+        self.assertIn("staged_metered_cap_record_names_the_cap", self.script)
 
     def test_banner_source_states_include_deferred_and_disabled(self):
         self.assertIn("'deferred', 'disabled'", self.script)

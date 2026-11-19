@@ -11,6 +11,7 @@ MAX_RUNTIME = 2200
 TERM_GRACE = 5
 ALLOWED = {
     ("current", "no_update"), ("staged", "update_staged"),
+    ("staged", "metered_cap"),
     ("deferred", "battery"), ("deferred", "metered"),
     ("deferred", "upgrade_locked"), ("failed", "runtime_auth_io"),
     ("failed", "upgrade_failed"), ("failed", "unknown_failure"),

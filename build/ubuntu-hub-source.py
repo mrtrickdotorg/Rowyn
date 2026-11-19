@@ -1284,6 +1284,7 @@ fn rowyn_watcher_pair(outcome: &str, reason: &str) -> bool {
         ("running", "attempt_started")
             | ("current", "no_update")
             | ("staged", "update_staged")
+            | ("staged", "metered_cap")
             | ("deferred", "battery")
             | ("deferred", "metered")
             | ("deferred", "upgrade_locked")
@@ -1431,12 +1432,22 @@ fn rowyn_watcher_status(data: &serde_json::Value, record: &RowynWatcherRecord) -
                 None,
             ),
             "staged" => {
+                // A stage that happened because the 72-hour metered
+                // deferral cap was reached says so: the user on a
+                // metered link deserves to know why a download ran.
+                let cap_note = if record.reason_code == "metered_cap" {
+                    " It downloaded over the metered connection because the \
+                     72-hour deferral limit was reached."
+                } else {
+                    ""
+                };
                 if staged {
                     (
                         "available",
                         format!(
-                            "An update was staged at {}. Restart to apply it.",
-                            format_epoch_utc(finished)
+                            "An update was staged at {}. Restart to apply it.{}",
+                            format_epoch_utc(finished),
+                            cap_note
                         ),
                         None,
                     )
@@ -1444,8 +1455,9 @@ fn rowyn_watcher_status(data: &serde_json::Value, record: &RowynWatcherRecord) -
                     (
                         "uptodate",
                         format!(
-                            "Last checked {}. The update it staged is no longer pending.",
-                            format_epoch_utc(finished)
+                            "Last checked {}. The update it staged is no longer pending.{}",
+                            format_epoch_utc(finished),
+                            cap_note
                         ),
                         None,
                     )
@@ -1599,6 +1611,24 @@ mod rowyn_watcher_status_tests {
         let status = rowyn_watcher_status(&bootc_data(false), &record);
         assert!(!status.staged);
         assert_eq!(status.check_state, "uptodate");
+    }
+
+    #[test]
+    fn staged_metered_cap_record_names_the_cap() {
+        let dir = tempdir().unwrap();
+        let body = "{\\"schema_version\\":1,\\"started_at\\":1762992000,\\"finished_at\\":1762992300,\
+                    \\"outcome\\":\\"staged\\",\\"reason_code\\":\\"metered_cap\\",\
+                    \\"last_success_at\\":1762992300,\\"last_staged_at\\":1762992300}\\n";
+        let path = write_record(dir.path(), body);
+        let record = read_rowyn_watcher_status_in(&path, NOW).unwrap();
+        let status = rowyn_watcher_status(&bootc_data(true), &record);
+        assert!(status.staged);
+        assert_eq!(status.check_state, "available");
+        assert!(
+            status.detail.contains("72-hour deferral limit"),
+            "detail: {}",
+            status.detail
+        );
     }
 
     #[test]

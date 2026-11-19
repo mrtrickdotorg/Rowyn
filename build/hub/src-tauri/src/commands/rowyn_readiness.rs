@@ -135,7 +135,7 @@ fn update_from_bytes(raw: &[u8], clock: u64) -> UpdateRead {
     let pair = match a.outcome.as_str() {
         "running" => a.reason_code == "attempt_started",
         "current" => a.reason_code == "no_update",
-        "staged" => a.reason_code == "update_staged",
+        "staged" => matches!(a.reason_code.as_str(), "update_staged" | "metered_cap"),
         "deferred" => matches!(
             a.reason_code.as_str(),
             "battery" | "metered" | "upgrade_locked"

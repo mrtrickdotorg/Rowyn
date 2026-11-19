@@ -28,6 +28,9 @@
 #     connection, or while another upgrade holds the lock. The watcher
 #     exports ROWYN_ALLOW_BATTERY=1 / ROWYN_ALLOW_METERED=1 from the
 #     policy file to waive a gate. A manual run (Hub) is never gated.
+#     The metered deferral is capped: after 72 hours of continuous
+#     metered deferral the update stages anyway (result reason
+#     metered_cap), so metered-only machines still get security fixes.
 #   * invoked with no arguments, as root, via `sudo -A` from the Hub's
 #     bootc_upgrade command (any argument is a usage error, exit 64)
 #   * progress streams on stdout as marker lines
@@ -65,6 +68,21 @@ policy_error=
 
 # Sysfs root and NetworkManager lookups are overridable for tests only.
 POWER_SUPPLY_DIR=${ROWYN_POWER_SUPPLY_DIR:-/sys/class/power_supply}
+
+# Metered-deferral clock (automatic staging only). The first metered
+# deferral of an uninterrupted streak is stamped into this file, next
+# to the watcher's status record; once the streak reaches 72 hours the
+# metered gate stops deferring and the update stages anyway, so a
+# machine that is permanently on metered links still receives security
+# updates — it just gets three days of chances to find an unmetered
+# one first. Any run that passes the metered gate (unmetered, or the
+# policy waives the gate) clears the stamp: the streak is continuous
+# deferral, not cumulative. The staged result of a cap-forced run is
+# reported with reason metered_cap so the watcher record shows why a
+# download happened on a metered link.
+METERED_STATE_FILE=${ROWYN_METERED_STATE_FILE:-/var/lib/rowyn/update-watcher/metered-deferred-since}
+readonly METERED_DEFER_LIMIT_SECS=$((72 * 3600))
+staged_reason=update_staged
 
 workdir=
 child=
@@ -240,17 +258,58 @@ parse_policy() {
     return 0
 }
 
+# The deferral stamp is one epoch integer. Anything unreadable or
+# malformed is "no stamp": a broken clock file must never force a
+# download onto a metered link, so every failure mode here defers.
+read_metered_deferral() {
+    local value=
+    if [[ -r "$METERED_STATE_FILE" ]]; then
+        value=$(tr -d '[:space:]' <"$METERED_STATE_FILE" 2>/dev/null) || value=
+    fi
+    if [[ "$value" =~ ^[0-9]+$ ]]; then
+        printf '%s' "$value"
+    fi
+}
+
+stamp_metered_deferral() {
+    local dir=${METERED_STATE_FILE%/*}
+    mkdir -p "$dir" 2>/dev/null || return 0
+    printf '%s\n' "$1" >"$METERED_STATE_FILE" 2>/dev/null || true
+}
+
+clear_metered_deferral() {
+    rm -f "$METERED_STATE_FILE" 2>/dev/null || true
+}
+
 auto_gates() {
     if [[ "${ROWYN_ALLOW_BATTERY:-0}" != 1 ]] && on_battery; then
         echo "Deferred: running on battery power; will retry later."
         emit_result deferred battery
         exit 0
     fi
-    if [[ "${ROWYN_ALLOW_METERED:-0}" != 1 ]] && on_metered_connection; then
-        echo "Deferred: metered connection; will retry later."
-        emit_result deferred metered
-        exit 0
+    if [[ "${ROWYN_ALLOW_METERED:-0}" == 1 ]] || ! on_metered_connection; then
+        # The metered gate does not apply to this run (waived by
+        # policy, or the connection is not metered): any deferral
+        # streak is over.
+        clear_metered_deferral
+        return 0
     fi
+    local now since
+    now=$(date +%s 2>/dev/null) || now=
+    since=$(read_metered_deferral)
+    if [[ "$now" =~ ^[0-9]+$ && -n "$since" ]] \
+        && (( now - since >= METERED_DEFER_LIMIT_SECS )); then
+        echo "Metered connection, but staging has been deferred for 72 hours; staging the update anyway."
+        clear_metered_deferral
+        staged_reason=metered_cap
+        return 0
+    fi
+    if [[ -z "$since" && "$now" =~ ^[0-9]+$ ]]; then
+        stamp_metered_deferral "$now"
+    fi
+    echo "Deferred: metered connection; will retry later."
+    emit_result deferred metered
+    exit 0
 }
 
 json_number() {
@@ -710,7 +769,7 @@ main() {
     else
         echo "Update staged and ready to apply on the next boot."
     fi
-    emit_result staged update_staged
+    emit_result staged "$staged_reason"
     exit 0
 }
 

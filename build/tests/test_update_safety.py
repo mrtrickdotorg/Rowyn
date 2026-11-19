@@ -61,6 +61,7 @@ class WatcherStatusTests(unittest.TestCase):
         cases = [
             ("echo 'ROWYN_UPDATE_RESULT outcome=current reason=no_update'; exit 0", ("current", "no_update"), 0),
             ("echo 'ROWYN_UPDATE_RESULT outcome=staged reason=update_staged'; exit 0", ("staged", "update_staged"), 0),
+            ("echo 'ROWYN_UPDATE_RESULT outcome=staged reason=metered_cap'; exit 0", ("staged", "metered_cap"), 0),
             ("echo 'ROWYN_UPDATE_RESULT outcome=failed reason=runtime_auth_io'; exit 1", ("failed", "runtime_auth_io"), 1),
             ("echo 'ROWYN_UPDATE_RESULT outcome=staged reason=update_staged'; exit 1", ("failed", "upgrade_failed"), 1),
             ("echo 'ROWYN_UPDATE_RESULT outcome=current reason=no_update'; echo 'ROWYN_UPDATE_RESULT malformed'; exit 0", ("failed", "unknown_failure"), 1),
@@ -181,6 +182,7 @@ class Sandbox:
         e = dict(os.environ)
         e["PATH"] = f"{self.bin}:{e['PATH']}"
         e["ROWYN_POWER_SUPPLY_DIR"] = str(self.power)
+        e["ROWYN_METERED_STATE_FILE"] = str(self.dir / "metered-deferred-since")
         e["BOOTC_CALLS"] = str(self.calls)
         e["BOOTED_IMAGE_REF"] = "ghcr.io/kyth-os/rowyn:stable"
         for k in ("ROWYN_UPDATE_AUTO", "ROWYN_ALLOW_BATTERY", "ROWYN_ALLOW_METERED"):
@@ -288,6 +290,78 @@ class AutoGateTests(unittest.TestCase):
         self.sb.nmcli("yes")
         r = self.sb.run(ROWYN_ALLOW_METERED="1")
         self.assertTrue(self.sb.upgraded(), r.stdout + r.stderr)
+
+    def test_metered_first_deferral_stamps_the_clock(self):
+        self.sb.nmcli("yes")
+        state = self.sb.dir / "metered-deferred-since"
+        self.assertFalse(state.exists())
+        before = int(time.time())
+        r = self.sb.run()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("Deferred: metered connection", r.stdout)
+        self.assertFalse(self.sb.upgraded())
+        stamp = int(state.read_text().strip())
+        self.assertGreaterEqual(stamp, before)
+        self.assertLessEqual(stamp, int(time.time()))
+
+    def test_metered_within_cap_keeps_the_original_stamp(self):
+        self.sb.nmcli("yes")
+        state = self.sb.dir / "metered-deferred-since"
+        original = int(time.time()) - 3600
+        state.write_text(f"{original}\n")
+        r = self.sb.run()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("Deferred: metered connection", r.stdout)
+        self.assertFalse(self.sb.upgraded())
+        self.assertEqual(int(state.read_text().strip()), original)
+
+    def test_metered_still_defers_at_71_hours(self):
+        self.sb.nmcli("yes")
+        state = self.sb.dir / "metered-deferred-since"
+        state.write_text(f"{int(time.time()) - 71 * 3600}\n")
+        r = self.sb.run()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("Deferred: metered connection", r.stdout)
+        self.assertFalse(self.sb.upgraded())
+
+    def test_metered_cap_reached_stages_anyway(self):
+        self.sb.nmcli("yes")
+        state = self.sb.dir / "metered-deferred-since"
+        state.write_text(f"{int(time.time()) - 73 * 3600}\n")
+        r = self.sb.run()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(self.sb.upgraded())
+        self.assertIn(
+            "ROWYN_UPDATE_RESULT outcome=staged reason=metered_cap", r.stdout)
+        self.assertFalse(state.exists())
+
+    def test_metered_cap_with_no_update_reports_current(self):
+        self.sb.nmcli("yes")
+        state = self.sb.dir / "metered-deferred-since"
+        state.write_text(f"{int(time.time()) - 73 * 3600}\n")
+        r = self.sb.run(BOOTC_NO_UPDATE="1")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn(
+            "ROWYN_UPDATE_RESULT outcome=current reason=no_update", r.stdout)
+        self.assertFalse(state.exists())
+
+    def test_unmetered_run_clears_the_deferral_clock(self):
+        self.sb.nmcli("no")
+        state = self.sb.dir / "metered-deferred-since"
+        state.write_text(f"{int(time.time()) - 3600}\n")
+        r = self.sb.run()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(self.sb.upgraded(), r.stdout + r.stderr)
+        self.assertFalse(state.exists())
+
+    def test_malformed_deferral_clock_still_defers(self):
+        self.sb.nmcli("yes")
+        state = self.sb.dir / "metered-deferred-since"
+        state.write_text("not-a-timestamp\n")
+        r = self.sb.run()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("Deferred: metered connection", r.stdout)
+        self.assertFalse(self.sb.upgraded())
 
     def test_failing_nmcli_allows(self):
         f = self.sb.bin / "nmcli"

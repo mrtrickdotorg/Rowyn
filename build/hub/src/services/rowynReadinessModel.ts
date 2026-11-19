@@ -28,7 +28,7 @@ function validateAttempt(value: unknown, clock: number): UpdateAttempt {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw invalid();
   const record = value as Record<string, unknown>;
   const pairs: Record<string, string[]> = {
-    running: ['attempt_started'], current: ['no_update'], staged: ['update_staged'],
+    running: ['attempt_started'], current: ['no_update'], staged: ['update_staged', 'metered_cap'],
     deferred: ['battery', 'metered', 'upgrade_locked'], failed: ['runtime_auth_io', 'upgrade_failed', 'unknown_failure'],
     disabled: ['policy_disabled'], invalid_policy: ['invalid_policy'], interrupted: ['cancelled'],
   };

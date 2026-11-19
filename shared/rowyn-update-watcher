@@ -128,7 +128,7 @@ main() {
     done <<<"$out"
     if (( marker_count == 1 )) && [[ -n "$marker_outcome" ]]; then
         case "$marker_outcome:$marker_reason" in
-            current:no_update|staged:update_staged|deferred:battery|deferred:metered|deferred:upgrade_locked|failed:runtime_auth_io|failed:upgrade_failed|failed:unknown_failure|interrupted:cancelled) status_finish "$marker_outcome" "$marker_reason" ;;
+            current:no_update|staged:update_staged|staged:metered_cap|deferred:battery|deferred:metered|deferred:upgrade_locked|failed:runtime_auth_io|failed:upgrade_failed|failed:unknown_failure|interrupted:cancelled) status_finish "$marker_outcome" "$marker_reason" ;;
             *) status_finish failed unknown_failure ;;
         esac
     elif (( rc == 0 )); then status_finish failed unknown_failure

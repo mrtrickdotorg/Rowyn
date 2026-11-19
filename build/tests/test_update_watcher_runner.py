@@ -21,6 +21,11 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(r.stdout.strip(), "ROWYN_UPDATE_RESULT outcome=staged reason=update_staged")
         self.assertNotIn("secret", r.stdout + r.stderr)
 
+    def test_metered_cap_stage_is_a_fixed_machine_result(self):
+        r = self.run_fake("echo 'ROWYN_UPDATE_RESULT outcome=staged reason=metered_cap'\n")
+        self.assertEqual(r.returncode, 0)
+        self.assertEqual(r.stdout.strip(), "ROWYN_UPDATE_RESULT outcome=staged reason=metered_cap")
+
     def test_nonzero_cannot_claim_staged(self):
         r = self.run_fake("echo 'ROWYN_UPDATE_RESULT outcome=staged reason=update_staged'\nexit 7\n")
         self.assertNotEqual(r.returncode, 0)
