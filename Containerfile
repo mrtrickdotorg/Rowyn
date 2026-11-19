@@ -92,10 +92,26 @@ LABEL org.opencontainers.image.source="https://github.com/mrtrickdotorg/Rowyn"
 LABEL org.opencontainers.image.revision="${ROWYN_SOURCE_REVISION}"
 COPY --from=builder /output /
 
+# Core system layers, split by change cadence (docs/updates.md): the
+# payload installs in frequency groups so a client update only
+# re-downloads the layers that actually moved. Firmware goes first and
+# alone — it is the largest single item in this stage and revs on its
+# own slow cadence, so a kernel or systemd update must not drag it back
+# down the wire. Each install layer ends by wiping the apt lists,
+# caches and logs it created: dpkg/apt logs embed wall-clock timestamps,
+# and leaving them in a layer would make that layer's bytes differ on
+# every rebuild even when its packages did not change (CI builds are
+# reproducible; see docs/updates.md).
 RUN --mount=type=tmpfs,dst=/tmp --mount=type=tmpfs,dst=/root --mount=type=tmpfs,dst=/boot apt update -y && \
-  apt install -y btrfs-progs bubblewrap dosfstools e2fsprogs fdisk linux-firmware linux-image-generic netplan.io openssh-server systemd-resolved chrony skopeo podman crun sudo systemd systemd-boot* xfsprogs libostree-dev dracut && \
+  apt install -y linux-firmware && \
+  apt clean -y && \
+  rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/*
+
+RUN --mount=type=tmpfs,dst=/tmp --mount=type=tmpfs,dst=/root --mount=type=tmpfs,dst=/boot apt update -y && \
+  apt install -y btrfs-progs bubblewrap dosfstools e2fsprogs fdisk linux-image-generic netplan.io openssh-server systemd-resolved chrony skopeo podman crun sudo systemd systemd-boot* xfsprogs libostree-dev dracut && \
   cp /boot/vmlinuz-* "$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)/vmlinuz" && \
-  apt clean -y
+  apt clean -y && \
+  rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/*
 
 # The official Ubuntu base image ships an `ubuntu` login user (uid 1000).
 # An installed Rowyn system must offer only the account the installer
@@ -103,10 +119,21 @@ RUN --mount=type=tmpfs,dst=/tmp --mount=type=tmpfs,dst=/root --mount=type=tmpfs,
 # any layer that could come to depend on it.
 RUN userdel --remove ubuntu
 
-# --- KDE Plasma package layer -------------------------------------------------
+# --- Payload package layers ---------------------------------------------------
 # Install packages that still need the distro's dpkg database before
 # bootc-rootfs.sh removes /var. Desktop enablement remains below rootfs
 # normalization because it only writes final system configuration.
+#
+# The set installs as sequential frequency groups — KDE Plasma desktop,
+# PIM/productivity, gaming stack, fonts/media — each its own layer, so
+# an archive update confined to one group re-downloads only that
+# group's layer on clients (docs/updates.md). The groups are one
+# package set, partitioned, not five sets: the KCM assertion step below
+# still verifies the whole, and the groups install in dependency order
+# (backbone and desktop first) so resolution matches the single
+# transaction this used to be as closely as sequential installs allow.
+# Every group ends with the same lists/cache/log wipe as the core
+# layers above, for the same reproducibility reason.
 #
 # The desktop set is the Kubuntu default applications and integration
 # (the set the live image carries from the Kubuntu manifest), named
@@ -120,12 +147,14 @@ RUN userdel --remove ubuntu
 # iputils-ping, netcat-openbsd, rfkill, plocate, pastebinit),
 # named explicitly so they cannot quietly drop out of the set.
 #
-# Performance group (end of the first list): kwin-wayland +
+# Session group (in the desktop layer): kwin-wayland +
 # plasma-workspace carry the Plasma Wayland session (SDDM lists Wayland
 # sessions first, so it is the preselected default) while xserver-xorg +
 # plasma-session-x11 keep the X11 session as fallback;
 # power-profiles-daemon, systemd-zram-generator, gamemode and
-# steam-devices (multiverse) are host plumbing for shared/performance-defaults.sh.
+# steam-devices (multiverse) are host plumbing for
+# shared/performance-defaults.sh and ride the gaming layer, whose
+# cadence they share.
 # mesa-vulkan-drivers + vulkan-tools are named explicitly so the host
 # Vulkan stack is guaranteed by the package set, not inherited by
 # dependency closure (the Flatpak gaming route carries its own runtimes;
@@ -169,10 +198,20 @@ RUN userdel --remove ubuntu
 # shared/gpu-select.sh. The supported-GPU list the decision needs lives under
 # /usr/share/doc, which the base image's dpkg excludes drop, hence the
 # path-include (removed again once the ID list is generated below).
-RUN printf 'path-include=/usr/share/doc/nvidia-kernel-common-*/supported-gpus.json\n' \
-        > /etc/dpkg/dpkg.cfg.d/rowyn-nvidia-gpus && \
-    apt-get update && \
+# --- KDE Plasma package layer (group: desktop) --------------------------
+# The desktop group carries the command-line backbone and the stock
+# tools, which the desktop resolution expects beneath it. The purge
+# rides this group because ubuntu-standard's recommends are what drag
+# snapd in, and plasma-welcome arrives with the desktop: removing them
+# here keeps their bytes out of every shipped layer instead of
+# whiteouting them in a later one.
+RUN apt-get update && \
     apt-get install -y \
+        ubuntu-minimal ubuntu-standard \
+        locales pciutils fwupd \
+        curl wget nano vim-tiny htop file lshw bind9-dnsutils iputils-ping \
+        iputils-tracepath mtr-tiny netcat-openbsd lsof strace tcpdump hdparm \
+        rfkill plocate manpages bash-completion command-not-found pastebinit \
         plasma-desktop sddm xserver-xorg sddm-theme-breeze konsole dolphin kinfocenter kde-spectacle \
         breeze breeze-gtk-theme breeze-icon-theme kde-style-breeze kde-cli-tools kdialog \
         plasma-nm plasma-pa xdg-desktop-portal-kde \
@@ -180,14 +219,24 @@ RUN printf 'path-include=/usr/share/doc/nvidia-kernel-common-*/supported-gpus.js
         kup-backup bup rsync kde-config-flatpak libnotify-bin \
         network-manager pipewire wireplumber upower udisks2 plymouth plymouth-label \
         tzdata tzdata-legacy polkitd \
-        fonts-noto-core \
         libwebkit2gtk-4.1-0 libayatana-appindicator3-1 libxdo3 \
         openconnect vpnc-scripts ksshaskpass firewalld \
         gwenview okular okular-extra-backends ark kate kcalc kcharselect \
         kdeconnect elisa haruna skanpage unzip zip \
         plasma-systemmonitor kamoso fprintd \
         kaccounts-integration kio-gdrive kdenetwork-filesharing krdp \
-        corectrl input-remapper ratbagd \
+        kio-admin kio-audiocd kde-config-updates kde-config-plymouth \
+        plasma-runners-addons plasma-widgets-addons plasma-wallpapers-addons \
+        plasma-calendar-addons plasma-dataengines-addons kwin-addons \
+        kwin-wayland plasma-workspace plasma-session-x11 && \
+    apt-get purge -y plasma-discover-backend-snap snapd plasma-welcome && \
+    rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/*
+
+# Group: PIM and productivity natives — mail/calendar, document tools,
+# the Windows-VM basics, printing, scanning and Windows file sharing.
+# These rev on the archive's application cadence, not KDE's.
+RUN apt-get update && \
+    apt-get install -y \
         kmail korganizer \
         gimagereader tesseract-ocr pdfarranger hplip \
         virt-manager qemu-system-x86 swtpm ovmf \
@@ -196,27 +245,49 @@ RUN printf 'path-include=/usr/share/doc/nvidia-kernel-common-*/supported-gpus.js
         system-config-printer-udev bluez-cups colord kde-config-tablet \
         ipp-usb avahi-daemon \
         sane-airscan sane-utils \
-        samba smbclient \
-        kio-admin kio-audiocd kde-config-updates kde-config-plymouth \
-        plasma-runners-addons plasma-widgets-addons plasma-wallpapers-addons \
-        plasma-calendar-addons plasma-dataengines-addons kwin-addons \
-        ffmpeg gstreamer1.0-pipewire phonon4qt6-backend-vlc \
-        fonts-liberation fonts-dejavu-core fonts-dejavu-mono \
-        fonts-inter fonts-cascadia-code \
-        orca \
-        ubuntu-minimal ubuntu-standard \
-        locales pciutils fwupd \
-        curl wget nano vim-tiny htop file lshw bind9-dnsutils iputils-ping \
-        iputils-tracepath mtr-tiny netcat-openbsd lsof strace tcpdump hdparm \
-        rfkill plocate manpages bash-completion command-not-found pastebinit \
-        kwin-wayland plasma-workspace plasma-session-x11 \
+        samba smbclient && \
+    rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/*
+
+# Group: gaming stack — GPU userspace, VA-API, tuning/peripheral tools
+# and the performance plumbing. Mesa and driver-adjacent packages rev
+# more often than anything else in the payload during a development
+# cycle; confining them here confines the download they cause.
+RUN apt-get update && \
+    apt-get install -y \
+        corectrl input-remapper ratbagd \
         power-profiles-daemon systemd-zram-generator gamemode steam-devices \
         mesa-vulkan-drivers vulkan-tools \
         mesa-va-drivers intel-media-va-driver i965-va-driver vainfo \
         systemd-oomd iw libmimalloc3 && \
+    rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/*
+
+# Group: fonts and media extras — the slowest-moving set in the
+# payload; a font or codec update should never re-ship the desktop.
+RUN apt-get update && \
+    apt-get install -y \
+        fonts-noto-core \
+        ffmpeg gstreamer1.0-pipewire phonon4qt6-backend-vlc \
+        fonts-liberation fonts-dejavu-core fonts-dejavu-mono \
+        fonts-inter fonts-cascadia-code \
+        orca && \
+    rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/*
+
+# Group: the recommends-free runtime set (Flatpak + Distrobox). Kept
+# after every recommends-enabled group, as before: nothing here may
+# pull a recommended package the groups above deliberately excluded.
+RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         flatpak plasma-discover-backend-flatpak distrobox \
         slirp4netns uidmap fuse-overlayfs && \
+    apt-get purge -y plasma-discover-backend-snap snapd plasma-welcome && \
+    rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/*
+
+# Group: NVIDIA (last install, as before). The dpkg path-include is
+# written immediately before this install and removed by the gate
+# below once the device list has been generated from it.
+RUN printf 'path-include=/usr/share/doc/nvidia-kernel-common-*/supported-gpus.json\n' \
+        > /etc/dpkg/dpkg.cfg.d/rowyn-nvidia-gpus && \
+    apt-get update && \
     apt-get install -y --no-install-recommends \
         python3 \
         linux-modules-nvidia-615-open-generic \

@@ -739,10 +739,15 @@ class InstalledPayloadDesktopTests(unittest.TestCase):
         # A working live installer did not provide Podman to installed bootc upgrade.
         payload = (ROOT / "Containerfile").read_text()
         system = payload.split("FROM base AS system", 1)[1]
-        packages = re.search(r"apt install -y (.*?) &&", system, re.DOTALL)
-        assert packages is not None
+        # The core stage installs in frequency groups (firmware alone,
+        # then the core set); the runtime must be in one of the blocks.
+        blocks = re.findall(r"apt install -y (.*?) &&", system, re.DOTALL)
+        assert blocks
+        tokens = set()
+        for block in blocks:
+            tokens.update(block.replace("\\", " ").split())
         for package in ("podman", "crun"):
-            self.assertIn(package, packages.group(1).split())
+            self.assertIn(package, tokens)
         self.assertLess(system.index("apt install -y"), system.index("/ctx/shared/bootc-rootfs.sh"))
 
     def test_payload_smoke_checks_bootc_runtime_and_effective_netplan_renderer(self):

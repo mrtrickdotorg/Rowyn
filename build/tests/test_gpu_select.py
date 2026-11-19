@@ -345,8 +345,14 @@ class WiringTests(unittest.TestCase):
         self.text = CONTAINERFILE.read_text(encoding="utf-8")
 
     def kde_layer(self) -> str:
-        start = self.text.index("RUN printf 'path-include=")
-        return self.text[start:self.text.index("apt-get purge -y plasma-discover-backend-snap")]
+        # The payload package layers (docs/updates.md): from the
+        # desktop group through the NVIDIA group, the last install.
+        # The span covers every frequency group, so the package
+        # presence checks see the whole installed set.
+        start = self.text.index("# --- KDE Plasma package layer")
+        nvidia = self.text.index("linux-modules-nvidia-615-open-generic", start)
+        end = self.text.index("rm -rf /var/lib/apt/lists/*", nvidia)
+        return self.text[start:end]
 
     def test_packages_are_in_the_kde_layer_without_dkms(self):
         layer = self.kde_layer()
@@ -362,8 +368,12 @@ class WiringTests(unittest.TestCase):
 
     def test_supported_gpu_list_survives_dpkg_doc_excludes(self):
         self.assertIn("path-include=/usr/share/doc/nvidia-kernel-common-*/supported-gpus.json", self.text)
-        self.assertLess(self.text.index("path-include=/usr/share/doc/nvidia-kernel-common"),
-                        self.text.index("apt-get install -y \\\n        plasma-desktop"))
+        # The include is written at the top of the NVIDIA group,
+        # immediately before the install that extracts the list (the
+        # package is named in prose earlier; measure from the printf).
+        printf = self.text.index("path-include=/usr/share/doc/nvidia-kernel-common")
+        self.assertLess(printf,
+                        self.text.index("linux-modules-nvidia-615-open-generic", printf))
 
     def test_build_gate_checks_modules_for_the_single_kernel(self):
         gate_start = self.text.index("NVIDIA build gate")
