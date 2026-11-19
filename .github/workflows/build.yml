@@ -233,30 +233,6 @@ jobs:
           # graphroot now, so a driver-less Buildah fails here with
           # its name on it instead of inside the image build.
           sudo buildah info >/dev/null
-          # Force the overlay graph driver for the rest of this job.
-          # On the Btrfs driver, a chroot-isolated build of the final
-          # stage produced empty diffs for every step (the whole
-          # rootfs landed in one layer): Btrfs snapshot diffing does
-          # not see chroot writes the way the overlay driver's
-          # directory diffing does. The graphroot stays the same
-          # Btrfs mount (overlay on Btrfs is a normal combination);
-          # only the layer bookkeeping changes. Storage is still
-          # empty at this point, so re-resetting under the new
-          # driver loses nothing.
-          printf '[storage]\ndriver = "overlay"\ngraphroot = "/var/lib/containers/storage"\nrunroot = "/run/containers/storage"\n' \
-            | sudo tee /etc/containers/storage.conf >/dev/null
-          # The provisioning step already initialized Podman's DB
-          # under the Btrfs driver, and Podman refuses to run at all
-          # when the configured driver differs from the recorded one.
-          # Storage is still empty (the base image is pulled inside
-          # the build), so wipe the graphroot/runroot contents —
-          # both are dedicated mounts whose contents are scratch —
-          # and let the reset below initialize fresh under overlay.
-          sudo find /var/lib/containers/storage -mindepth 1 -delete
-          sudo find /run/containers/storage -mindepth 1 -delete
-          sudo podman system reset --force
-          sudo buildah info > "${RUNNER_TEMP}/buildah-info.txt"
-          grep -Fq '"GraphDriverName": "overlay"' "${RUNNER_TEMP}/buildah-info.txt"
 
       # The source-date epoch is the commit's own timestamp, so a
       # rebuild of the same commit (the daily cadence rebuild) is
@@ -274,15 +250,17 @@ jobs:
         run: |
           source_date_epoch="$(git log -1 --format=%ct "${GITHUB_SHA}")"
           [[ "${source_date_epoch}" =~ ^[0-9]+$ ]]
-          # Chroot isolation plus the overlay graph driver forced
-          # in the setup step: chroot RUN steps need no OCI runtime
-          # (the runner's crun/netavark vintages do not match
-          # Buildah 1.46's), and overlay's directory diffing records
-          # each step's layer faithfully, which the Btrfs driver's
-          # snapshot diffing did not for the stage built on the
-          # locally built base.
+          # OCI isolation on the stock Btrfs storage, with the
+          # pinned crun from the setup step. RUN steps use the host
+          # network: standalone Buildah does not find the runner's
+          # netavark helpers where Podman's vendored Buildah did,
+          # and the build is offline by design except for the base
+          # stage's apt upgrade, which the host network serves.
+          # (Chroot isolation built successfully but flattened the
+          # final stage's layers into one on the Btrfs driver, and
+          # forcing the overlay driver broke Podman's smoke runs.)
           sudo buildah build \
-            --isolation chroot \
+            --network host \
             --rewrite-timestamp \
             --source-date-epoch "${source_date_epoch}" \
             --build-arg "ROWYN_SOURCE_REVISION=${GITHUB_SHA}" \
