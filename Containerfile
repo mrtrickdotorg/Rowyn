@@ -59,7 +59,7 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
 # (copier walk order vs differ path sort); extracting a deterministic
 # tar in a RUN step makes the shipped layer a single-producer differ
 # output with a stable entry order.
-RUN tar --sort=name --numeric-owner -cf /output.tar -C /output .
+RUN tar --sort=name --numeric-owner --mtime=@0 -cf /output.tar -C /output .
 
 # --- hub builder: compile Rowyn Hub from the pinned, ported upstream source -----
 # The ported tree is produced outside the build (CI runs

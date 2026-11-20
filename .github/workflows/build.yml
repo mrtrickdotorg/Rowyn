@@ -250,6 +250,14 @@ jobs:
         run: |
           source_date_epoch="$(git log -1 --format=%ct "${GITHUB_SHA}")"
           [[ "${source_date_epoch}" =~ ^[0-9]+$ ]]
+          # The mount digest Buildah records in each RUN step's
+          # image history hashes the mounted ctx tree including
+          # file mtimes, and a fresh checkout's mtimes are the
+          # runner's wall clock. Pin the ctx directories to the
+          # commit timestamp so two builds of the same commit
+          # record identical history (and therefore identical
+          # image digests, now that every layer matches).
+          find shared keys build-assets -exec touch -h -d "@${source_date_epoch}" {} +
           # Chroot isolation (OCI RUN creation fails outright with
           # standalone Buildah on this runner) on the stock Btrfs
           # storage, plus --layers: the Buildah CLI defaults it off
