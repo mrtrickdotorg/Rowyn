@@ -35,7 +35,8 @@ RUN apt-get update && \
     apt-get install -y --only-upgrade apt && \
     installed=$(dpkg-query -W -f='${Version}' apt) && \
     dpkg --compare-versions "$installed" ge 3.3.3ubuntu0.1 && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/* && \
+    rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /etc/.pwd.lock && rm -rf /run/adduser
 
 # --- builder: compile bootc from source -------------------------------------
 FROM base AS builder
@@ -52,6 +53,13 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     cp -a /ctx/assets/bootc /home/build/bootc && \
     /usr/bin/python3 /ctx/shared/bootc-sigpolicy-patch.py /home/build/bootc && \
     PATH=/opt/rust/bin:$PATH /ctx/shared/build.sh /home/build/bootc
+
+# Ship the payload as a tar with sorted entries. A whole-tree COPY of
+# /output alternated between two entry orderings on repeat builds
+# (copier walk order vs differ path sort); extracting a deterministic
+# tar in a RUN step makes the shipped layer a single-producer differ
+# output with a stable entry order.
+RUN tar --sort=name --numeric-owner -cf /output.tar -C /output .
 
 # --- hub builder: compile Rowyn Hub from the pinned, ported upstream source -----
 # The ported tree is produced outside the build (CI runs
@@ -90,7 +98,8 @@ ARG ROWYN_SOURCE_REVISION=unknown
 ARG ROWYN_IMAGE_VERSION=0.1
 LABEL org.opencontainers.image.source="https://github.com/mrtrickdotorg/Rowyn"
 LABEL org.opencontainers.image.revision="${ROWYN_SOURCE_REVISION}"
-COPY --from=builder /output /
+RUN --mount=type=bind,from=builder,source=/output.tar,target=/tmp/rowyn-output.tar \
+    tar --numeric-owner --xattrs --acls -xpf /tmp/rowyn-output.tar -C /
 
 # Core system layers, split by change cadence (docs/updates.md): the
 # payload installs in frequency groups so a client update only
@@ -105,19 +114,23 @@ COPY --from=builder /output /
 RUN --mount=type=tmpfs,dst=/tmp --mount=type=tmpfs,dst=/root --mount=type=tmpfs,dst=/boot apt update -y && \
   apt install -y linux-firmware && \
   apt clean -y && \
-  rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/*
+  rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/* && \
+  rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /etc/.pwd.lock && rm -rf /run/adduser && \
+  if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi
 
 RUN --mount=type=tmpfs,dst=/tmp --mount=type=tmpfs,dst=/root --mount=type=tmpfs,dst=/boot apt update -y && \
   apt install -y btrfs-progs bubblewrap dosfstools e2fsprogs fdisk linux-image-generic netplan.io openssh-server systemd-resolved chrony skopeo podman crun sudo systemd systemd-boot* xfsprogs libostree-dev dracut && \
   cp /boot/vmlinuz-* "$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)/vmlinuz" && \
   apt clean -y && \
-  rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/*
+  rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/* && \
+  rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /etc/.pwd.lock && rm -rf /run/adduser && \
+  if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi
 
 # The official Ubuntu base image ships an `ubuntu` login user (uid 1000).
 # An installed Rowyn system must offer only the account the installer
 # creates, so the baked-in account (and its home) goes away here, before
 # any layer that could come to depend on it.
-RUN userdel --remove ubuntu
+RUN userdel --remove ubuntu && rm -f /etc/.pwd.lock
 
 # --- Payload package layers ---------------------------------------------------
 # Install packages that still need the distro's dpkg database before
@@ -230,7 +243,9 @@ RUN apt-get update && \
         plasma-calendar-addons plasma-dataengines-addons kwin-addons \
         kwin-wayland plasma-workspace plasma-session-x11 && \
     apt-get purge -y plasma-discover-backend-snap snapd plasma-welcome && \
-    rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/*
+    rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/* && \
+    rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /etc/.pwd.lock && rm -rf /run/adduser && \
+    if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi
 
 # Group: PIM and productivity natives — mail/calendar, document tools,
 # the Windows-VM basics, printing, scanning and Windows file sharing.
@@ -246,7 +261,10 @@ RUN apt-get update && \
         ipp-usb avahi-daemon \
         sane-airscan sane-utils \
         samba smbclient && \
-    rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/*
+    rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/* && \
+    rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /etc/.pwd.lock && rm -rf /run/adduser && \
+    if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi && \
+    if [ -f /etc/iscsi/initiatorname.iscsi ]; then sed -i -E 's/^InitiatorName=iqn\.2004-10\.com\.ubuntu:01:[0-9a-f]+$/InitiatorName=iqn.2004-10.com.ubuntu:01:000000000000/' /etc/iscsi/initiatorname.iscsi; fi
 
 # Group: gaming stack — GPU userspace, VA-API, tuning/peripheral tools
 # and the performance plumbing. Mesa and driver-adjacent packages rev
@@ -259,7 +277,9 @@ RUN apt-get update && \
         mesa-vulkan-drivers vulkan-tools \
         mesa-va-drivers intel-media-va-driver i965-va-driver vainfo \
         systemd-oomd iw libmimalloc3 && \
-    rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/*
+    rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/* && \
+    rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /etc/.pwd.lock && rm -rf /run/adduser && \
+    if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi
 
 # Group: fonts and media extras — the slowest-moving set in the
 # payload; a font or codec update should never re-ship the desktop.
@@ -270,7 +290,9 @@ RUN apt-get update && \
         fonts-liberation fonts-dejavu-core fonts-dejavu-mono \
         fonts-inter fonts-cascadia-code \
         orca && \
-    rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/*
+    rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/* && \
+    rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /etc/.pwd.lock && rm -rf /run/adduser && \
+    if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi
 
 # Group: the recommends-free runtime set (Flatpak + Distrobox). Kept
 # after every recommends-enabled group, as before: nothing here may
@@ -280,7 +302,9 @@ RUN apt-get update && \
         flatpak plasma-discover-backend-flatpak distrobox \
         slirp4netns uidmap fuse-overlayfs && \
     apt-get purge -y plasma-discover-backend-snap snapd plasma-welcome && \
-    rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/*
+    rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/* && \
+    rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /etc/.pwd.lock && rm -rf /run/adduser && \
+    if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi
 
 # Group: NVIDIA (last install, as before). The dpkg path-include is
 # written immediately before this install and removed by the gate
@@ -296,7 +320,9 @@ RUN printf 'path-include=/usr/share/doc/nvidia-kernel-common-*/supported-gpus.js
         libnvidia-encode-615 libnvidia-fbc1-615 nvidia-utils-615 \
         nvidia-compute-utils-615 xserver-xorg-video-nvidia-615 && \
     apt-get purge -y plasma-discover-backend-snap snapd plasma-welcome && \
-    rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/*
+    rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/* && \
+    rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /etc/.pwd.lock && rm -rf /run/adduser && \
+    if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi
 
 # bootc-rootfs.sh deletes /var, so the payload carries no dpkg database: the
 # KCM packages the Hub opens can only be asserted here, while it exists.
@@ -398,11 +424,13 @@ RUN systemctl enable systemd-resolved && \
 # not inside it.
 COPY docs/assets/rowyn-logo.png /usr/share/plymouth/themes/rowyn/rowyn-logo.png
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
-    /ctx/shared/plymouth-theme.sh --root /
+    /ctx/shared/plymouth-theme.sh --root / && \
+    : > /var/log/alternatives.log
 
 RUN --mount=type=tmpfs,dst=/tmp --mount=type=tmpfs,dst=/root \
     --mount=type=bind,from=ctx,source=/,target=/ctx \
-    /ctx/shared/initramfs.sh
+    /ctx/shared/initramfs.sh && \
+    rm -f /run/tmpkbd.*
 
 # Keep service identities declarative across locally merged /etc upgrades.
 # Journald is the default logging engine; do not start a redundant rsyslog.
