@@ -50,9 +50,12 @@ if command == 'sudo':
         assert a[-1] in s['dirs'], 'post-reset graphroot missing'
         s['mounts'][a[-1]] = 'loop'
     elif a[:2] == ['podman', 'info']:
-        result = os.environ['MOUNT_POINT'] + ' ' + os.environ['RUNROOT']
-        if s['fault'] == 'podman_graphroot': result = '/wrong ' + os.environ['RUNROOT']
-        if s['fault'] == 'podman_runroot': result = os.environ['MOUNT_POINT'] + ' /wrong'
+        result = os.environ['MOUNT_POINT'] + ' ' + os.environ['RUNROOT'] + ' btrfs'
+        if s['fault'] == 'podman_graphroot': result = '/wrong ' + os.environ['RUNROOT'] + ' btrfs'
+        if s['fault'] == 'podman_runroot': result = os.environ['MOUNT_POINT'] + ' /wrong btrfs'
+        if s['fault'] == 'podman_driver': result = os.environ['MOUNT_POINT'] + ' ' + os.environ['RUNROOT'] + ' overlay'
+    elif a[:1] == ['tee']:
+        s['storage_conf'] = sys.stdin.read()
     elif a and a[0] in ['truncate', 'mkfs.btrfs', 'systemctl']:
         pass
     else:
@@ -111,6 +114,9 @@ class StorageActionTests(unittest.TestCase):
                     for column in ("FSTYPE", "MAJ:MIN"):
                         self.assertIn([path, column], state["queries"])
                 self.assertIn(["/var/lib/custom/storage", "FSTYPE"], state["queries"])
+                self.assertIn('driver = "btrfs"', state["storage_conf"])
+                self.assertIn('graphroot = "/var/lib/custom/storage"', state["storage_conf"])
+                self.assertIn('runroot = "' + runroot + '"', state["storage_conf"])
 
     def test_rejects_wrong_backing_filesystems_and_devices(self):
         for fault in ("graphroot_fs", "bind_tmpfs", "bind_device", "source_device",
@@ -128,6 +134,12 @@ class StorageActionTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0, "accepted " + fault)
                 self.assertNotIn("Traceback", result.stderr, "mock setup failed before assertion")
                 self.assertTrue(state["queries"], "filesystem queries were never reached")
+
+    def test_rejects_wrong_storage_driver(self):
+        result, state = self.run_action("podman_driver")
+        self.assertNotEqual(result.returncode, 0, "accepted wrong storage driver")
+        self.assertNotIn("Traceback", result.stderr, "mock setup failed before assertion")
+        self.assertTrue(state["queries"], "filesystem queries were never reached")
 
     def test_rejects_image_on_run_tmpfs(self):
         result, _ = self.run_action(image="/run/storage.img")
