@@ -61,7 +61,12 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
 # section is byte-identical — one proof pair matched by luck, the
 # next did not. The shipped image needs no debuginfo; stripping
 # makes the four binaries byte-deterministic and much smaller.
-RUN strip /output/usr/bin/bootc /output/usr/bin/bootc-integration-tests \
+# The GNU build-id note goes too: the linker hashes it over the
+# UNstripped output, so it preserves exactly the variance the
+# strip removes (after stripping, it was the only differing
+# bytes left in either binary).
+RUN strip -R .note.gnu.build-id /output/usr/bin/bootc \
+        /output/usr/bin/bootc-integration-tests \
         /output/usr/bin/system-reinstall-bootc \
         /output/usr/lib/bootc/initramfs-setup
 
