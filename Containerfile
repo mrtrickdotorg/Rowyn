@@ -115,7 +115,7 @@ RUN --mount=type=tmpfs,dst=/tmp --mount=type=tmpfs,dst=/root --mount=type=tmpfs,
   apt install -y linux-firmware && \
   apt clean -y && \
   rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/* && \
-  rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /etc/.pwd.lock && rm -rf /run/adduser && \
+  rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /etc/.pwd.lock && rm -rf /run/adduser && rm -f /run/tmpkbd.* && \
   if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi
 
 RUN --mount=type=tmpfs,dst=/tmp --mount=type=tmpfs,dst=/root --mount=type=tmpfs,dst=/boot apt update -y && \
@@ -123,8 +123,9 @@ RUN --mount=type=tmpfs,dst=/tmp --mount=type=tmpfs,dst=/root --mount=type=tmpfs,
   cp /boot/vmlinuz-* "$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)/vmlinuz" && \
   apt clean -y && \
   rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/* && \
-  rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /etc/.pwd.lock && rm -rf /run/adduser && \
-  if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi
+  rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /etc/.pwd.lock && rm -rf /run/adduser && rm -f /run/tmpkbd.* && \
+  if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi && \
+  : > /etc/machine-id && rm -f /etc/ssh/ssh_host_* /run/systemd/resolve/stub-resolv.conf
 
 # The official Ubuntu base image ships an `ubuntu` login user (uid 1000).
 # An installed Rowyn system must offer only the account the installer
@@ -244,7 +245,7 @@ RUN apt-get update && \
         kwin-wayland plasma-workspace plasma-session-x11 && \
     apt-get purge -y plasma-discover-backend-snap snapd plasma-welcome && \
     rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/* && \
-    rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /etc/.pwd.lock && rm -rf /run/adduser && \
+    rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /etc/.pwd.lock && rm -rf /run/adduser && rm -f /run/tmpkbd.* && \
     if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi
 
 # Group: PIM and productivity natives — mail/calendar, document tools,
@@ -262,7 +263,7 @@ RUN apt-get update && \
         sane-airscan sane-utils \
         samba smbclient && \
     rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/* && \
-    rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /etc/.pwd.lock && rm -rf /run/adduser && \
+    rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /etc/.pwd.lock && rm -rf /run/adduser && rm -f /run/tmpkbd.* && \
     if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi && \
     if [ -f /etc/iscsi/initiatorname.iscsi ]; then sed -i -E 's/^InitiatorName=iqn\.2004-10\.com\.ubuntu:01:[0-9a-f]+$/InitiatorName=iqn.2004-10.com.ubuntu:01:000000000000/' /etc/iscsi/initiatorname.iscsi; fi
 
@@ -278,7 +279,7 @@ RUN apt-get update && \
         mesa-va-drivers intel-media-va-driver i965-va-driver vainfo \
         systemd-oomd iw libmimalloc3 && \
     rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/* && \
-    rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /etc/.pwd.lock && rm -rf /run/adduser && \
+    rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /etc/.pwd.lock && rm -rf /run/adduser && rm -f /run/tmpkbd.* && \
     if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi
 
 # Group: fonts and media extras — the slowest-moving set in the
@@ -291,7 +292,7 @@ RUN apt-get update && \
         fonts-inter fonts-cascadia-code \
         orca && \
     rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/* && \
-    rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /etc/.pwd.lock && rm -rf /run/adduser && \
+    rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /etc/.pwd.lock && rm -rf /run/adduser && rm -f /run/tmpkbd.* && \
     if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi
 
 # Group: the recommends-free runtime set (Flatpak + Distrobox). Kept
@@ -303,13 +304,13 @@ RUN apt-get update && \
         slirp4netns uidmap fuse-overlayfs && \
     apt-get purge -y plasma-discover-backend-snap snapd plasma-welcome && \
     rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/* && \
-    rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /etc/.pwd.lock && rm -rf /run/adduser && \
+    rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /etc/.pwd.lock && rm -rf /run/adduser && rm -f /run/tmpkbd.* && \
     if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi
 
 # Group: NVIDIA (last install, as before). The dpkg path-include is
 # written immediately before this install and removed by the gate
 # below once the device list has been generated from it.
-RUN printf 'path-include=/usr/share/doc/nvidia-kernel-common-*/supported-gpus.json\n' \
+RUN --mount=type=tmpfs,dst=/boot printf 'path-include=/usr/share/doc/nvidia-kernel-common-*/supported-gpus.json\n' \
         > /etc/dpkg/dpkg.cfg.d/rowyn-nvidia-gpus && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -321,7 +322,7 @@ RUN printf 'path-include=/usr/share/doc/nvidia-kernel-common-*/supported-gpus.js
         nvidia-compute-utils-615 xserver-xorg-video-nvidia-615 && \
     apt-get purge -y plasma-discover-backend-snap snapd plasma-welcome && \
     rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/* && \
-    rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /etc/.pwd.lock && rm -rf /run/adduser && \
+    rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /etc/.pwd.lock && rm -rf /run/adduser && rm -f /run/tmpkbd.* && \
     if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi
 
 # bootc-rootfs.sh deletes /var, so the payload carries no dpkg database: the
