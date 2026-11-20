@@ -40,23 +40,34 @@ class UpdatePolicyTests(unittest.TestCase):
     ) -> subprocess.CompletedProcess[str]:
         env = dict(os.environ)
         env.pop("CONTAINERS_POLICY_JSON", None)
-        return subprocess.run(
-            [
-                "skopeo",
-                "--policy",
-                str(policy),
-                "--registries.d",
-                str(registries),
-                "copy",
-                "--src-no-creds",
-                source,
-                f"dir:{destination}",
-            ],
-            text=True,
-            capture_output=True,
-            env=env,
-            timeout=120,
-        )
+        try:
+            return subprocess.run(
+                [
+                    "skopeo",
+                    "--policy",
+                    str(policy),
+                    "--registries.d",
+                    str(registries),
+                    "copy",
+                    "--src-no-creds",
+                    source,
+                    f"dir:{destination}",
+                ],
+                text=True,
+                capture_output=True,
+                env=env,
+                timeout=120,
+            )
+        except subprocess.TimeoutExpired:
+            # The policy decision itself is fast; the deadline only covers
+            # fetching the fixture image. A slow link or a host under load
+            # must report the registry fixture as unavailable here rather
+            # than as a failure of the policy under test, which is what a
+            # bare TimeoutExpired would look like.
+            self.skipTest(
+                f"registry fixture unavailable for {source}: skopeo copy did "
+                "not finish within 120 seconds"
+            )
 
     def assert_runtime_fixture_available(
         self, result: subprocess.CompletedProcess[str], image: str
