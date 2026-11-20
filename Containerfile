@@ -54,6 +54,17 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     /usr/bin/python3 /ctx/shared/bootc-sigpolicy-patch.py /home/build/bootc && \
     PATH=/opt/rust/bin:$PATH /ctx/shared/build.sh /home/build/bootc
 
+# Strip the compiled binaries before packing: rustc emits DWARF
+# location/range lists in parallel-codegen completion order, so
+# the debug sections (and the symbol string table) can differ
+# between two builds of identical source even though every code
+# section is byte-identical — one proof pair matched by luck, the
+# next did not. The shipped image needs no debuginfo; stripping
+# makes the four binaries byte-deterministic and much smaller.
+RUN strip /output/usr/bin/bootc /output/usr/bin/bootc-integration-tests \
+        /output/usr/bin/system-reinstall-bootc \
+        /output/usr/lib/bootc/initramfs-setup
+
 # Ship the payload as a tar with sorted entries. A whole-tree COPY of
 # /output alternated between two entry orderings on repeat builds
 # (copier walk order vs differ path sort); extracting a deterministic
