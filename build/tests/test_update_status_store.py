@@ -3,15 +3,16 @@ import json
 import os
 from pathlib import Path
 import subprocess
-import tempfile
 import unittest
+
+from rowyn_fixture_paths import scratch_directory
 
 HELPER = Path(__file__).resolve().parents[2] / "shared/rowyn-update-watcher-status"
 
 
 class StatusStoreTests(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix="rowyn-update-status-")
+        self.tmp = scratch_directory("rowyn-update-status-")
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name) / "status"
         self.env = dict(os.environ, ROWYN_UPDATE_STATUS_DIR=str(self.root))

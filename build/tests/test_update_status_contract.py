@@ -23,6 +23,8 @@ import subprocess
 import tempfile
 import unittest
 
+from rowyn_fixture_paths import scratch_directory
+
 
 ROOT = Path(__file__).resolve().parents[2]
 HELPER = ROOT / "shared/rowyn-update-watcher-status"
@@ -47,7 +49,7 @@ class WriterShapeTests(unittest.TestCase):
     """The writer's emitted documents keep the shape the reader pins."""
 
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix="rowyn-status-contract-")
+        self.tmp = scratch_directory("rowyn-status-contract-")
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name) / "status"
         self.env = dict(os.environ, ROWYN_UPDATE_STATUS_DIR=str(self.root))

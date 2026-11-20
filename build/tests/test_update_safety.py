@@ -11,6 +11,8 @@ import subprocess
 import tempfile
 import unittest
 
+from rowyn_fixture_paths import scratch_directory
+
 
 ROOT = Path(__file__).resolve().parents[2]
 SAFE_UPGRADE = ROOT / "shared/rowyn-safe-upgrade.sh"
@@ -30,7 +32,7 @@ esac
 
 class WatcherStatusTests(unittest.TestCase):
     def test_status_helper_rejects_boolean_timestamp_and_extra_args(self):
-        with tempfile.TemporaryDirectory() as t:
+        with scratch_directory("rowyn-status-") as t:
             d = Path(t) / "status"
             env = dict(os.environ, ROWYN_UPDATE_STATUS_DIR=str(d))
             helper = ROOT / "shared/rowyn-update-watcher-status"
@@ -42,7 +44,7 @@ class WatcherStatusTests(unittest.TestCase):
             self.assertNotEqual(subprocess.run([str(helper), "start", "110", "extra"], env=env).returncode, 0)
 
     def test_watcher_fixture_records_authoritative_outcomes(self):
-        with tempfile.TemporaryDirectory() as t:
+        with scratch_directory("rowyn-watcher-status-") as t:
             root = Path(t)
             helper = ROOT / "shared/rowyn-update-watcher-status"
             policy = root / "policy"
@@ -68,7 +70,7 @@ class WatcherStatusTests(unittest.TestCase):
         ]
         for script, expected, expected_rc in cases:
             with self.subTest(expected=expected, script=script):
-                with tempfile.TemporaryDirectory() as t:
+                with scratch_directory("rowyn-watcher-status-") as t:
                     root = Path(t)
                     helper = ROOT / "shared/rowyn-update-watcher-status"
                     policy = root / "policy"
@@ -84,7 +86,7 @@ class WatcherStatusTests(unittest.TestCase):
                     self.assertEqual((doc["outcome"], doc["reason_code"]), expected)
 
     def test_signal_keeps_interrupted_status_across_normal_result_handling(self):
-        with tempfile.TemporaryDirectory() as t:
+        with scratch_directory("rowyn-watcher-status-") as t:
             root = Path(t)
             policy = root / "policy"
             policy.write_text("AutoStage=yes\n")
@@ -109,7 +111,7 @@ class WatcherStatusTests(unittest.TestCase):
             self.assertEqual((doc["outcome"], doc["reason_code"]), ("interrupted", "cancelled"), output)
 
     def test_status_helper_writes_bounded_attempt_and_preserves_last_success(self):
-        with tempfile.TemporaryDirectory() as t:
+        with scratch_directory("rowyn-watcher-status-") as t:
             d = Path(t) / "status"
             env = dict(os.environ, ROWYN_UPDATE_STATUS_DIR=str(d))
             helper = ROOT / "shared/rowyn-update-watcher-status"

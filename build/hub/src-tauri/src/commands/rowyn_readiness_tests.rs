@@ -201,10 +201,54 @@ fn complete_serialization_is_public_and_bounded() {
         assert!(!detail.chars().any(char::is_control));
     }
 }
+/// Base directory for fixtures that must satisfy `read_update_file`'s path
+/// policy: every ancestor root- or user-owned and not group/world-writable,
+/// with a root-owned sticky directory (the usual /tmp) as the exception.
+/// The machine's temp directory is not guaranteed to qualify — a sandbox can
+/// own /tmp as another uid, and a umask 002 checkout can sit under a
+/// group-writable parent — so the fixture picks a compliant base or skips
+/// with a message rather than failing for an unrelated host reason.
+fn compliant_temp_base() -> Option<std::path::PathBuf> {
+    use std::os::unix::fs::MetadataExt;
+    let euid = unsafe { libc::geteuid() } as u32;
+    let candidates = [
+        std::env::var_os("XDG_RUNTIME_DIR").map(std::path::PathBuf::from),
+        Some(std::path::PathBuf::from(format!("/run/user/{euid}"))),
+        Some(std::env::temp_dir()),
+        Some(std::path::PathBuf::from("/dev/shm")),
+        Some(std::path::PathBuf::from("/var/tmp")),
+    ];
+    candidates.into_iter().flatten().find(|base| {
+        base.ancestors()
+            .all(|ancestor| match std::fs::metadata(ancestor) {
+                Ok(meta) => {
+                    let sticky_root = meta.uid() == 0 && meta.mode() & 0o1000 != 0;
+                    meta.is_dir()
+                        && (meta.uid() == 0 || meta.uid() == euid)
+                        && (meta.mode() & 0o022 == 0 || sticky_root)
+                }
+                Err(_) => false,
+            })
+    })
+}
+
 #[test]
 fn file_reader_refuses_symlinks_fifo_and_unsafe_permissions() {
     use std::os::unix::fs::{symlink, PermissionsExt};
-    let root = std::env::temp_dir().join(format!("rowyn-readiness-file-{}", std::process::id()));
+    let Some(base) = compliant_temp_base() else {
+        eprintln!(
+            "skipping file_reader_refuses_symlinks_fifo_and_unsafe_permissions: \
+             no temp directory satisfies the status reader's ownership policy"
+        );
+        return;
+    };
+    let root = base.join(format!(
+        "rowyn-readiness-file-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |elapsed| elapsed.as_nanos())
+    ));
     std::fs::create_dir(&root).unwrap();
     let file = root.join("status.json");
     std::fs::write(&file, attempt("current", "no_update")).unwrap();
