@@ -246,7 +246,8 @@ RUN apt-get update && \
     apt-get purge -y plasma-discover-backend-snap snapd plasma-welcome && \
     rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/* && \
     rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /etc/.pwd.lock && rm -rf /run/adduser && rm -f /run/tmpkbd.* && \
-    if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi
+    if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi && \
+    rm -f /var/lib/plocate/plocate.db
 
 # Group: PIM and productivity natives — mail/calendar, document tools,
 # the Windows-VM basics, printing, scanning and Windows file sharing.
