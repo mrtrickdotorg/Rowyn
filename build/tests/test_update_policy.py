@@ -10,16 +10,26 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 HELPER = ROOT / "shared/update-policy.sh"
 REPOSITORY = "ghcr.io/mrtrickdotorg/rowyn"
 KEY_PATH = "/usr/share/rowyn/update.pub"
-# The promoted stable image at fixture time, digest-addressed so the pin stays
-# valid; it carries a valid update-channel signature.
-SIGNED_ROWYN_IMAGE = "docker://ghcr.io/mrtrickdotorg/rowyn@sha256:ce3936e202712576e7099385ae47eb2cd4865521a2296ba2c6b5d3ffa07d6c78"
-UBUNTU_IMAGE = "docker://docker.io/library/ubuntu:latest"
-UNSCOPED_IMAGE = "docker://quay.io/podman/hello:latest"
+
+# containers/image checks run against checked-in `dir:` fixtures, never a
+# registry: the policy decision is what this module covers, and a registry
+# pull made the suite depend on the network (a slow link or a loaded host
+# surfaced as a failure of the policy under test). `image` is an unsigned
+# public image, `signed-image` is the same image plus a sigstore attachment
+# produced by `fixtures/update-policy/generate.sh`, and `signing-key.pub` /
+# `other-key.pub` are that fixture's throwaway keys.
+FIXTURES = ROOT / "build/tests/fixtures/update-policy"
+PUBLIC_IMAGE = FIXTURES / "image"
+SIGNED_IMAGE = FIXTURES / "signed-image"
+SIGNING_KEY = FIXTURES / "signing-key.pub"
+OTHER_KEY = FIXTURES / "other-key.pub"
+SIGNED_IDENTITY = "docker.io/library/hello-world:latest"
 
 
 class UpdatePolicyTests(unittest.TestCase):
@@ -31,11 +41,54 @@ class UpdatePolicyTests(unittest.TestCase):
             env=dict(os.environ, PATH="/usr/bin:/bin"),
         )
 
+    def container_policy(
+        self, scopes: dict[str, list[dict[str, str]]]
+    ) -> tuple[tempfile.TemporaryDirectory[str], Path, Path]:
+        """A fail-closed policy scoped to local `dir:` fixtures.
+
+        Mirrors the shape the helper installs: a global `reject` default plus
+        explicit per-scope requirements. The registries.d file enables the
+        sigstore attachments the signed fixture carries.
+        """
+        temporary = tempfile.TemporaryDirectory(prefix="rowyn-update-policy-")
+        root = Path(temporary.name)
+        policy = root / "policy.json"
+        policy.write_text(
+            json.dumps(
+                {
+                    "default": [{"type": "reject"}],
+                    "transports": {"dir": scopes},
+                }
+            ),
+            encoding="utf-8",
+        )
+        registries = root / "registries.d"
+        registries.mkdir()
+        (registries / "fixture.yaml").write_text(
+            "default-docker:\n  use-sigstore-attachments: true\n",
+            encoding="utf-8",
+        )
+        return temporary, policy, registries
+
+    def signature_policy(self, key: Path) -> dict[str, list[dict[str, str]]]:
+        return {
+            str(SIGNED_IMAGE): [
+                {
+                    "type": "sigstoreSigned",
+                    "keyPath": str(key),
+                    "signedIdentity": {
+                        "type": "exactReference",
+                        "dockerReference": SIGNED_IDENTITY,
+                    },
+                }
+            ]
+        }
+
     def run_skopeo_copy(
         self,
         policy: Path,
         registries: Path,
-        source: str,
+        source: Path,
         destination: Path,
     ) -> subprocess.CompletedProcess[str]:
         env = dict(os.environ)
@@ -50,7 +103,7 @@ class UpdatePolicyTests(unittest.TestCase):
                     str(registries),
                     "copy",
                     "--src-no-creds",
-                    source,
+                    f"dir:{source}",
                     f"dir:{destination}",
                 ],
                 text=True,
@@ -60,40 +113,21 @@ class UpdatePolicyTests(unittest.TestCase):
             )
         except subprocess.TimeoutExpired:
             # The policy decision itself is fast; the deadline only covers
-            # fetching the fixture image. A slow link or a host under load
-            # must report the registry fixture as unavailable here rather
-            # than as a failure of the policy under test, which is what a
-            # bare TimeoutExpired would look like.
+            # reading the fixture. A host under load must report the fixture
+            # as unavailable here rather than as a failure of the policy
+            # under test, which is what a bare TimeoutExpired would look like.
             self.skipTest(
-                f"registry fixture unavailable for {source}: skopeo copy did "
-                "not finish within 120 seconds"
+                f"update-policy fixture unavailable for {source}: skopeo copy "
+                "did not finish within 120 seconds"
             )
 
-    def assert_runtime_fixture_available(
-        self, result: subprocess.CompletedProcess[str], image: str
-    ) -> None:
-        if result.returncode == 0:
-            return
-        stderr = result.stderr.lower()
-        if "rejected by policy" in stderr or "source image rejected" in stderr:
-            self.fail(f"{image} was rejected by policy: {result.stderr}")
-        unavailable = (
-            "connection refused",
-            "connection reset",
-            "dial tcp",
-            "forbidden",
-            "i/o timeout",
-            "manifest unknown",
-            "no such host",
-            "proxyconnect",
-            "temporary failure",
-            "tls handshake timeout",
-            "too many requests",
-            "unauthorized",
-        )
-        if any(marker in stderr for marker in unavailable):
-            self.skipTest(f"registry fixture unavailable for {image}: {result.stderr.strip()}")
-        self.fail(f"unexpected skopeo failure for {image}: {result.stderr}")
+    def copy_to_scratch(
+        self, policy: Path, registries: Path, source: Path
+    ) -> subprocess.CompletedProcess[str]:
+        with tempfile.TemporaryDirectory(prefix="rowyn-policy-copy-") as scratch:
+            return self.run_skopeo_copy(
+                policy, registries, source, Path(scratch) / "image"
+            )
 
     def install_fixture(self) -> tuple[tempfile.TemporaryDirectory[str], Path, Path, Path]:
         temporary = tempfile.TemporaryDirectory(prefix="rowyn-update-policy-")
@@ -171,51 +205,65 @@ class UpdatePolicyTests(unittest.TestCase):
             })
 
     @unittest.skipUnless(shutil.which("skopeo"), "skopeo is unavailable")
-    def test_actual_rootless_docker_hub_ubuntu_remains_usable(self):
-        if os.geteuid() == 0:
-            self.skipTest("rootless fixture must run as a non-root user")
-        temporary, root, policy, registries = self.install_fixture()
+    def test_scoped_fixture_image_is_accepted(self):
+        """A fail-closed policy still permits the scopes it explicitly allows."""
+        temporary, policy, registries = self.container_policy(
+            {str(PUBLIC_IMAGE): [{"type": "insecureAcceptAnything"}]}
+        )
         with temporary:
-            result = self.run_skopeo_copy(policy, registries, UBUNTU_IMAGE, root / "ubuntu")
-            self.assert_runtime_fixture_available(result, UBUNTU_IMAGE)
+            result = self.copy_to_scratch(policy, registries, PUBLIC_IMAGE)
             self.assertEqual(result.returncode, 0, result.stderr)
 
     @unittest.skipUnless(shutil.which("skopeo"), "skopeo is unavailable")
-    def test_scoped_rowyn_requires_the_update_signing_key(self):
-        temporary, root, policy, registries = self.install_fixture()
+    def test_signed_fixture_requires_the_matching_signing_key(self):
+        temporary, policy, registries = self.container_policy(
+            self.signature_policy(SIGNING_KEY)
+        )
         with temporary:
-            # This immutable registry fixture carries a valid Rowyn signature.
-            # Pin the repo key locally so the test is independent of host state.
-            policy_data = json.loads(policy.read_text(encoding="utf-8"))
-            policy_data["transports"]["docker"][REPOSITORY][0]["keyPath"] = str(ROOT / "keys/update.pub")
-            policy.write_text(json.dumps(policy_data), encoding="utf-8")
-            signed = self.run_skopeo_copy(
-                policy, registries, SIGNED_ROWYN_IMAGE, root / "rowyn-signed",
-            )
-            self.assert_runtime_fixture_available(signed, "signed Rowyn image")
+            signed = self.copy_to_scratch(policy, registries, SIGNED_IMAGE)
             self.assertEqual(signed.returncode, 0, signed.stderr)
 
-            # A different checked-in public key must not authorize that image.
-            policy_data["transports"]["docker"][REPOSITORY][0]["keyPath"] = str(ROOT / "shared/retired-dev-key.pub")
-            policy.write_text(json.dumps(policy_data), encoding="utf-8")
-            wrong_key = self.run_skopeo_copy(
-                policy, registries, SIGNED_ROWYN_IMAGE, root / "rowyn-wrong-key",
+            policy.write_text(
+                json.dumps(
+                    {
+                        "default": [{"type": "reject"}],
+                        "transports": {"dir": self.signature_policy(OTHER_KEY)},
+                    }
+                ),
+                encoding="utf-8",
             )
+            wrong_key = self.copy_to_scratch(policy, registries, SIGNED_IMAGE)
             self.assertNotEqual(wrong_key.returncode, 0, wrong_key.stderr)
-            self.assertRegex(wrong_key.stderr.lower(), "(rejected|signature|policy|key)")
+            self.assertRegex(
+                wrong_key.stderr.lower(),
+                "(rejected|signature|policy|key)",
+            )
 
     @unittest.skipUnless(shutil.which("skopeo"), "skopeo is unavailable")
-    def test_actual_unscoped_registry_is_rejected_by_default_policy(self):
-        temporary, root, policy, registries = self.install_fixture()
+    def test_unscoped_fixture_is_rejected_by_default_policy(self):
+        temporary, policy, registries = self.container_policy(
+            {str(SIGNED_IMAGE): [{"type": "insecureAcceptAnything"}]}
+        )
         with temporary:
-            result = self.run_skopeo_copy(
-                policy,
-                registries,
-                UNSCOPED_IMAGE,
-                root / "untrusted",
-            )
-            self.assertNotEqual(result.returncode, 0)
+            result = self.copy_to_scratch(policy, registries, PUBLIC_IMAGE)
+            self.assertNotEqual(result.returncode, 0, result.stderr)
             self.assertRegex(result.stderr.lower(), "(rejected|policy)")
+
+    def test_fixture_copy_timeout_is_reported_as_a_skip(self):
+        """A fixture read that never finishes must not look like a policy failure."""
+
+        def timeout(*_args, **_kwargs):
+            raise subprocess.TimeoutExpired(cmd="skopeo", timeout=120)
+
+        with mock.patch.object(subprocess, "run", timeout):
+            with self.assertRaises(unittest.SkipTest) as caught:
+                self.run_skopeo_copy(
+                    Path("/nonexistent/policy.json"),
+                    Path("/nonexistent/registries.d"),
+                    PUBLIC_IMAGE,
+                    Path("/nonexistent/destination"),
+                )
+        self.assertIn("did not finish within 120 seconds", str(caught.exception))
 
 
 if __name__ == "__main__":

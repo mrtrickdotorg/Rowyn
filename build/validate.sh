@@ -135,6 +135,24 @@ grep -Fq 'rowyn-custom-installer-*.iso.sigstore.json' .github/workflows/installe
     || fail "ISO signature bundle is not uploaded"
 grep -Fq 'skopeo inspect --no-creds' .github/workflows/installer-iso.yml \
     || fail "custom installer does not assert anonymous source-image access"
-python3 -B -m unittest discover -s build/tests -v
+skip_report="$(mktemp)"
+trap 'rm -f "${skip_report}"' EXIT
+python3 -B build/tests/rowyn_run_suite.py "${skip_report}"
+
+# A test that stops running must fail validation rather than quietly shrink
+# coverage: build/tests/skip-baseline.txt lists the skips that are expected on
+# a validation host (an absent optional tool, an unset integration variable, a
+# host that blocks a mount namespace). Anything not listed is a change in what
+# this suite actually checks, so it has to be reviewed and listed too.
+unexpected_skips="$(comm -13 \
+    <(grep -v -e '^#' -e '^[[:space:]]*$' build/tests/skip-baseline.txt | LC_ALL=C sort -u) \
+    <(LC_ALL=C sort -u "${skip_report}"))"
+if [[ -n "${unexpected_skips}" ]]; then
+    echo "[validate] tests skipped without being listed in build/tests/skip-baseline.txt:" >&2
+    while IFS= read -r test_id; do
+        printf '    %s\n' "${test_id}" >&2
+    done <<< "${unexpected_skips}"
+    fail "unexpected test skips: fix the fixture or add the test to build/tests/skip-baseline.txt"
+fi
 
 echo "[validate] Rowyn source and CI contracts passed"
