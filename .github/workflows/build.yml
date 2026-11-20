@@ -149,6 +149,21 @@ jobs:
       - name: Provision compressed Podman storage
         uses: ./.github/actions/setup-compressed-storage
 
+      - name: Pin the Podman storage driver
+        shell: bash --noprofile --norc -euo pipefail {0}
+        run: |
+          # Left to autodetection, the driver chosen for the freshly
+          # mounted graphroot can vary between runners, and the btrfs
+          # and overlay differs do not emit byte-identical layer tars
+          # (whiteout form differs), which broke image
+          # reproducibility (see docs/updates.md). Pin btrfs, the
+          # driver the compressed-storage action provisions for,
+          # and fail loudly if the store disagrees.
+          sudo mkdir -p /etc/containers
+          printf '[storage]\ndriver = "btrfs"\ngraphroot = "/var/lib/containers/storage"\nrunroot = "/run/containers/storage"\n' | sudo tee /etc/containers/storage.conf >/dev/null
+          sudo systemctl restart podman.service || true
+          test "$(sudo podman info --format '{{.Store.GraphDriverName}}')" = "btrfs"
+
       - name: Fetch build assets (toolchain tarball, bootc source, vendored deps)
         shell: bash --noprofile --norc -euo pipefail {0}
         run: ./build/fetch-assets.sh
@@ -734,6 +749,21 @@ jobs:
 
       - name: Setup compressed Podman storage
         uses: ./.github/actions/setup-compressed-storage
+
+      - name: Pin the Podman storage driver
+        shell: bash --noprofile --norc -euo pipefail {0}
+        run: |
+          # Left to autodetection, the driver chosen for the freshly
+          # mounted graphroot can vary between runners, and the btrfs
+          # and overlay differs do not emit byte-identical layer tars
+          # (whiteout form differs), which broke image
+          # reproducibility (see docs/updates.md). Pin btrfs, the
+          # driver the compressed-storage action provisions for,
+          # and fail loudly if the store disagrees.
+          sudo mkdir -p /etc/containers
+          printf '[storage]\ndriver = "btrfs"\ngraphroot = "/var/lib/containers/storage"\nrunroot = "/run/containers/storage"\n' | sudo tee /etc/containers/storage.conf >/dev/null
+          sudo systemctl restart podman.service || true
+          test "$(sudo podman info --format '{{.Store.GraphDriverName}}')" = "btrfs"
 
       - name: Build and publish unique destination image
         id: build_destination
