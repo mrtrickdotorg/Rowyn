@@ -5,8 +5,12 @@ name: Rowyn Ubuntu digest pin
 # that image behind the tag, so resolve it on a schedule, move every pin
 # together, validate, and commit to main. A commit pushed with the workflow
 # token starts no runs of its own, so a landed bump then dispatches Rowyn
-# CI explicitly to build, smoke-test and sign the new pin. The repository
-# takes no pull requests, so this never opens one.
+# CI explicitly to build, smoke-test and sign the new pin. On days the pin
+# does not move, the run instead dispatches one rebuild, so archive
+# package and security updates land daily; reproducible builds make a
+# no-change rebuild produce the identical digest, so clients download
+# nothing on a quiet day. The repository takes no pull requests, so this
+# never opens one.
 on:
   schedule:
     - cron: "41 5 * * *"
@@ -116,4 +120,28 @@ jobs:
           # main now and let it build, sign and promote the new pin. If the
           # dispatch itself is refused this step fails the run: a bump that
           # lands but never builds has to be loud, not silent.
+          gh workflow run build.yml --repo "${{ github.repository }}" --ref main
+
+      - name: Dispatch the daily rebuild
+        if: steps.commit.outputs.committed != 'true'
+        shell: bash --noprofile --norc -euo pipefail {0}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # No bump was committed on this run — the pin is already
+          # current, or the bump turned out to be already applied — so
+          # the step above dispatched nothing. Dispatch one build
+          # anyway: the image installs its packages from the Ubuntu
+          # archive at build time, and that archive moves daily even
+          # when the base digest does not. Builds are reproducible, so
+          # if the archive has not changed either, the rebuild produces
+          # the identical digest and clients see no update at all; if
+          # it has, only the changed layers differ and clients download
+          # just those. Exactly one dispatch leaves this workflow per
+          # run: this step and the bump dispatch key off opposite
+          # values of the same committed signal (a skipped commit step
+          # leaves the signal unset, which is not 'true'). If this
+          # dispatch is refused the step fails the run, for the same
+          # reason as above: a silently skipped day is the failure mode
+          # this cadence exists to remove.
           gh workflow run build.yml --repo "${{ github.repository }}" --ref main

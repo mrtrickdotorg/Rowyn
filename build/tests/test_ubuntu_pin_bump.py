@@ -81,7 +81,7 @@ class UbuntuPinBump(unittest.TestCase):
                          {"contents": "write", "actions": "write"})
         self.assertNotIn("workflows: write", WORKFLOW.read_text(encoding="utf-8"))
 
-    def test_landed_bump_dispatches_rowyn_ci_and_noop_does_not(self):
+    def test_exactly_one_dispatch_leaves_each_run(self):
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
         steps = workflow["jobs"]["bump"]["steps"]
         names = [step["name"] for step in steps]
@@ -107,6 +107,22 @@ class UbuntuPinBump(unittest.TestCase):
         # The dispatch can only follow the commit it reacts to.
         self.assertLess(names.index("Commit the pin to main"),
                         names.index("Dispatch Rowyn CI for the landed bump"))
+
+        # The daily rebuild dispatch keys off the opposite value of the
+        # same committed signal, so exactly one build leaves each run:
+        # the bump build when a bump landed, the daily rebuild otherwise
+        # (pin already current — the commit step is skipped and the
+        # signal stays unset — or the bump was already applied and the
+        # commit step reported false). A no-change day still rebuilds
+        # against the day's archive; reproducibility keeps it a
+        # zero-download day for clients.
+        rebuild = by_name["Dispatch the daily rebuild"]
+        self.assertEqual(rebuild["if"],
+                         "steps.commit.outputs.committed != 'true'")
+        self.assertIn("gh workflow run build.yml", rebuild["run"])
+        self.assertIn("--ref main", rebuild["run"])
+        self.assertLess(names.index("Dispatch Rowyn CI for the landed bump"),
+                        names.index("Dispatch the daily rebuild"))
 
     def test_iso_workflow_derives_the_pin_instead_of_carrying_it(self):
         module = load()

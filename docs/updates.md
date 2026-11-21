@@ -18,8 +18,8 @@ until its proof passes:
    strip apt lists, caches and logs. Rebuilding an unchanged tree
    now produces the *identical* digest — see "Reproducibility
    status" below — so a no-change day is a zero-byte day. The
-   daily rebuild cadence that depends on this proof is still a
-   separate enablement decision and is **not** enabled yet.
+   daily rebuild cadence that depends on this proof was enabled
+   on 2026-11-21 — see "Daily rebuild cadence" below.
 
 Channels (stable/testing) are covered in
 [update-channels.md](update-channels.md); this document is about the
@@ -138,17 +138,24 @@ The installed package set is unchanged by all of this: the
 final build's name+version manifest is the same 2,407 packages
 as the November 19 grouped image, with zero differences.
 
-## Daily rebuild cadence — not yet enabled
+## Daily rebuild cadence
 
-The plan: the Ubuntu digest-pin workflow, on days when the pin
-does not move, also dispatches one build, so archive package and
-security updates are picked up daily instead of waiting for the
-next Canonical base republication. That dispatch was gated on
-the double-build proof above, which passed on 2026-11-21;
-enabling it earlier would have pushed a multi-hundred-megabyte
-"update" to every client on quiet days, which is exactly what
-this work exists to prevent. The cadence itself remains off
-until it is deliberately enabled.
+The Ubuntu digest-pin workflow runs daily. On days when the pin
+moves, its landed bump dispatches a build as before. On days
+when the pin does not move, the run also dispatches one build,
+so archive package and security updates are picked up daily
+instead of waiting for the next Canonical base republication.
+Exactly one dispatch leaves each pin run: the two dispatch steps
+key off opposite values of the same committed signal.
+
+This was gated on the double-build proof above, which passed on
+2026-11-21, and the cadence was enabled the same day. Enabling
+it earlier would have pushed a multi-hundred-megabyte "update"
+to every client on quiet days, which is exactly what this work
+exists to prevent. With reproducibility proven, a quiet day
+rebuilds to the identical digest and clients download nothing;
+a day with archive changes downloads only the layers those
+changes touch.
 
 ## Metered connections
 
