@@ -72,3 +72,4 @@ Validation needs Bash, Git, Python 3 with PyYAML, `shellcheck`, and `skopeo`. Th
 The guide also documents optional Ubuntu runtime checks and pinned-source installer tests. Source validation does not replace a real installation and reboot test.
 
 </details>
+
