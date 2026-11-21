@@ -215,8 +215,18 @@ class HubTestJob(unittest.TestCase):
     def test_ci_runs_the_hub_suites_against_the_pinned_export(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("hub-tests:", workflow)
-        for token in ("npm ci", "node --test", "ubuntu-hub-source.py"):
+        for token in ("npm ci", "node --test", "ubuntu-hub-source.py",
+                      "cargo test --locked rowyn_ -- --nocapture"):
             self.assertIn(token, workflow)
+
+    def test_ci_fails_instead_of_skipping_when_a_fixture_base_is_missing(self):
+        # The twelve policy-fixture tests return early with a "skipping" note
+        # when the host has no policy-compliant temp base, and libtest hides
+        # that note for a passing test: without --nocapture and a check on the
+        # note, a run where they never executed still looks green.
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn('grep -Fq "skipping "', workflow)
+        self.assertIn("passed < 130", workflow)
 
 
 if __name__ == "__main__":

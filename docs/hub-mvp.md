@@ -107,10 +107,12 @@ source and actual export contracts. Validation needs `shellcheck` and `skopeo`
 as well as Python 3 with PyYAML, and stops before the suite when either is
 missing. In a fresh exported Hub run
 `npm ci && npm run build && node --test tests/*.test.mjs`, then in `src-tauri`
-`cargo test --locked`. The `Hub source tests` CI job runs that export and the
-Rowyn suite (`node --test tests/rowyn-*.test.mjs`) on every push, so a section,
-wiring, or model regression fails the build instead of shipping; the cargo
-suite still runs only in the manual flow. The Rowyn MVP tests execute real TS model functions,
+`cargo test --locked`. The `Hub source tests` CI job runs that export, the
+Rowyn suite (`node --test tests/rowyn-*.test.mjs`) and the Rowyn Rust tests
+(`cargo test --locked rowyn_ -- --nocapture`) on every push, so a section,
+wiring, model or fixture-helper regression fails the build instead of
+shipping. The job fails when one of the twelve policy-fixture tests reports
+that it skipped, so a green run means they executed. The Rowyn MVP tests execute real TS model functions,
 SSR page construction, native parsers, launcher allowlists, bounded scrubbing,
 single-flight checks and private explicit report export. No VM gate is added.
 Live launcher downloads, desktop windows, clipboard and physical controllers
