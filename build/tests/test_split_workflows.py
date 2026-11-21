@@ -238,7 +238,11 @@ class WorkflowTests(unittest.TestCase):
         paths = image[True]["push"].get("paths", [])
         self.assertIn(".github/workflows/build.yml", paths)
         self.assertNotIn("build/**", paths)
-        for path in ("build/custom-installer-iso.sh", ".github/workflows/installer-iso.yml", "build/tests/**"):
+        # build/tests/** is a deliberate trigger: validate must run
+        # for test-only changes (aad3101), or a broken fixture can
+        # land green-by-absence.
+        self.assertIn("build/tests/**", paths)
+        for path in ("build/custom-installer-iso.sh", ".github/workflows/installer-iso.yml"):
             self.assertNotIn(path, paths)
         iso_paths = yaml.safe_load((ROOT / ".github/workflows/installer-iso.yml").read_text())[True]["push"]["paths"]
         self.assertIn("shared/kde-dark-defaults.sh", iso_paths)
