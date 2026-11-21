@@ -591,6 +591,59 @@ jobs:
             sudo podman image inspect rowyn:ci --format '- local digest: {{.Digest}}'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Normalize image history for reproducibility
+        shell: bash --noprofile --norc -euo pipefail {0}
+        run: |
+          # Buildah appends each bind mount's stage image digest to
+          # the RUN step's history created_by (":sha256:..." after
+          # the command). Stage digests are not reproducible — the
+          # copier and differ walk orders inside the builder and ctx
+          # stage builds vary per run — so those suffixes are the
+          # only non-deterministic bytes left in the image config:
+          # every layer of two same-commit builds is already
+          # byte-identical, but the digests still differed through
+          # the config. Strip the volatile suffixes (the commands
+          # themselves stay) by round-tripping the image through an
+          # OCI layout and rewriting the config blob, then pull the
+          # normalized image back and retag it as rowyn:ci so the
+          # publish step below ships the normalized digest.
+          layout="${RUNNER_TEMP}/rowyn-oci"
+          sudo buildah push --compression-format zstd rowyn:ci "oci:${layout}:ci"
+          python3 - "${layout}" <<'PYEOF'
+          import hashlib, json, re, sys
+          from pathlib import Path
+          layout = Path(sys.argv[1])
+          blobs = layout / "blobs" / "sha256"
+          index = json.loads((layout / "index.json").read_text())
+          manifest_ref = index["manifests"][0]
+          manifest = json.loads((blobs / manifest_ref["digest"].split(":")[1]).read_text())
+          config_ref = manifest["config"]
+          config = json.loads((blobs / config_ref["digest"].split(":")[1]).read_text())
+          volatile = re.compile(r":sha256:[0-9a-f]{64}")
+          stripped = 0
+          for entry in config.get("history", []):
+              created_by = entry.get("created_by")
+              if created_by:
+                  entry["created_by"], n = volatile.subn("", created_by)
+                  stripped += n
+          if stripped == 0:
+              raise SystemExit("no mount checksums found in image history; refusing to publish an unnormalized image")
+          config_bytes = json.dumps(config, separators=(",", ":")).encode()
+          config_digest = "sha256:" + hashlib.sha256(config_bytes).hexdigest()
+          (blobs / config_digest.split(":")[1]).write_bytes(config_bytes)
+          manifest["config"] = {"mediaType": config_ref["mediaType"], "digest": config_digest, "size": len(config_bytes)}
+          manifest_bytes = json.dumps(manifest, separators=(",", ":")).encode()
+          manifest_digest = "sha256:" + hashlib.sha256(manifest_bytes).hexdigest()
+          (blobs / manifest_digest.split(":")[1]).write_bytes(manifest_bytes)
+          manifest_ref["digest"] = manifest_digest
+          manifest_ref["size"] = len(manifest_bytes)
+          (layout / "index.json").write_text(json.dumps(index, separators=(",", ":")))
+          print(f"stripped {stripped} mount checksums from image history")
+          PYEOF
+          normalized_id="$(sudo buildah pull "oci:${layout}:ci")"
+          [[ "${normalized_id}" =~ ^[0-9a-f]{64}$ ]]
+          sudo buildah tag "${normalized_id}" rowyn:ci
+
       - name: Push immutable image and spike alias to GHCR
         id: publish
         shell: bash --noprofile --norc -euo pipefail {0}
