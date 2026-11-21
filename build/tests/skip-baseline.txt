@@ -9,7 +9,9 @@
 # ROWYN_TEST_UPSTREAM_REPO pointing at the pinned upstream checkout, so they
 # skip on a plain `./build/validate.sh`. The composefs entries need a mount
 # namespace the host may block, test_retire_spike_account needs root, and the
-# two integration-policy tests need ROWYN_TEST_UBUNTU_*_POLICY=1.
+# two integration-policy tests need ROWYN_TEST_UBUNTU_*_POLICY=1. The
+# test_hub_qol channel-resolution test reads the ported hub-source tree,
+# which a validation host may not have generated.
 #
 # test_update_policy's containers/image tests need skopeo (the CI validate
 # job installs it). They are deliberately not listed: a host without skopeo
@@ -38,6 +40,7 @@ test_hub_port.PinnedHubSourceTests.test_port_is_repeatable_and_scoped
 test_hub_port.PinnedHubSourceTests.test_rename_contract_applied
 test_hub_port.PinnedHubSourceTests.test_slice_15_content_cleanup
 test_hub_qol.QolIntegrationTests.test_backup_workspace_is_registered_once_with_native_handlers
+test_hub_qol.QolUpdateChannel.test_channel_resolution_reads_bootc_probe_then_image_reference
 test_hub_release_readiness.ReleaseReadinessExportTests.test_both_existing_pages_mount_the_shipping_component
 test_hub_release_readiness.ReleaseReadinessExportTests.test_complete_pipeline_copies_the_reviewable_readiness_source
 test_hub_release_readiness.ReleaseReadinessExportTests.test_readiness_command_is_registered_exactly_once
