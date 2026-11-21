@@ -536,7 +536,7 @@ def apply_rowyn_qol(root):
         '    {removal && <AppRemovalConfirmation key={removal.id} app={removal} busy={busy !== null} onCancel={() => setRemoval(null)} onConfirm={confirmRemoval} />}')
     app_store.write_text(text)
     commands = web / "src-tauri/src/commands/mod.rs"
-    commands.write_text(commands.read_text() + '\npub(crate) mod rowyn_backups;\npub(crate) mod rowyn_settings;\npub(crate) mod rowyn_support;\npub(crate) mod rowyn_care;\npub(crate) mod rowyn_readiness;\n')
+    commands.write_text(commands.read_text() + '\npub(crate) mod rowyn_backups;\npub(crate) mod rowyn_settings;\npub(crate) mod rowyn_support;\npub(crate) mod rowyn_care;\npub(crate) mod rowyn_readiness;\n#[cfg(test)]\npub(crate) mod rowyn_test_temp;\n')
     main = web / "src-tauri/src/main.rs"
     text = replace_once(main.read_text(), 'tauri::generate_handler![',
         'tauri::generate_handler![\n'

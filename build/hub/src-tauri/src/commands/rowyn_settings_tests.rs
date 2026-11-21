@@ -1,12 +1,6 @@
 use super::*;
+use crate::commands::rowyn_test_temp::compliant_fixture;
 use std::fs;
-
-fn temp_dir(label: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("rowyn-settings-{label}-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(&dir).unwrap();
-    dir
-}
 
 #[test]
 fn target_allowlist_maps_exact_modules() {
@@ -45,7 +39,13 @@ fn launchers_are_absolute_and_try_plasma6_then_plasma5() {
 
 #[test]
 fn launcher_resolution_prefers_the_first_installed_binary() {
-    let root = temp_dir("launchers");
+    let Some(root) = compliant_fixture("launchers") else {
+        eprintln!(
+            "skipping launcher_resolution_prefers_the_first_installed_binary: \
+             no policy-compliant temp base"
+        );
+        return;
+    };
     let sixth = root.join("kcmshell6");
     let fifth = root.join("kcmshell5");
     let missing = root.join("kcmshell4");
@@ -80,7 +80,13 @@ fn kcm_directories_cover_both_plasma_generations() {
 
 #[test]
 fn module_presence_is_answered_only_where_kcm_directories_exist() {
-    let root = temp_dir("modules");
+    let Some(root) = compliant_fixture("modules") else {
+        eprintln!(
+            "skipping module_presence_is_answered_only_where_kcm_directories_exist: \
+             no policy-compliant temp base"
+        );
+        return;
+    };
     let empty = root.join("qt6");
     let full = root.join("qt5");
     fs::create_dir_all(&empty).unwrap();
@@ -98,7 +104,13 @@ fn module_presence_is_answered_only_where_kcm_directories_exist() {
 
 #[test]
 fn flatpak_permissions_falls_back_to_the_plasma5_module() {
-    let root = temp_dir("flatpak");
+    let Some(root) = compliant_fixture("flatpak") else {
+        eprintln!(
+            "skipping flatpak_permissions_falls_back_to_the_plasma5_module: \
+             no policy-compliant temp base"
+        );
+        return;
+    };
     let dir = root.join("kcms");
     fs::create_dir_all(&dir).unwrap();
     fs::write(dir.join("kcm_flatpak.so"), b"").unwrap();
@@ -128,7 +140,13 @@ fn targets_without_alternates_resolve_to_their_only_module() {
 
 #[test]
 fn power_uses_packaged_profiles_module_and_falls_back_to_powerdevil_alias() {
-    let root = temp_dir("power-modules");
+    let Some(root) = compliant_fixture("power-modules") else {
+        eprintln!(
+            "skipping power_uses_packaged_profiles_module_and_falls_back_to_powerdevil_alias: \
+             no policy-compliant temp base"
+        );
+        return;
+    };
     let dir = root.join("kcms");
     fs::create_dir_all(&dir).unwrap();
     let dirs = [dir.to_str().unwrap()];
@@ -161,7 +179,13 @@ fn launch_command_uses_the_resolved_launcher_and_exact_module() {
 #[test]
 fn launcher_listing_reads_the_launchers_own_module_list() {
     use std::os::unix::fs::PermissionsExt;
-    let root = temp_dir("listing-script");
+    let Some(root) = compliant_fixture("listing-script") else {
+        eprintln!(
+            "skipping launcher_listing_reads_the_launchers_own_module_list: \
+             no policy-compliant temp base"
+        );
+        return;
+    };
     let launcher = root.join("kcmshell5");
     fs::write(
         &launcher,
@@ -184,7 +208,13 @@ fn only_kcmshell_launchers_are_asked_to_list() {
 
 #[test]
 fn a_listed_module_is_used_when_the_plugin_directories_lack_it() {
-    let root = temp_dir("listed");
+    let Some(root) = compliant_fixture("listed") else {
+        eprintln!(
+            "skipping a_listed_module_is_used_when_the_plugin_directories_lack_it: \
+             no policy-compliant temp base"
+        );
+        return;
+    };
     let dir = root.join("kcms");
     fs::create_dir_all(&dir).unwrap();
     let dirs = [dir.to_str().unwrap()];
@@ -196,7 +226,13 @@ fn a_listed_module_is_used_when_the_plugin_directories_lack_it() {
 
 #[test]
 fn a_listed_absence_falls_back_to_the_settings_app() {
-    let root = temp_dir("unlisted");
+    let Some(root) = compliant_fixture("unlisted") else {
+        eprintln!(
+            "skipping a_listed_absence_falls_back_to_the_settings_app: \
+             no policy-compliant temp base"
+        );
+        return;
+    };
     let dir = root.join("kcms");
     fs::create_dir_all(&dir).unwrap();
     let dirs = [dir.to_str().unwrap()];

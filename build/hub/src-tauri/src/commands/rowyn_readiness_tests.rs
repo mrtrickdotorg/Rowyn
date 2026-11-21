@@ -1,4 +1,5 @@
 use super::*;
+use crate::commands::rowyn_test_temp::compliant_temp_base;
 fn probe(code: i32, text: &str) -> Option<ProbeOutput> {
     Some(ProbeOutput {
         code: Some(code),
@@ -201,37 +202,6 @@ fn complete_serialization_is_public_and_bounded() {
         assert!(!detail.chars().any(char::is_control));
     }
 }
-/// Base directory for fixtures that must satisfy `read_update_file`'s path
-/// policy: every ancestor root- or user-owned and not group/world-writable,
-/// with a root-owned sticky directory (the usual /tmp) as the exception.
-/// The machine's temp directory is not guaranteed to qualify — a sandbox can
-/// own /tmp as another uid, and a umask 002 checkout can sit under a
-/// group-writable parent — so the fixture picks a compliant base or skips
-/// with a message rather than failing for an unrelated host reason.
-fn compliant_temp_base() -> Option<std::path::PathBuf> {
-    use std::os::unix::fs::MetadataExt;
-    let euid = unsafe { libc::geteuid() } as u32;
-    let candidates = [
-        std::env::var_os("XDG_RUNTIME_DIR").map(std::path::PathBuf::from),
-        Some(std::path::PathBuf::from(format!("/run/user/{euid}"))),
-        Some(std::env::temp_dir()),
-        Some(std::path::PathBuf::from("/dev/shm")),
-        Some(std::path::PathBuf::from("/var/tmp")),
-    ];
-    candidates.into_iter().flatten().find(|base| {
-        base.ancestors()
-            .all(|ancestor| match std::fs::metadata(ancestor) {
-                Ok(meta) => {
-                    let sticky_root = meta.uid() == 0 && meta.mode() & 0o1000 != 0;
-                    meta.is_dir()
-                        && (meta.uid() == 0 || meta.uid() == euid)
-                        && (meta.mode() & 0o022 == 0 || sticky_root)
-                }
-                Err(_) => false,
-            })
-    })
-}
-
 #[test]
 fn file_reader_refuses_symlinks_fifo_and_unsafe_permissions() {
     use std::os::unix::fs::{symlink, PermissionsExt};

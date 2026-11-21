@@ -1,4 +1,5 @@
 use super::*;
+use crate::commands::rowyn_test_temp::compliant_fixture;
 use std::fs;
 
 fn owned() -> ContainerIdentity {
@@ -106,7 +107,10 @@ fn package_names_follow_debian_rules() {
 
 #[test]
 fn deb_files_must_live_under_home() {
-    let dir = std::env::temp_dir().join(format!("rowyn-deb-test-{}", now_secs()));
+    let Some(dir) = compliant_fixture("deb-test") else {
+        eprintln!("skipping deb_files_must_live_under_home: no policy-compliant temp base");
+        return;
+    };
     let home = dir.join("home");
     let outside = dir.join("outside");
     fs::create_dir_all(home.join("Downloads")).unwrap();
@@ -128,7 +132,10 @@ fn deb_files_must_live_under_home() {
 
 #[test]
 fn registry_roundtrips_and_rejects_damage() {
-    let dir = std::env::temp_dir().join(format!("rowyn-deb-registry-{}", now_secs()));
+    let Some(dir) = compliant_fixture("deb-registry") else {
+        eprintln!("skipping registry_roundtrips_and_rejects_damage: no policy-compliant temp base");
+        return;
+    };
     fs::create_dir_all(&dir).unwrap();
     assert!(read_registry_in(&dir).unwrap().is_empty());
     let apps = vec![DebApp {

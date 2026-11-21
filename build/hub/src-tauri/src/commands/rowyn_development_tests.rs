@@ -1,4 +1,5 @@
 use super::*;
+use crate::commands::rowyn_test_temp::compliant_fixture;
 
 fn owned() -> ContainerIdentity {
     ContainerIdentity {
@@ -221,7 +222,13 @@ fn immutable_container_identity_is_required_and_used_for_preset_execution() {
 
 #[test]
 fn dolphin_path_policy_accepts_only_canonical_home_directories() {
-    let home = std::env::temp_dir().join(format!("rowyn-dev-home-{}", id()));
+    let Some(home) = compliant_fixture("dev-home") else {
+        eprintln!(
+            "skipping dolphin_path_policy_accepts_only_canonical_home_directories: \
+             no policy-compliant temp base"
+        );
+        return;
+    };
     let inside = home.join("source dir");
     std::fs::create_dir_all(&inside).unwrap();
     assert_eq!(validate_open_directory(&home, &inside).unwrap(), inside);
@@ -257,7 +264,13 @@ fn managed_image_is_digest_pinned_and_legacy_tag_containers_stay_owned() {
 
 #[test]
 fn tool_resolution_prefers_installed_locations_then_path_and_ignores_gaps() {
-    let dir = std::env::temp_dir().join(format!("rowyn-dev-tools-{}", id()));
+    let Some(dir) = compliant_fixture("dev-tools") else {
+        eprintln!(
+            "skipping tool_resolution_prefers_installed_locations_then_path_and_ignores_gaps: \
+             no policy-compliant temp base"
+        );
+        return;
+    };
     std::fs::create_dir_all(&dir).unwrap();
     let fallback = dir.join("rowyn-test-tool");
     std::fs::write(&fallback, b"#!/bin/sh\n").unwrap();
