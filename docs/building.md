@@ -98,7 +98,7 @@ export IMAGE_DIGEST='sha256:REPLACE_WITH_VERIFIED_PAYLOAD_DIGEST'
 export IMAGE_REF="ghcr.io/mrtrickdotorg/rowyn:${SOURCE_TAG}"
 export UPSTREAM_SOURCE_DIR=/path/to/upstream
 export UPSTREAM_INSTALLER_COMMIT=2baf8496b5aa904c0784f4290df743ee17edae48
-export UBUNTU_LIVE_IMAGE=docker.io/library/ubuntu@sha256:c4ca31b6e93261c5dd773826f789738a49e414ca04fc094b1ccd0f91e07329a2
+export UBUNTU_LIVE_IMAGE=docker.io/library/ubuntu@sha256:1c2a84ae3f2a24aeb97cded5b41f0211b441662f1a188cbd2e139e7625f6f1d6
 ROWYN_CUSTOM_INSTALLER_PREFLIGHT=1 ./build/custom-installer-iso.sh
 ./build/custom-installer-iso.sh
 ```

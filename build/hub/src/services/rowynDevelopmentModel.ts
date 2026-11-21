@@ -213,7 +213,7 @@ export function presetOperation(id: string): `preset:${string}` | null {
 // boundary. No published Ubuntu image carries the USN-8996-1 apt fix yet, so
 // the managed container also upgrades apt before any preset installs packages.
 export const DEVELOPMENT_IMAGE =
-  'docker.io/library/ubuntu@sha256:c4ca31b6e93261c5dd773826f789738a49e414ca04fc094b1ccd0f91e07329a2';
+  'docker.io/library/ubuntu@sha256:1c2a84ae3f2a24aeb97cded5b41f0211b441662f1a188cbd2e139e7625f6f1d6';
 export const DEVELOPMENT_IMAGE_LABEL = 'Ubuntu 26.10 (digest-pinned)';
 export const APT_FLOOR = '3.3.3ubuntu0.1';
 export const POLL_LIMIT = 1800;
