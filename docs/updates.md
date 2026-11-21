@@ -12,14 +12,14 @@ until its proof passes:
 2. **zstd compression** — layers are published with zstd instead of
    gzip: the whole image is ~300 MB smaller and decompresses much
    faster.
-3. **Reproducible builds (in progress)** — CI builds with a pinned
-   Buildah, `--source-date-epoch` set to the commit timestamp and
-   `--rewrite-timestamp`, and install layers that strip apt lists,
-   caches and logs. The goal is that rebuilding an unchanged tree
-   produces the *identical* digest, making a no-change day a
-   zero-byte day. That proof has **not** passed yet — see
-   "Reproducibility status" below — so the daily rebuild cadence
-   that depends on it is **not** enabled.
+3. **Reproducible builds (proven 2026-11-21)** — CI builds with a
+   pinned Buildah, `--source-date-epoch` set to the commit
+   timestamp and `--rewrite-timestamp`, and install layers that
+   strip apt lists, caches and logs. Rebuilding an unchanged tree
+   now produces the *identical* digest — see "Reproducibility
+   status" below — so a no-change day is a zero-byte day. The
+   daily rebuild cadence that depends on this proof is still a
+   separate enablement decision and is **not** enabled yet.
 
 Channels (stable/testing) are covered in
 [update-channels.md](update-channels.md); this document is about the
@@ -71,55 +71,84 @@ group or two:
   **initramfs** (~85 MB); a firmware update downloads
   **firmware** (~738 MB) — both are infrequent.
 - A gaming-stack update is ~20 MB; a PIM update ~126 MB.
-- A day on which nothing changed downloads nothing *once
-  reproducibility lands*; today it still downloads the changed
-  layers (see below).
+- A day on which nothing changed downloads nothing: the rebuild
+  produces the identical digest, so the watcher treats it as a
+  no-op (see "Reproducibility status" below).
 
 ## Reproducibility status
 
-CI builds with Buildah 1.46.1 (compiled in the workflow from a
-pinned Go toolchain — the runner's Buildah 1.33 cannot rewrite
-timestamps, and the hosted Go is removed by the disk-cleanup
-step), `--source-date-epoch` from the commit timestamp,
-`--rewrite-timestamp`, per-step layers, and chroot isolation on
-the stock Btrfs storage.
+**Proven 2026-11-21.** Two consecutive CI builds of commit
+`1503da0` (runs 44862598017 and 44866139988) produced the
+**identical** image digest
+`sha256:2e25ca15781b201e07bb899d2e26c3cc019e4280f46f561facc3421728013b8c`,
+with all 56 layers byte-identical and the two manifests
+byte-identical. The November 19 measurement that opened this
+work — two builds of `98a4a04` differing in 17 of 55 layers —
+is closed out; every cause found was fixed at its source:
 
-Measured 2026-11-19: two consecutive CI builds of commit
-`98a4a04` produced **different** image digests
-(`sha256:551aa4e4…` vs `sha256:d4716c5c…`). 38 of 55 layers were
-byte-identical; the 17 that differed were all RUN-produced
-layers. Layer-level forensics on the small layers named the
-causes:
+- **Storage-driver variance (the Nov 19 lead blocker).** The two
+  forensic builds had silently run different graph drivers
+  (btrfs vs overlay), whose differs disagree on entry ordering,
+  hardlink emission and whiteout form. The provisioning action
+  now pins `driver = "btrfs"` in storage.conf before the store
+  is first opened, and the pinned compressed-storage setup has
+  used it since.
+- **Differ ordering inside the payload.** The builder stage's
+  `/output` tree is packed as a name-sorted, mtime-clamped tar
+  and extracted in a RUN step, so its shipped layer has a single
+  producer with a stable entry order.
+- **Install-step residue and build-host data.** Every install
+  tail now removes dpkg/apt locks, `/etc/.pwd.lock`,
+  `/run/adduser`, dracut's `/run/tmpkbd.*` temp dirs and the
+  blkid cache (which recorded the build runner's own loop
+  device and filesystem UUID); the command-not-found metadata's
+  recorded inode/device numbers are zeroed; the plymouth step's
+  alternatives log is truncated; the build-time plocate database
+  is dropped (the on-device timer rebuilds it); the rootfs
+  normalization empties `/boot` and `/var` in place so whiteout
+  form is deterministic; the NVIDIA step mounts a tmpfs over
+  `/boot` so its trigger-regenerated initramfs never enters the
+  layer.
+- **Per-machine identity material.** `/etc/machine-id` is
+  emptied, SSH host keys and the build runner's resolv.conf stub
+  are removed (sshd-keygen and systemd generate them per
+  machine), the iSCSI initiator name is normalized, and the
+  ssl-cert snakeoil pair is deleted — `ssl-cert.service`
+  regenerates it on first boot.
+- **Compiled-binary variance.** rustc emits DWARF location lists
+  in parallel-codegen completion order, so the bootc binaries'
+  debug sections differed between builds even when every code
+  section was byte-identical, and the GNU build-id — hashed
+  over the unstripped output — preserved that variance after
+  stripping. The builder stage now strips the four binaries and
+  removes the build-id note; the image also got ~94 MB smaller.
+- **History mount checksums.** Buildah appends each bind
+  mount's stage image digest to the RUN step's history
+  `created_by`, and stage digests are themselves not
+  reproducible (copier/differ walk order inside the stage
+  builds) — with all layers matching, those suffixes were the
+  only differing bytes left in the config. A "Normalize image
+  history" step in the Build job round-trips the image through
+  an OCI layout and strips the `:sha256:…` suffixes (commands
+  stay) before the publish pushes run. Verified offline first:
+  stripping the suffixes made two real builds' configs
+  byte-identical.
 
-- **Tar entry ordering** in the graph driver's diff output is
-  not stable between builds (layers with identical file names,
-  contents and metadata still hashed differently — e.g. the
-  NVIDIA gate and two config layers). This alone defeats
-  byte-identity and cannot be fixed from the Containerfile.
-- **Residue files** whose presence varies: dpkg/apt lock files,
-  `/etc/.pwd.lock`, apt working directories.
-- **Build-machine data embedded in file content**: the
-  command-not-found metadata records inode and device numbers
-  of the apt lists; `update-alternatives` and dpkg logs embed
-  wall-clock timestamps.
-- **Whiteout representation** in the rootfs-normalization step
-  varies (per-entry whiteouts vs opaque directory whiteouts).
-
-Until the ordering issue is solved (a builder/differ change, not
-a payload change), rebuilds of an unchanged tree are *mostly*
-identical — the unchanged groups keep their digests and are not
-re-downloaded — but the image digest itself is not stable, so
-the watcher cannot yet treat a rebuild as a no-op.
+The installed package set is unchanged by all of this: the
+final build's name+version manifest is the same 2,407 packages
+as the November 19 grouped image, with zero differences.
 
 ## Daily rebuild cadence — not yet enabled
 
 The plan: the Ubuntu digest-pin workflow, on days when the pin
 does not move, also dispatches one build, so archive package and
 security updates are picked up daily instead of waiting for the
-next Canonical base republication. That dispatch ships only when
-the double-build proof above passes; enabling it earlier would
-push a multi-hundred-megabyte "update" to every client on quiet
-days, which is exactly what this work exists to prevent.
+next Canonical base republication. That dispatch was gated on
+the double-build proof above, which passed on 2026-11-21;
+enabling it earlier would have pushed a multi-hundred-megabyte
+"update" to every client on quiet days, which is exactly what
+this work exists to prevent. The cadence itself remains off
+until it is deliberately enabled.
 
 ## Metered connections
 
