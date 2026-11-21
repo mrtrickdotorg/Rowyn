@@ -22,6 +22,12 @@ echo "[validate] shell syntax passed"
 
 command -v shellcheck >/dev/null 2>&1 || fail "shellcheck is required"
 
+# The update-policy signature tests read checked-in dir: fixtures, so they need
+# no network, but they do need skopeo. Report that here instead of letting the
+# suite skip three tests and the skip baseline explain it afterwards.
+command -v skopeo >/dev/null 2>&1 \
+    || fail "skopeo is required for the offline update-policy signature tests"
+
 echo "[validate] ShellCheck warnings and errors"
 shellcheck --severity=warning "${scripts[@]}"
 
