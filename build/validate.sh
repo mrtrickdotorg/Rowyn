@@ -146,19 +146,12 @@ trap 'rm -f "${skip_report}"' EXIT
 python3 -B build/tests/rowyn_run_suite.py "${skip_report}"
 
 # A test that stops running must fail validation rather than quietly shrink
-# coverage: build/tests/skip-baseline.txt lists the skips that are expected on
-# a validation host (an absent optional tool, an unset integration variable, a
-# host that blocks a mount namespace). Anything not listed is a change in what
-# this suite actually checks, so it has to be reviewed and listed too.
-unexpected_skips="$(comm -13 \
-    <(grep -v -e '^#' -e '^[[:space:]]*$' build/tests/skip-baseline.txt | LC_ALL=C sort -u) \
-    <(LC_ALL=C sort -u "${skip_report}"))"
-if [[ -n "${unexpected_skips}" ]]; then
-    echo "[validate] tests skipped without being listed in build/tests/skip-baseline.txt:" >&2
-    while IFS= read -r test_id; do
-        printf '    %s\n' "${test_id}" >&2
-    done <<< "${unexpected_skips}"
-    fail "unexpected test skips: fix the fixture or add the test to build/tests/skip-baseline.txt"
-fi
+# coverage: build/tests/skip-baseline.txt lists every expected skip with the
+# reason it must report and the guard that makes it legitimate (an unset
+# integration variable, an absent generated tree, a missing tool, non-root).
+# A skip with a different reason, a skip whose guard no longer applies, and a
+# listed test that does not skip while its guard still holds are all failures.
+python3 -B build/tests/skip_baseline.py "${skip_report}" \
+    || fail "test skips do not match build/tests/skip-baseline.txt"
 
 echo "[validate] Rowyn source and CI contracts passed"
