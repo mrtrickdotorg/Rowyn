@@ -14,7 +14,11 @@ the whole image. These tests pin the fix:
   exactly when the inputs move;
 - every COPY source in the Containerfiles is covered by that
   pathspec (generated sources through their committed provenance),
-  so a future input cannot silently escape the stamp.
+  so a future input cannot silently escape the stamp;
+- the same pathspec gates the release: a push that touched only
+  non-inputs validates without republishing or re-signing the image
+  (and the ISO workflow skips its build too), so test-only changes
+  stay cheap while still being tested.
 """
 import os
 import re
