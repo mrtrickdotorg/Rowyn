@@ -16,7 +16,10 @@ the whole image. These tests pin the fix:
   pathspec (generated sources through their committed provenance),
   so a future input cannot silently escape the stamp.
 """
+import os
 import re
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -24,6 +27,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "build.yml"
+ISO_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "installer-iso.yml"
+IMAGE_JOB_NAME = "Build and publish image"
 CONTAINERFILES = (
     ROOT / "Containerfile",
     ROOT / "build" / "destination-derivative.Containerfile",
@@ -192,6 +197,129 @@ class PathspecTests(unittest.TestCase):
                     f"{containerfile.name}: COPY source {source} is not "
                     "covered by ROWYN_IMAGE_INPUT_PATHSPEC; the stamp "
                     "would not move when it changes")
+
+
+class ImageInputGateTests(unittest.TestCase):
+    """A push that touches no image input must not republish the image.
+
+    build/tests/** is a deliberate push trigger so validation runs for
+    test-only changes, but the payload image and its signature must only
+    move when ROWYN_IMAGE_INPUT_PATHSPEC moves.
+    """
+
+    def detection_step(self):
+        steps = load_workflow()["jobs"]["validate"]["steps"]
+        return next(
+            step for step in steps
+            if step["name"] == "Detect image-input changes")
+
+    def test_validate_job_publishes_the_decision(self):
+        validate = load_workflow()["jobs"]["validate"]
+        self.assertEqual(
+            validate["outputs"]["image_inputs"],
+            "${{ steps.image_inputs.outputs.changed }}")
+        step = self.detection_step()
+        self.assertEqual(step["id"], "image_inputs")
+        self.assertEqual(step["env"]["BEFORE_SHA"], "${{ github.event.before }}")
+        self.assertIn("${ROWYN_IMAGE_INPUT_PATHSPEC}", step["run"])
+
+    def test_release_chain_follows_the_gate(self):
+        jobs = load_workflow()["jobs"]
+        self.assertIn(
+            "needs.validate.outputs.image_inputs == 'true'",
+            jobs["build"]["if"])
+        # sign and promote only need build, so a skipped build skips them;
+        # always() would resurrect them without an image to sign.
+        for name, expected in (("sign", "build"), ("promote", ["build", "sign"])):
+            job = jobs[name]
+            self.assertEqual(job["needs"], expected)
+            self.assertNotIn("always()", job["if"])
+
+    def test_iso_runs_only_for_an_upstream_image_build(self):
+        iso = yaml.safe_load(ISO_WORKFLOW_PATH.read_text(encoding="utf-8"))
+        validate = iso["jobs"]["validate"]
+        self.assertEqual(
+            validate["outputs"]["image_build"],
+            "${{ steps.upstream.outputs.image_build }}")
+        self.assertIn("actions", validate["permissions"])
+        step = next(s for s in validate["steps"]
+                    if s["name"] == "Detect whether the upstream run published an image")
+        # The probe must name the real image job and fail open.
+        self.assertIn('select(.name == "' + IMAGE_JOB_NAME + '"', step["run"])
+        self.assertIn('image_build=unknown', step["run"])
+        self.assertIn("needs.validate.outputs.image_build == 'success'",
+                      iso["jobs"]["iso"]["if"])
+        self.assertEqual(
+            load_workflow()["jobs"]["build"]["name"], IMAGE_JOB_NAME)
+
+    def detect(self, repo, scratch, event="push", before=None, head=None):
+        output = scratch / "github_output"
+        summary = scratch / "github_summary"
+        output.write_text("")
+        summary.write_text("")
+        env = dict(
+            os.environ,
+            GITHUB_OUTPUT=str(output), GITHUB_STEP_SUMMARY=str(summary),
+            EVENT_NAME=event, BEFORE_SHA=before if before is not None else "0" * 40,
+            HEAD_SHA=head or "",
+            ROWYN_IMAGE_INPUT_PATHSPEC=load_workflow()["env"]["ROWYN_IMAGE_INPUT_PATHSPEC"],
+        )
+        result = subprocess.run(
+            ["/bin/bash", "-euo", "pipefail", "-c", self.detection_step()["run"]],
+            cwd=repo, env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        written = dict(
+            line.split("=", 1)
+            for line in output.read_text().splitlines() if "=" in line)
+        return written["changed"], summary.read_text()
+
+    def test_detection_against_a_real_push_range(self):
+        with tempfile.TemporaryDirectory(prefix="rowyn-gate-") as temp:
+            scratch = Path(temp)
+            repo = scratch / "repo"
+            repo.mkdir()
+
+            def run(*args):
+                return subprocess.run(["git", "-C", str(repo), *args],
+                                      check=True, capture_output=True, text=True).stdout
+
+            def commit(message):
+                run("add", "-A")
+                run("commit", "-q", "-m", message)
+                return run("rev-parse", "HEAD").strip()
+
+            run("init", "-q", "-b", "main")
+            run("config", "user.name", "rowyn-test")
+            run("config", "user.email", "rowyn-test@example.invalid")
+            (repo / "build" / "tests").mkdir(parents=True)
+            (repo / "Containerfile").write_text("FROM scratch\n")
+            base = commit("base")
+
+            (repo / "build" / "tests" / "test_only.py").write_text("pass\n")
+            tests_only = commit("test-only")
+            self.assertEqual(
+                self.detect(repo, scratch, before=base, head=tests_only)[0],
+                "false")
+
+            (repo / "Containerfile").write_text("FROM scratch\n# input\n")
+            image_input = commit("image input")
+            self.assertEqual(
+                self.detect(repo, scratch, before=tests_only, head=image_input)[0],
+                "true")
+            # A multi-commit push that touched an image input anywhere in the
+            # range still rebuilds.
+            self.assertEqual(
+                self.detect(repo, scratch, before=base, head=image_input)[0],
+                "true")
+
+            # Undiffable ranges and non-push events fall back to building.
+            self.assertEqual(self.detect(repo, scratch, head=image_input)[0], "true")
+            self.assertEqual(
+                self.detect(repo, scratch, event="workflow_dispatch", head=image_input)[0],
+                "true")
+            changed, summary = self.detect(repo, scratch, before=base, head=tests_only)
+            self.assertEqual(changed, "false")
+            self.assertIn("false", summary)
 
 
 if __name__ == "__main__":

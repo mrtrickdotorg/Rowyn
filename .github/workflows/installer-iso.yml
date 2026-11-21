@@ -64,6 +64,11 @@ jobs:
     name: Validate source and CI
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      image_build: ${{ steps.upstream.outputs.image_build }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -96,10 +101,37 @@ jobs:
           ROWYN_MOUNT_FIXTURE_PRIVILEGED: "1"
         run: ./build/validate.sh
 
+      - name: Detect whether the upstream run published an image
+        id: upstream
+        shell: bash --noprofile --norc -euo pipefail {0}
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPSTREAM_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          # A push that only touched build/tests/** still validates here, but
+          # the image job was skipped, so there is no signed image to wrap.
+          # Fail open: any doubt keeps the previous behaviour (build the ISO).
+          image_build=success
+          if [[ "${EVENT_NAME}" == "workflow_run" ]]; then
+            image_build=unknown
+            if [[ "${UPSTREAM_RUN_ID}" =~ ^[0-9]+$ ]] \
+               && payload="$(curl -fsS --retry 3 --retry-delay 5 \
+                    -H "Authorization: Bearer ${GH_TOKEN}" \
+                    -H 'Accept: application/vnd.github+json' \
+                    "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${UPSTREAM_RUN_ID}/jobs?per_page=100")"; then
+              image_build="$(jq -r '[.jobs[] | select(.name == "Build and publish image") | .conclusion] | first // "unknown"' <<< "${payload}" || echo unknown)"
+            fi
+          fi
+          echo "image_build=${image_build}" >> "${GITHUB_OUTPUT}"
+          echo "Upstream image job: \`${image_build}\`" >> "$GITHUB_STEP_SUMMARY"
+
   iso:
     name: Build custom installer ISO
     needs: validate
-    if: github.event_name != 'push'
+    # A push never builds an ISO, and a workflow_run whose image job was
+    # skipped has no new image to wrap (see the validate job's gate).
+    if: github.event_name != 'push' && (github.event_name != 'workflow_run' || needs.validate.outputs.image_build == 'success')
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     permissions:

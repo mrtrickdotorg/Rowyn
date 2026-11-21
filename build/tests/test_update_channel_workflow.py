@@ -92,7 +92,12 @@ class UpdateChannelWorkflowTests(unittest.TestCase):
             stage["permissions"],
             {"contents": "read", "packages": "write", "id-token": "write"},
         )
-        self.assertEqual(stage["if"], jobs["build"]["if"])
+        # sign and promote share one release gate; only build adds the
+        # image-input condition, and a skipped build skips them through
+        # needs, so neither may use always().
+        self.assertEqual(stage["if"], jobs["sign"]["if"])
+        self.assertTrue(jobs["build"]["if"].startswith(stage["if"]))
+        self.assertNotIn("always()", stage["if"])
         build_paths = self.workflow[True]["push"]["paths"]
         self.assertIn("build/destination-derivative.Containerfile", build_paths)
         self.assertIn("build/registry-migration-destination-v1", build_paths)

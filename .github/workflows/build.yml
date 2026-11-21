@@ -60,11 +60,42 @@ jobs:
     name: Validate source and CI
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    outputs:
+      image_inputs: ${{ steps.image_inputs.outputs.changed }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          # The image-input gate diffs this push against its parent, so the
+          # shallow default is not enough.
+          fetch-depth: 0
           persist-credentials: false
+
+      - name: Detect image-input changes
+        id: image_inputs
+        shell: bash --noprofile --norc -euo pipefail {0}
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          # build/tests/** is a deliberate trigger for this validation job, but
+          # a push that touched nothing in ROWYN_IMAGE_INPUT_PATHSPEC cannot
+          # change the image bytes, so it must not republish or re-sign. A
+          # manual dispatch and anything we cannot diff build as before.
+          changed=true
+          if [[ "${EVENT_NAME}" == "push" ]] \
+             && [[ "${BEFORE_SHA}" =~ ^[0-9a-f]{40}$ ]] \
+             && git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null \
+             && git cat-file -e "${HEAD_SHA}^{commit}" 2>/dev/null; then
+            read -r -a inputs <<< "${ROWYN_IMAGE_INPUT_PATHSPEC}"
+            changed=false
+            if ! git diff --quiet "${BEFORE_SHA}" "${HEAD_SHA}" -- "${inputs[@]}"; then
+              changed=true
+            fi
+          fi
+          echo "changed=${changed}" >> "${GITHUB_OUTPUT}"
+          echo "Image inputs changed: \`${changed}\`" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Install validation tools
         shell: bash --noprofile --norc -euo pipefail {0}
@@ -132,7 +163,9 @@ jobs:
 
   build:
     name: Build and publish image
-    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && github.repository == 'mrtrickdotorg/Rowyn'
+    # sign and promote need this job without always(), so a skipped build
+    # skips the whole release chain and leaves the published image alone.
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && github.repository == 'mrtrickdotorg/Rowyn' && (github.event_name == 'workflow_dispatch' || needs.validate.outputs.image_inputs == 'true')
     needs: validate
     runs-on: ubuntu-24.04
     timeout-minutes: 90
