@@ -14,6 +14,7 @@ on:
       - build/registry-migration-destination-v1
       - build/ubuntu-hub-source.py
       - build/hub/**
+      - build/tests/**
       - .github/workflows/build.yml
   pull_request:
     branches: [main]
