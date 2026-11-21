@@ -13,8 +13,8 @@ until its proof passes:
    gzip: the whole image is ~300 MB smaller and decompresses much
    faster.
 3. **Reproducible builds (proven 2026-11-21)** — CI builds with a
-   pinned Buildah, `--source-date-epoch` set to the commit
-   timestamp and `--rewrite-timestamp`, and install layers that
+   pinned Buildah, `--source-date-epoch` set to a fixed project
+   epoch and `--rewrite-timestamp`, and install layers that
    strip apt lists, caches and logs. Rebuilding an unchanged tree
    now produces the *identical* digest — see "Reproducibility
    status" below — so a no-change day is a zero-byte day. The
@@ -138,6 +138,48 @@ The installed package set is unchanged by all of this: the
 final build's name+version manifest is the same 2,407 packages
 as the November 19 grouped image, with zero differences.
 
+### Cross-commit stability
+
+The proof above is same-commit: two builds of one tree. The
+first daily rebuild exposed the gap — it built a tree one
+docs-and-workflow commit ahead of the morning's build and
+differed in 50 of 56 layers at byte-identical sizes. The config
+diff isolated the only two independent variables, both scoped
+to HEAD rather than to the image's inputs:
+
+- the build epoch was the HEAD commit's timestamp, and
+  `--rewrite-timestamp` clamps every file mtime to it, so each
+  new commit re-stamped every layer;
+- the source-revision stamp was the HEAD commit, carried in the
+  `org.opencontainers.image.revision` label and in
+  `/usr/share/rowyn/build-info.json`.
+
+Both are now input-scoped, in `.github/workflows/build.yml`:
+
+- `ROWYN_SOURCE_DATE_EPOCH` is a fixed project constant — the
+  timestamp of the repository's first commit (2026-10-25) —
+  used for the Buildah build, the ctx mtime pin and the
+  promoted derivative's `--timestamp`. It never moves; moving
+  it once would re-stamp every layer for every client.
+- `ROWYN_IMAGE_INPUT_PATHSPEC` lists every path whose content
+  can change the image's bytes (the Containerfile, `shared/`,
+  `keys/`, `docs/assets/`, the Hub generator and its overlays,
+  the asset fetcher with its in-tree pins, the derivative
+  inputs, the build workflow itself and the storage
+  provisioning action; generated trees are covered through
+  those committed provenances). The stamp is the last commit
+  that touched the pathspec, derived in the Build job from a
+  full-history checkout. `build/tests/test_image_inputs.py`
+  asserts every Containerfile COPY source is covered, so a
+  future input cannot silently escape the stamp.
+
+Semantics: a commit that changes no image input — docs, tests,
+unrelated workflows — produces the *identical* image digest,
+layers, config and manifest. A commit that changes one input
+moves only the layer(s) built from it, plus the small
+build-info layer whose stamp legitimately changed. Archive
+changes behave as before: only the affected group layers move.
+
 ## Daily rebuild cadence
 
 The Ubuntu digest-pin workflow runs daily. On days when the pin
@@ -152,10 +194,12 @@ This was gated on the double-build proof above, which passed on
 2026-11-21, and the cadence was enabled the same day. Enabling
 it earlier would have pushed a multi-hundred-megabyte "update"
 to every client on quiet days, which is exactly what this work
-exists to prevent. With reproducibility proven, a quiet day
-rebuilds to the identical digest and clients download nothing;
-a day with archive changes downloads only the layers those
-changes touch.
+exists to prevent. With cross-commit stability (above), a
+quiet day rebuilds to the identical digest and clients download
+nothing — even if unrelated commits landed in between; a day
+with archive changes downloads only the layers those changes
+touch, and a day whose only commits touched one image input
+downloads only that input's layers.
 
 ## Metered connections
 

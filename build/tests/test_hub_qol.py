@@ -18,7 +18,7 @@ class QolPackagingTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/build.yml").read_text()
         for token in ("ARG ROWYN_SOURCE_REVISION=unknown", "write-build-info.py", "rowyn-update-notify.timer", "systemctl --global enable rowyn-update-notify.timer", "/usr/share/kio/servicemenus/rowyn-development-here.desktop"):
             self.assertIn(token, container)
-        self.assertIn('--build-arg "ROWYN_SOURCE_REVISION=${GITHUB_SHA}"', workflow)
+        self.assertIn('--build-arg "ROWYN_SOURCE_REVISION=${input_revision}"', workflow)
         for package in ("kup-backup", "bup", "rsync", "kde-config-flatpak", "libnotify-bin"):
             self.assertIn(package, container.split())
 

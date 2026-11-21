@@ -29,6 +29,31 @@ concurrency:
 
 env:
   IMAGE_REPOSITORY: ghcr.io/mrtrickdotorg/rowyn
+  # Cross-commit reproducibility (docs/updates.md): the build epoch
+  # is a FIXED project constant — the timestamp of this repository's
+  # first commit (2026-10-25) — never the HEAD commit's timestamp.
+  # Buildah clamps every file mtime in every layer to this value, so
+  # a commit that changes no image input leaves every layer
+  # byte-identical instead of re-stamping the whole image. Nothing
+  # in the payload or tooling treats the value itself specially; it
+  # is only ever a clamp. Never move it: moving it once re-stamps
+  # every layer for every client.
+  ROWYN_SOURCE_DATE_EPOCH: "1792930124"
+  # The image-input pathspec: every path whose content can change
+  # the built image's bytes. The Build job stamps the image with the
+  # last commit that touched one of these paths (the input-scoped
+  # source revision in /usr/share/rowyn/build-info.json and the
+  # org.opencontainers.image.revision label), so provenance moves
+  # exactly when the inputs move. Generated inputs are covered
+  # through their committed provenance: build-assets/ through
+  # build/fetch-assets.sh (its pins are in-tree), hub-source/
+  # through build/ubuntu-hub-source.py, build/hub and the
+  # UPSTREAM_HUB_COMMIT pin in this workflow. build/tests, docs
+  # (other than docs/assets, whose logo the Containerfile copies)
+  # and the other workflows are deliberately absent: changing them
+  # must leave the image digest untouched. Contract:
+  # build/tests/test_image_inputs.py.
+  ROWYN_IMAGE_INPUT_PATHSPEC: "Containerfile os-release shared keys docs/assets build/hub build/fetch-assets.sh build/ubuntu-hub-source.py build/destination-derivative.Containerfile build/registry-migration-destination-v1 .github/workflows/build.yml .github/actions/setup-compressed-storage"
 
 jobs:
   validate:
@@ -122,6 +147,11 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+          # Full history: the Build image step derives the
+          # input-scoped source revision from the last commit that
+          # touched the image-input pathspec, which a shallow
+          # checkout cannot see.
+          fetch-depth: 0
 
       - name: Free disk space
         uses: jlumbroso/free-disk-space@36e9a5af4eddb91fc11aec4c6f6f79b3cc0cb523 # main as of 2026-10-29
@@ -235,29 +265,45 @@ jobs:
           # its name on it instead of inside the image build.
           sudo buildah info >/dev/null
 
-      # The source-date epoch is the commit's own timestamp, so a
-      # rebuild of the same commit (the daily cadence rebuild) is
-      # byte-identical to the original build: same digest, and clients
-      # download nothing. --rewrite-timestamp clamps every file mtime
-      # in every layer to that epoch; the Containerfile additionally
-      # wipes the timestamp-bearing apt/dpkg logs from each install
-      # layer, because rewriting cannot fix file *content* that embeds
+      # The source-date epoch is the fixed project constant
+      # ROWYN_SOURCE_DATE_EPOCH (workflow env), never the HEAD
+      # commit's timestamp: --rewrite-timestamp clamps every file
+      # mtime in every layer to it, so with a moving epoch every
+      # commit re-stamped every layer even when no image input
+      # changed. With the epoch fixed and the source revision below
+      # scoped to the image inputs, a rebuild is byte-identical to
+      # the original build whenever the inputs are unchanged — same
+      # commit or not — and clients download nothing on a no-change
+      # day. The Containerfile additionally wipes the
+      # timestamp-bearing apt/dpkg logs from each install layer,
+      # because rewriting cannot fix file *content* that embeds
       # the build time (docs/updates.md). Buildah 1.46 refuses
       # --timestamp combined with a source-date epoch ("ambiguous"),
       # so the epoch goes through --source-date-epoch alone, which
       # also stamps the image config.
       - name: Build image (offline Containerfile)
+        id: build_image
         shell: bash --noprofile --norc -euo pipefail {0}
         run: |
-          source_date_epoch="$(git log -1 --format=%ct "${GITHUB_SHA}")"
+          source_date_epoch="${ROWYN_SOURCE_DATE_EPOCH}"
           [[ "${source_date_epoch}" =~ ^[0-9]+$ ]]
+          # The provenance stamp is the last commit that touched an
+          # image input (ROWYN_IMAGE_INPUT_PATHSPEC, workflow env),
+          # not the commit being built: a docs- or tests-only commit
+          # keeps the previous stamp, so the build-info layer and the
+          # revision label stay byte-identical along with everything
+          # else. Word splitting of the pathspec is intended — it is
+          # a space-separated list of git pathspecs.
+          input_revision="$(git log -1 --format=%H -- ${ROWYN_IMAGE_INPUT_PATHSPEC})"
+          [[ "${input_revision}" =~ ^[0-9a-f]{40}$ ]]
+          echo "input_revision=${input_revision}" >> "${GITHUB_OUTPUT}"
           # The mount digest Buildah records in each RUN step's
           # image history hashes the mounted ctx tree including
           # file mtimes, and a fresh checkout's mtimes are the
           # runner's wall clock. Pin the ctx directories to the
-          # commit timestamp so two builds of the same commit
-          # record identical history (and therefore identical
-          # image digests, now that every layer matches).
+          # fixed epoch so any two builds record identical history
+          # (and therefore identical image digests, now that every
+          # layer matches).
           find shared keys build-assets -exec touch -h -d "@${source_date_epoch}" {} +
           # Chroot isolation (OCI RUN creation fails outright with
           # standalone Buildah on this runner) on the stock Btrfs
@@ -270,7 +316,7 @@ jobs:
             --layers \
             --rewrite-timestamp \
             --source-date-epoch "${source_date_epoch}" \
-            --build-arg "ROWYN_SOURCE_REVISION=${GITHUB_SHA}" \
+            --build-arg "ROWYN_SOURCE_REVISION=${input_revision}" \
             -t rowyn:ci .
           # The smoke checks below drive the image with the runner's
           # Podman 4.9. Both tools share the rootful containers storage
@@ -283,8 +329,10 @@ jobs:
         shell: bash --noprofile --norc -euo pipefail {0}
         run: |
           sudo podman run --rm rowyn:ci cat /usr/lib/os-release
+          expected_revision="${{ steps.build_image.outputs.input_revision }}"
+          [[ "${expected_revision}" =~ ^[0-9a-f]{40}$ ]]
           image_revision=$(sudo podman run --rm --entrypoint /usr/bin/python3 rowyn:ci -c 'import json; print(json.load(open("/usr/share/rowyn/build-info.json"))["source_revision"])')
-          test "${image_revision}" = "${GITHUB_SHA}"
+          test "${image_revision}" = "${expected_revision}"
           sudo podman run --rm --entrypoint /bin/sh rowyn:ci -euxc '
             grep -Fqx "NAME=\"Rowyn\"" /usr/lib/os-release
             grep -Fqx "ID=rowyn" /usr/lib/os-release
@@ -820,11 +868,12 @@ jobs:
           echo "${GHCR_TOKEN}" | sudo podman login ghcr.io \
             -u "${GHCR_USERNAME}" --password-stdin
           # Reproducible derivative: the marker file's mtime is the
-          # commit timestamp and the image clock is pinned to it, so
-          # promoting an unchanged build yields the identical
-          # destination digest instead of a fresh one whose only
-          # difference is when it was built.
-          source_date_epoch="$(git log -1 --format=%ct "${GITHUB_SHA}")"
+          # fixed project epoch (ROWYN_SOURCE_DATE_EPOCH, workflow
+          # env) and the image clock is pinned to it, so promoting an
+          # unchanged build yields the identical destination digest
+          # instead of a fresh one whose only difference is which
+          # commit happened to be HEAD when it was promoted.
+          source_date_epoch="${ROWYN_SOURCE_DATE_EPOCH}"
           [[ "${source_date_epoch}" =~ ^[0-9]+$ ]]
           touch -d "@${source_date_epoch}" build/registry-migration-destination-v1
           sudo podman build --pull=always --format oci \
