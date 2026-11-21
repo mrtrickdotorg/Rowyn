@@ -609,7 +609,7 @@ jobs:
           # publish step below ships the normalized digest.
           layout="${RUNNER_TEMP}/rowyn-oci"
           sudo buildah push --compression-format zstd rowyn:ci "oci:${layout}:ci"
-          python3 - "${layout}" <<'PYEOF'
+          sudo python3 - "${layout}" <<'PYEOF'
           import hashlib, json, re, sys
           from pathlib import Path
           layout = Path(sys.argv[1])
