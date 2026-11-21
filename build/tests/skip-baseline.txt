@@ -11,10 +11,9 @@
 # namespace the host may block, test_retire_spike_account needs root, and the
 # two integration-policy tests need ROWYN_TEST_UBUNTU_*_POLICY=1.
 #
-# The three test_update_policy entries skip when skopeo is unavailable, which
-# is the case in the CI validate job (it installs only python3-yaml and
-# shellcheck). They are listed unconditionally so the same baseline covers a
-# developer host with skopeo and the CI host without it.
+# test_update_policy's containers/image tests need skopeo (the CI validate
+# job installs it). They are deliberately not listed: a host without skopeo
+# must fail validation rather than silently stop checking the update policy.
 test_composefs_adapter.ComposefsAdapterGenerationTests.test_backend_and_account_flow_use_fixed_mounted_view
 test_composefs_adapter.ComposefsAdapterGenerationTests.test_generated_source_parses_without_losing_existing_tests_or_mount_registry
 test_composefs_adapter.ComposefsAdapterGenerationTests.test_generated_source_uses_exact_release_source_and_stable_update_target
@@ -53,7 +52,4 @@ test_payload_timezone.PinnedInstallerTimezoneTests.test_pinned_assurance_reads_t
 test_payload_timezone.PinnedInstallerTimezoneTests.test_pinned_configuration_writes_localtime_symlink
 test_recovery_status_contract.PinnedGeneratedTests.test_generated_clear_quarantine_command
 test_retire_spike_account.RetireSpikeAccountTests.test_spike_account_is_retired_and_second_run_is_noop
-test_update_policy.UpdatePolicyTests.test_scoped_fixture_image_is_accepted
-test_update_policy.UpdatePolicyTests.test_signed_fixture_requires_the_matching_signing_key
-test_update_policy.UpdatePolicyTests.test_unscoped_fixture_is_rejected_by_default_policy
 test_update_status_contract.PinnedReaderTests.test_generated_reader_projects_rowyn_record
