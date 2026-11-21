@@ -2,6 +2,8 @@
 # input through /dev/uinput and /dev/uhid. Tag both uaccess so the
 # active local session can open them — the Flatpak itself requests
 # --device=all, so with these rules no input-group membership or
-# world-writable device node is needed.
+# world-writable device node is needed. The uaccess tag applies to
+# the active session only; no static group membership or device
+# permission change is made.
 KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess"
 KERNEL=="uhid", SUBSYSTEM=="misc", TAG+="uaccess"
