@@ -65,7 +65,7 @@ Updates explains the running, staged-next-boot, and previous rollback deployment
 
 ## Validate source changes
 
-Requirements include Git, Python 3 with PyYAML, Bash, and ShellCheck. Run from the repository root:
+Requirements include Git, Python 3 with PyYAML, Bash, ShellCheck, and skopeo. Validation stops before the suite when `shellcheck` or `skopeo` is missing: ShellCheck reviews every shell script, and the update-policy signature tests verify the checked-in `dir:` signatures offline. Run from the repository root:
 
 ```bash
 ./build/validate.sh

@@ -67,6 +67,8 @@ The front page covers using Rowyn. Build instructions, installer internals, sign
 sudo podman build -t rowyn:local .
 ```
 
+Validation needs Bash, Git, Python 3 with PyYAML, `shellcheck`, and `skopeo`. The last two are separate packages on most distributions; the update-policy signature tests verify checked-in signatures offline and stop validation early when `skopeo` is missing.
+
 The guide also documents optional Ubuntu runtime checks and pinned-source installer tests. Source validation does not replace a real installation and reboot test.
 
 </details>
