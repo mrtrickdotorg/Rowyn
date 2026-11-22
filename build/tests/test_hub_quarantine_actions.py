@@ -115,7 +115,7 @@ class ThePanelStaysReadOnlyAndConfirms(unittest.TestCase):
         for needle in ('role="alertdialog"', "aria-modal=\"false\"",
                        "Clear the quarantine for this deployment?",
                        "Nothing is downloaded, installed,", "onCleared()",
-                       "clearBootQuarantine(digest, true)"):
+                       "finishQuarantineClear(digest, clearBootQuarantine)"):
             self.assertIn(needle, control)
         for forbidden in ("window.confirm", "setInterval", "setTimeout", "sudo"):
             self.assertNotIn(forbidden, control)

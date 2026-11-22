@@ -1,5 +1,60 @@
 import { useState } from 'react';
 import { clearBootQuarantine } from '../services/rowynQuarantine';
+import {
+  beginQuarantineClear,
+  cancelQuarantineDialog,
+  finishQuarantineClear,
+  openQuarantineDialog,
+  QUARANTINE_DIALOG_CLOSED,
+  type QuarantineDialogState,
+} from '../services/rowynQuarantineModel';
+
+/**
+ * The confirmation itself. Pure props and no state of its own, so the markup a
+ * user sees can be rendered and checked without a DOM.
+ */
+export function QuarantineDialog({
+  digest,
+  reasonLabel,
+  busy,
+  onConfirm,
+  onCancel,
+}: {
+  digest: string;
+  reasonLabel?: string;
+  busy: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    /* In-card confirmation, like RowynDebCard: no backdrop and no focus trap,
+       so the dialog is not claimed to be modal. */
+    <div
+      role="alertdialog"
+      aria-modal="false"
+      aria-label="Clear this quarantine?"
+      className="rowyn-quarantine-dialog glass"
+    >
+      <p><strong>Clear the quarantine for this deployment?</strong></p>
+      <p>
+        <code className="break-all">{digest}</code>
+        {reasonLabel ? ` — ${reasonLabel}` : ''}
+      </p>
+      <p className="card-copy">
+        Clearing only allows this image to be staged again. Nothing is downloaded, installed,
+        or restarted, and the boot checks still judge it on its next boot.
+      </p>
+      <div className="home-actions">
+        <button className="action-button action-button-primary" type="button" onClick={onConfirm} disabled={busy}>
+          {busy ? 'Clearing…' : 'Clear quarantine'}
+        </button>
+        <button className="action-button" type="button" onClick={onCancel} disabled={busy}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
 
 /**
  * One explicit, confirmed quarantine clear.
@@ -17,61 +72,37 @@ export function BootQuarantineClear({
   reasonLabel?: string;
   onCleared: () => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState('');
+  const [state, setState] = useState<QuarantineDialogState>(QUARANTINE_DIALOG_CLOSED);
 
-  async function clear() {
-    setBusy(true);
-    setMessage('');
-    try {
-      const detail = await clearBootQuarantine(digest, true);
-      setOpen(false);
-      setMessage(detail);
-      onCleared();
-    } catch (cause) {
-      setMessage(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setBusy(false);
-    }
+  async function confirm() {
+    setState(beginQuarantineClear);
+    const next = await finishQuarantineClear(digest, clearBootQuarantine);
+    setState(next);
+    if (next.cleared) onCleared();
   }
 
   return (
     <span className="rowyn-quarantine-action">
-      {!open && (
-        <button className="action-button" type="button" onClick={() => setOpen(true)} disabled={busy}>
+      {!state.open && (
+        <button
+          className="action-button"
+          type="button"
+          onClick={() => setState(openQuarantineDialog)}
+          disabled={state.busy}
+        >
           Clear quarantine
         </button>
       )}
-      {/* In-card confirmation, like RowynDebCard: no backdrop and no focus
-          trap, so the dialog is not claimed to be modal. */}
-      {open && (
-        <div
-          role="alertdialog"
-          aria-modal="false"
-          aria-label="Clear this quarantine?"
-          className="rowyn-quarantine-dialog glass"
-        >
-          <p><strong>Clear the quarantine for this deployment?</strong></p>
-          <p>
-            <code className="break-all">{digest}</code>
-            {reasonLabel ? ` — ${reasonLabel}` : ''}
-          </p>
-          <p className="card-copy">
-            Clearing only allows this image to be staged again. Nothing is downloaded, installed,
-            or restarted, and the boot checks still judge it on its next boot.
-          </p>
-          <div className="home-actions">
-            <button className="action-button action-button-primary" type="button" onClick={() => void clear()} disabled={busy}>
-              {busy ? 'Clearing…' : 'Clear quarantine'}
-            </button>
-            <button className="action-button" type="button" onClick={() => setOpen(false)} disabled={busy}>
-              Cancel
-            </button>
-          </div>
-        </div>
+      {state.open && (
+        <QuarantineDialog
+          digest={digest}
+          reasonLabel={reasonLabel}
+          busy={state.busy}
+          onConfirm={() => void confirm()}
+          onCancel={() => setState(cancelQuarantineDialog)}
+        />
       )}
-      {message && <span className="card-copy" role="status">{message}</span>}
+      {state.message && <span className="card-copy" role="status">{state.message}</span>}
     </span>
   );
 }
