@@ -180,6 +180,34 @@ moves only the layer(s) built from it, plus the small
 build-info layer whose stamp legitimately changed. Archive
 changes behave as before: only the affected group layers move.
 
+**Proven 2026-11-21.** Three CI builds exercised the three
+cases back to back:
+
+- The fix tree (6388718) built twice — push run 44941428346
+  and dispatch run 44946272351 — produced the identical base
+  digest `sha256:ec1a7dca…` and the identical `:stable`
+  derivative `sha256:307deca5…`.
+- A whitespace-only README commit on top (a93bed0, dispatch
+  run 44950000524) reproduced both digests exactly; the stamp
+  stayed at 6388718, the last input-touching commit.
+- A comment-only change to one input
+  (`shared/99-rowyn-sunshine-uinput.rules`, in the tree built
+  by dispatch run 44955771558 at ce90703, stamp 0874171)
+  changed exactly 2 of 55 layers: layer 29, the rules file's
+  own layer, and layer 49, the build-info stamp layer — a few
+  kilobytes of client download instead of ~2.9 GB.
+
+The final build's package manifest is the same 2,407 packages
+as the November 19 grouped image, so no archive drift touched
+any of the three proofs. One transition cost: the first build
+under the fixed epoch re-stamped every layer once — the epoch
+value itself moved from the then-current commit time to the
+constant — so clients took one full download when the fix
+landed. Every build since is incremental by input. A
+companion gate in the same workflow now skips the release
+entirely for pushes that touch no image input; the identical
+digests above are what make that skip safe.
+
 ## Daily rebuild cadence
 
 The Ubuntu digest-pin workflow runs daily. On days when the pin
