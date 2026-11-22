@@ -15,7 +15,8 @@ import '../styles/rowynMvp.css';
  * The boot-health record. This panel only reads it; staging, rollback and
  * restarts stay elsewhere. The single write — clearing one quarantine after an
  * explicit confirmation — lives in BootQuarantineClear, which asks this panel
- * to re-read the record through `onCleared` once the bridge confirms it.
+ * to re-read the record through `onCleared` once the bridge confirms it; the
+ * read lands on its own schedule and the panel re-renders when it does.
  */
 export function BootHealthPanel({ compact = false }: { compact?: boolean }) {
   const [view, setView] = useState<BootHealthPanelView>(BOOT_HEALTH_VIEW_EMPTY);

@@ -76,8 +76,10 @@ export function BootQuarantineClear({
 
   async function confirm() {
     setState(beginQuarantineClear);
-    // `onCleared` runs only after the bridge reports a real clear, so a refusal
-    // can never look like a freshly read record.
+    // `onCleared` starts only after the bridge reports a real clear, so a
+    // refusal can never look like a freshly read record. It is not awaited:
+    // the dialog closes on the bridge answer and the panel publishes the new
+    // record whenever its read lands.
     setState(await finishQuarantineClear(digest, clearBootQuarantine, onCleared));
   }
 

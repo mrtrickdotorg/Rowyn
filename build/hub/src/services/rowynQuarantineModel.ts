@@ -47,6 +47,10 @@ export function beginQuarantineClear(state: QuarantineDialogState): QuarantineDi
  * function means the dialog was acknowledged. A refusal keeps the dialog open
  * with the bridge's own message and returns before `onCleared`, so the panel
  * never re-reads — nor appears to have changed — on a refusal.
+ *
+ * A success returns as soon as the bridge reports it. `onCleared` only starts
+ * the panel's re-read, so a slow or hung read cannot hold the dialog open; the
+ * panel publishes whenever that read lands and reports its own failure.
  */
 export async function finishQuarantineClear(
   digest: string,
@@ -65,8 +69,15 @@ export async function finishQuarantineClear(
     };
   }
   const cleared: QuarantineDialogState = { open: false, busy: false, message, cleared: true };
-  // The only re-read: after the bridge reported success, and awaited so the
-  // panel shows the new record by the time the dialog closes.
-  await onCleared();
+  // The only re-read: only after the bridge reported success, and started
+  // rather than awaited, so the closed dialog does not wait on the panel. A
+  // read that fails publishes its own error in the panel, so a rejection here
+  // belongs to neither the dialog nor this function — and must not surface as
+  // an unhandled rejection.
+  try {
+    void Promise.resolve(onCleared()).catch(() => {});
+  } catch {
+    // A callback that throws synchronously changes nothing the dialog shows.
+  }
   return cleared;
 }

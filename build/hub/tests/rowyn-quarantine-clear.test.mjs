@@ -54,16 +54,35 @@ const QUARANTINED = JSON.stringify({
 });
 const STAGED_AGAIN = JSON.stringify({ schema_version: 1, known_good: { [DIGEST]: {} } });
 
-/** A panel whose bridge answers with the given records in order and counts them. */
-function panelAnswering(records, failing = false) {
+/**
+ * A panel whose bridge answers with the given records in order and counts them.
+ * `gate(index)` may return a promise that must settle before that read answers,
+ * so a test can hold one read in flight.
+ */
+function panelGated(records, { failing = false, gate = () => null } = {}) {
   const calls = { reads: 0 };
   const views = [];
   const panel = ui.createBootHealthPanel(async () => {
     const index = calls.reads++;
     if (failing) throw new Error('The boot-health record could not be read.');
+    const held = gate(index);
+    if (held) await held;
     return ui.parseBootHealth(records[Math.min(index, records.length - 1)]);
   }, (view) => views.push(view));
   return { panel, views, reads: () => calls.reads };
+}
+
+function panelAnswering(records, failing = false) {
+  return panelGated(records, { failing });
+}
+
+/** Polls a settlement the panel reaches on its own schedule, never a clock. */
+async function until(predicate, label) {
+  for (let attempt = 0; attempt < 500; attempt += 1) {
+    if (predicate()) return;
+    await new Promise((settle) => setTimeout(settle, 1));
+  }
+  assert.fail(`timed out waiting for ${label}`);
 }
 
 test('the dialog names the digest, the reason, and what clearing does', () => {
@@ -154,12 +173,48 @@ test('the panel re-reads the record after a successful clear', async () => {
   const outcome = await flow.finishQuarantineClear(DIGEST, async () => CLEARED, panel.onCleared);
   assert.equal(outcome.cleared, true);
   assert.equal(reads(), 2, 'the clear must make the panel read the record again');
+  await until(() => !panel.view().busy, 'the re-read to land');
   assert.equal(panel.view().busy, false);
   assert.equal(panel.view().error, '');
   assert.equal(panel.view().snapshot.quarantined.length, 0);
   assert.match(panel.view().snapshot.label, /1 verified deployment\(s\)/);
   assert.equal(views.at(-1).snapshot.quarantined.length, 0,
     'the view published for the render is the re-read one');
+});
+
+test('a slow re-read cannot hold the dialog open', async () => {
+  let release;
+  const held = new Promise((settle) => { release = settle; });
+  // The first read answers at once; the re-read after the clear is held open.
+  const { panel, reads } = panelGated([QUARANTINED, STAGED_AGAIN], {
+    gate: (index) => (index === 1 ? held : null),
+  });
+  await panel.read();
+  assert.equal(panel.view().snapshot.quarantined.length, 1);
+
+  // The bridge answers immediately; nothing releases the re-read it starts.
+  const outcome = await flow.finishQuarantineClear(DIGEST, async () => CLEARED, panel.onCleared);
+  assert.deepEqual(outcome, { open: false, busy: false, message: CLEARED, cleared: true },
+    'the dialog closes on the bridge answer, not on the re-read');
+  assert.equal(reads(), 2, 'the re-read still starts');
+  assert.equal(panel.view().busy, true, 'the panel is still reading after the dialog is gone');
+  assert.equal(panel.view().snapshot.quarantined.length, 1,
+    'the previous record stays until the read lands');
+
+  release();
+  await until(() => !panel.view().busy, 'the held re-read to land');
+  assert.equal(panel.view().error, '');
+  assert.equal(panel.view().snapshot.quarantined.length, 0,
+    'the record published whenever the read lands is the re-read one');
+});
+
+test('a re-read that fails does not become the dialog\'s failure', async () => {
+  const failing = async () => { throw new Error('the record could not be read'); };
+  const threw = () => { throw new Error('the record could not be read'); };
+  for (const onCleared of [failing, threw]) {
+    const done = await flow.finishQuarantineClear(DIGEST, async () => CLEARED, onCleared);
+    assert.deepEqual(done, { open: false, busy: false, message: CLEARED, cleared: true });
+  }
 });
 
 test('a refusal leaves the panel on the record it last read', async () => {
