@@ -451,6 +451,21 @@ RUN --mount=type=tmpfs,dst=/tmp --mount=type=tmpfs,dst=/root \
     /ctx/shared/initramfs.sh && \
     rm -rf /run/tmpkbd.* && rm -rf /run/blkid
 
+# Package-set fingerprint. The Ubuntu archive is an input this file does not
+# pin, so two builds of the same source revision can legitimately differ when
+# a package moved. Stamping the installed name+version set lets CI tell that
+# archive update apart from an unpinned input that leaked into the image: the
+# same source revision with the same fingerprint must build the same digest
+# (docs/updates.md, "Reproducibility ledger"). bootc-rootfs.sh deletes /var
+# below, so this is the last point where the dpkg database can be read.
+RUN mkdir -p /usr/share/rowyn && \
+    dpkg-query -W -f='${Package} ${Version}\n' \
+      | LC_ALL=C sort \
+      | sha256sum \
+      | cut -d' ' -f1 \
+      > /usr/share/rowyn/package-fingerprint && \
+    grep -Eq '^[0-9a-f]{64}$' /usr/share/rowyn/package-fingerprint
+
 # Keep service identities declarative across locally merged /etc upgrades.
 # Journald is the default logging engine; do not start a redundant rsyslog.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \

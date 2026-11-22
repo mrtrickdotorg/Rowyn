@@ -18,7 +18,11 @@ the whole image. These tests pin the fix:
 - the same pathspec gates the release: a push that touched only
   non-inputs validates without republishing or re-signing the image
   (and the ISO workflow skips its build too), so test-only changes
-  stay cheap while still being tested.
+  stay cheap while still being tested;
+- the digest of a (source revision, package set) pair is recorded in a
+  registry tag and every rebuild of that pair is compared with it, so
+  an input the image does not pin fails the Build job before sign and
+  promote instead of making every client re-download.
 """
 import os
 import re
@@ -324,6 +328,141 @@ class ImageInputGateTests(unittest.TestCase):
             changed, summary = self.detect(repo, scratch, before=base, head=tests_only)
             self.assertEqual(changed, "false")
             self.assertIn("false", summary)
+
+
+class ReproducibilityLedgerTests(unittest.TestCase):
+    """A rebuild of the same inputs must reproduce the recorded digest.
+
+    The daily rebuild rests on docs/updates.md's promise that a quiet
+    day is a zero-byte day. The ledger records the digest of a (source
+    revision, package set) pair under a registry tag, so a repeat build
+    is compared with the build it repeats and drift fails before sign
+    and promote can put it in front of clients.
+    """
+
+    DIGEST = "sha256:" + "a" * 64
+    REVISION = "b" * 40
+    FINGERPRINT = "c" * 64
+    COMPARE = "Compare the rebuilt digest with the one recorded for these inputs"
+
+    def build_steps(self):
+        return {step["name"]: step
+                for step in load_workflow()["jobs"]["build"]["steps"]}
+
+    def test_containerfile_stamps_the_package_set_before_var_is_removed(self):
+        container = (ROOT / "Containerfile").read_text(encoding="utf-8")
+        self.assertIn("dpkg-query -W -f='${Package} ${Version}\\n'", container)
+        self.assertLess(
+            container.index("/usr/share/rowyn/package-fingerprint"),
+            container.index("/ctx/shared/bootc-rootfs.sh"))
+
+    def test_the_build_job_reads_the_stamp_out_of_the_payload(self):
+        step = self.build_steps()["Read the payload package-set fingerprint"]
+        self.assertEqual(step["id"], "package_fingerprint")
+        self.assertIn("/usr/share/rowyn/package-fingerprint", step["run"])
+        self.assertIn('echo "fingerprint=${fingerprint}"', step["run"])
+
+    def test_the_ledger_key_names_both_inputs(self):
+        step = self.build_steps()[self.COMPARE]
+        self.assertEqual(
+            step["env"]["INPUT_REVISION"],
+            "${{ steps.build_image.outputs.input_revision }}")
+        self.assertEqual(
+            step["env"]["PACKAGE_FINGERPRINT"],
+            "${{ steps.package_fingerprint.outputs.fingerprint }}")
+        self.assertIn(
+            'record_ref="${image_name}:repro-${INPUT_REVISION}-'
+            '${PACKAGE_FINGERPRINT:0:16}"', step["run"])
+
+    def test_drift_blocks_sign_and_promote(self):
+        jobs = load_workflow()["jobs"]
+        names = [step["name"] for step in jobs["build"]["steps"]]
+        self.assertIn(self.COMPARE, names)
+        # A failed Build job is what stops the release chain; neither job
+        # may resurrect itself with always().
+        self.assertEqual(jobs["sign"]["needs"], "build")
+        self.assertEqual(jobs["promote"]["needs"], ["build", "sign"])
+        for job in (jobs["sign"], jobs["promote"]):
+            self.assertNotIn("always()", job["if"])
+
+    def comparison(self, scratch, previous, mode=""):
+        bin_dir = scratch / "bin"
+        bin_dir.mkdir(exist_ok=True)
+        if previous is not None:
+            (scratch / "previous").write_text(previous)
+        (scratch / "mode").write_text(mode)
+        (scratch / "summary").write_text("")
+        (bin_dir / "skopeo").write_text(
+            "#!/bin/sh\n"
+            f'root="{scratch}"\n'
+            'if [ -f "$root/pushed" ]; then cat "$root/pushed"; exit 0; fi\n'
+            'if [ -f "$root/previous" ]; then cat "$root/previous"; exit 0; fi\n'
+            'if [ "$(cat "$root/mode")" = broken ]; then\n'
+            '  echo "connection reset by peer" >&2; exit 1\n'
+            'fi\n'
+            'echo "reading manifest: manifest unknown" >&2; exit 1\n')
+        (bin_dir / "sudo").write_text('#!/bin/sh\nexec "$@"\n')
+        log = scratch / "buildah.log"
+        (bin_dir / "buildah").write_text(
+            "#!/bin/sh\n"
+            f'echo "$@" >> "{log}"\n'
+            'if [ "$1" = push ]; then printf "%s" "$IMAGE_DIGEST" > "'
+            f'{scratch / "pushed"}"; fi\n')
+        for tool in ("skopeo", "sudo", "buildah"):
+            (bin_dir / tool).chmod(0o755)
+        env = dict(
+            os.environ,
+            PATH=f"{bin_dir}:{os.environ['PATH']}",
+            IMAGE_REF="ghcr.io/mrtrickdotorg/rowyn:" + "d" * 40,
+            IMAGE_DIGEST=self.DIGEST,
+            INPUT_REVISION=self.REVISION,
+            PACKAGE_FINGERPRINT=self.FINGERPRINT,
+            RUNNER_TEMP=str(scratch),
+            GITHUB_STEP_SUMMARY=str(scratch / "summary"),
+        )
+        return subprocess.run(
+            ["/bin/bash", "-euo", "pipefail", "-c",
+             self.build_steps()[self.COMPARE]["run"]],
+            env=env, capture_output=True, text=True), log
+
+    def test_a_repeat_build_of_the_same_inputs_must_match(self):
+        with tempfile.TemporaryDirectory(prefix="rowyn-ledger-") as temp:
+            scratch = Path(temp)
+            result, log = self.comparison(scratch, self.DIGEST)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(log.exists(), "a matching digest records nothing")
+            self.assertIn("Reproduced", (scratch / "summary").read_text())
+
+    def test_drift_fails_without_moving_the_record(self):
+        drifted = "sha256:" + "e" * 64
+        with tempfile.TemporaryDirectory(prefix="rowyn-ledger-") as temp:
+            scratch = Path(temp)
+            result, log = self.comparison(scratch, drifted)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("Reproducibility drift", result.stderr)
+            self.assertIn(drifted, result.stderr)
+            self.assertIn(self.DIGEST, result.stderr)
+            self.assertFalse(log.exists(), "drift must not overwrite the record")
+
+    def test_the_first_build_of_a_pair_records_its_digest(self):
+        with tempfile.TemporaryDirectory(prefix="rowyn-ledger-") as temp:
+            scratch = Path(temp)
+            result, log = self.comparison(scratch, None)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            record = ("ghcr.io/mrtrickdotorg/rowyn:repro-"
+                      f"{self.REVISION}-{self.FINGERPRINT[:16]}")
+            self.assertIn(f"tag rowyn:ci {record}", log.read_text())
+            self.assertIn(f"push --compression-format zstd {record}", log.read_text())
+            self.assertEqual((scratch / "pushed").read_text(), self.DIGEST)
+
+    def test_a_registry_error_fails_instead_of_skipping_the_check(self):
+        with tempfile.TemporaryDirectory(prefix="rowyn-ledger-") as temp:
+            scratch = Path(temp)
+            result, log = self.comparison(scratch, None, mode="broken")
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("cannot read the reproducibility record", result.stderr)
+            self.assertIn("connection reset by peer", result.stderr)
+            self.assertFalse(log.exists())
 
 
 if __name__ == "__main__":

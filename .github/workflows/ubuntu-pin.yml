@@ -9,7 +9,9 @@ name: Rowyn Ubuntu digest pin
 # does not move, the run instead dispatches one rebuild, so archive
 # package and security updates land daily; reproducible builds make a
 # no-change rebuild produce the identical digest, so clients download
-# nothing on a quiet day. The repository takes no pull requests, so this
+# nothing on a quiet day, and Rowyn CI compares that rebuild with the
+# digest it recorded for the same source revision and package set, so a
+# drift fails the build instead of reaching them. The repository takes no pull requests, so this
 # never opens one.
 on:
   schedule:

@@ -248,11 +248,14 @@ jobs:
       - name: Ensure podman
         shell: bash --noprofile --norc -euo pipefail {0}
         run: |
-          if ! command -v podman >/dev/null || ! command -v mkfs.btrfs >/dev/null; then
+          # skopeo reads the reproducibility record the ledger below writes.
+          if ! command -v podman >/dev/null || ! command -v mkfs.btrfs >/dev/null \
+             || ! command -v skopeo >/dev/null; then
             sudo apt-get update -o Acquire::Retries=3
-            sudo apt-get install -y --no-install-recommends podman btrfs-progs
+            sudo apt-get install -y --no-install-recommends podman btrfs-progs skopeo
           fi
           podman --version
+          skopeo --version
           mkfs.btrfs --version
 
       # The package layer is large enough to exhaust the runner's root disk
@@ -720,6 +723,21 @@ jobs:
             sudo podman image inspect rowyn:ci --format '- local digest: {{.Digest}}'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # The archive the payload installs from is not pinned, so a rebuild of
+      # the same source revision can legitimately differ when a package
+      # moved. The Containerfile stamps the installed name+version
+      # fingerprint while the dpkg database still exists; the publish step
+      # keys the reproducibility ledger below on it (docs/updates.md).
+      - name: Read the payload package-set fingerprint
+        id: package_fingerprint
+        shell: bash --noprofile --norc -euo pipefail {0}
+        run: |
+          fingerprint="$(sudo podman run --rm --entrypoint /bin/cat \
+            rowyn:ci /usr/share/rowyn/package-fingerprint)"
+          [[ "${fingerprint}" =~ ^[0-9a-f]{64}$ ]]
+          echo "fingerprint=${fingerprint}" >> "${GITHUB_OUTPUT}"
+          echo "Package set: \`${fingerprint}\`" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Normalize image history for reproducibility
         shell: bash --noprofile --norc -euo pipefail {0}
         run: |
@@ -813,6 +831,62 @@ jobs:
             echo "- ref: \`${image_ref}\`"
             echo "- digest: \`${image_digest}\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # Reproducibility ledger (docs/updates.md). The image's inputs are its
+      # source revision and the package set the archive had at build time;
+      # when both are unchanged the build must reproduce the digest an
+      # earlier build of that pair recorded. The record tag is that memory,
+      # so a no-change daily rebuild is compared with the very build it
+      # repeats and an input that leaked into the image fails this job —
+      # before sign and promote, which are what put a digest in front of
+      # every client.
+      - name: Compare the rebuilt digest with the one recorded for these inputs
+        shell: bash --noprofile --norc -euo pipefail {0}
+        env:
+          IMAGE_REF: ${{ steps.publish.outputs.image_ref }}
+          IMAGE_DIGEST: ${{ steps.publish.outputs.image_digest }}
+          INPUT_REVISION: ${{ steps.build_image.outputs.input_revision }}
+          PACKAGE_FINGERPRINT: ${{ steps.package_fingerprint.outputs.fingerprint }}
+        run: |
+          [[ "${INPUT_REVISION}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${PACKAGE_FINGERPRINT}" =~ ^[0-9a-f]{64}$ ]]
+          [[ "${IMAGE_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          image_name="${IMAGE_REF%:*}"
+          [[ "${image_name}" == "ghcr.io/mrtrickdotorg/rowyn" ]]
+          record_ref="${image_name}:repro-${INPUT_REVISION}-${PACKAGE_FINGERPRINT:0:16}"
+          error_file="${RUNNER_TEMP}/rowyn-repro-inspect.err"
+          previous=""
+          if ! previous="$(skopeo inspect --no-creds --retry-times 3 \
+                --format '{{.Digest}}' "docker://${record_ref}" 2>"${error_file}")"; then
+            previous=""
+            # Only a missing record means this is the first build of these
+            # inputs. Anything else is a registry problem: fail instead of
+            # silently skipping the check.
+            if ! grep -qi "manifest unknown" "${error_file}"; then
+              echo "::error::cannot read the reproducibility record ${record_ref}" >&2
+              cat "${error_file}" >&2
+              exit 1
+            fi
+          fi
+          if [[ -n "${previous}" && "${previous}" != "${IMAGE_DIGEST}" ]]; then
+            echo "::error title=Reproducibility drift::source revision ${INPUT_REVISION} with package set ${PACKAGE_FINGERPRINT} was recorded as ${previous} and rebuilt as ${IMAGE_DIGEST}" >&2
+            echo "::error::an input the build does not pin changed, so clients would re-download the image; it is not signed or promoted" >&2
+            exit 1
+          fi
+          if [[ -z "${previous}" ]]; then
+            sudo buildah tag rowyn:ci "${record_ref}"
+            sudo buildah push --compression-format zstd "${record_ref}"
+            recorded="$(skopeo inspect --no-creds \
+              --format '{{.Digest}}' "docker://${record_ref}")"
+            [[ "${recorded}" == "${IMAGE_DIGEST}" ]]
+            {
+              echo '### Reproducibility ledger'
+              echo "- inputs: revision \`${INPUT_REVISION}\`, package set \`${PACKAGE_FINGERPRINT}\`"
+              echo "- recorded: \`${record_ref}\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Reproduced the digest already recorded for these inputs: ${previous}" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Write immutable image metadata
         shell: bash --noprofile --norc -euo pipefail {0}

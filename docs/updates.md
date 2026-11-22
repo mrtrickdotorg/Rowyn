@@ -17,9 +17,12 @@ until its proof passes:
    epoch and `--rewrite-timestamp`, and install layers that
    strip apt lists, caches and logs. Rebuilding an unchanged tree
    now produces the *identical* digest — see "Reproducibility
-   status" below — so a no-change day is a zero-byte day. The
-   daily rebuild cadence that depends on this proof was enabled
-   on 2026-11-21 — see "Daily rebuild cadence" below.
+   status" below — so a no-change day is a zero-byte day, and
+   every rebuild is compared with the digest recorded for the
+   same source revision and package set, so the claim cannot
+   regress silently. The daily rebuild cadence that depends on
+   this proof was enabled on 2026-11-21 — see "Daily rebuild
+   cadence" below.
 
 Channels (stable/testing) are covered in
 [update-channels.md](update-channels.md); this document is about the
@@ -207,6 +210,33 @@ landed. Every build since is incremental by input. A
 companion gate in the same workflow now skips the release
 entirely for pushes that touch no image input; the identical
 digests above are what make that skip safe.
+
+### Reproducibility ledger
+
+Cross-commit stability turns "same inputs, same digest" into a
+checkable claim, and the daily rebuild is where it is checked. The
+archive is the one input the image does not pin, so the payload
+stamps its installed name+version set — `sha256` over the sorted
+`dpkg-query` output — into
+`/usr/share/rowyn/package-fingerprint` while the dpkg database
+still exists (`/var` is deleted afterwards).
+
+The Build job records every build under a registry tag naming both
+inputs, `repro-<source revision>-<package-set prefix>`, pointing
+at the digest that pair produced. A later build of the same pair
+reads that record: the same digest is a quiet day, and any other
+digest fails the run with the recorded and rebuilt digests named.
+The check sits in the Build job, which `sign` and `promote` need,
+so a drifted rebuild is never signed and never advances
+`:stable`/`:testing` — the failure is the signal that an unpinned
+input (a moved URL, a new download step, a changed build host)
+entered the image, and it repeats on every run until that input is
+pinned again.
+
+What the ledger cannot catch is inherent: when the package set
+moves, the pair is new, so there is no earlier digest to compare.
+That case is the layer map's to bound, and the fingerprint at
+least makes it visible which of the two happened.
 
 ## Daily rebuild cadence
 
