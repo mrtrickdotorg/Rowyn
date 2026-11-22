@@ -2320,8 +2320,12 @@ pub(crate) fn apply_staged() -> Result<UpdateActionLaunch, String> {''')
     # /usr/libexec/rowyn-boot-health (never on PATH) and its
     # clear-quarantine takes the digest as a positional argument, so
     # the upstream instruction cannot run on a Rowyn system in either
-    # respect. Repoint it at the shipped helper's real interface; the
-    # contract is pinned in build/tests/test_recovery_status_contract.py.
+    # respect. Repoint it at the Hub's boot-health panel, which clears
+    # one quarantine after a confirmation, and keep the terminal form
+    # as an explicitly labelled fallback (the command still runs, and
+    # sudo simply asks for a password since the allowlist only covers
+    # the Hub's fixed `clear-quarantine -` argv). The contract is
+    # pinned in build/tests/test_recovery_status_contract.py.
     # Runs pre-rename on the upstream literal; the replacement carries
     # no upstream tokens, so the rename pass leaves it untouched.
     recovery_status = root / "src/rowyn-shared-rs/src/system/recovery_status.rs"
@@ -2329,11 +2333,13 @@ pub(crate) fn apply_staged() -> Result<UpdateActionLaunch, String> {''')
     text = replace_once(
         text,
         '"sudo kyth-boot-health clear-quarantine --digest {}"',
-        '"sudo /usr/libexec/rowyn-boot-health clear-quarantine {}"')
+        '"Clear it from the Hub: Updates, then Boot health, then Clear quarantine. '
+        'Terminal fallback: sudo /usr/libexec/rowyn-boot-health clear-quarantine {}"')
     recovery_status.write_text(text)
     audit_notes.append(
-        "recovery_status.rs: clear-quarantine instruction repointed to "
-        "/usr/libexec/rowyn-boot-health with a positional digest")
+        "recovery_status.rs: clear-quarantine instruction points at the Hub's "
+        "boot-health panel, with the terminal command kept as a labelled "
+        "fallback to /usr/libexec/rowyn-boot-health with a positional digest")
 
     # --- B3: no `just` recipe buttons ---------------------------------------
     # Every RecipeButton runs /usr/bin/just against /usr/share/ublue-os/

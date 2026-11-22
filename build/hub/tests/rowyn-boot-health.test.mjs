@@ -48,7 +48,8 @@ test('quarantine explains the reason and stays read-only guidance', () => {
   assert.equal(view.state, 'attention');
   assert.equal(view.quarantined[0].reasonLabel, 'Older than the booted image');
   assert.equal(view.quarantined[0].at, '2026-11-02T10:00:00Z');
-  assert.match(view.guidance, /terminal-only action/);
+  assert.match(view.guidance, /clear one here, with confirmation/);
+  assert.doesNotMatch(view.guidance, /terminal-only/);
 });
 
 test('an empty record is pending rather than healthy or broken', () => {

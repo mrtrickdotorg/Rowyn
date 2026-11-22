@@ -67,7 +67,7 @@ function project(snapshot: Omit<BootHealthSnapshot, 'state' | 'label' | 'guidanc
       state: 'attention',
       label: `${snapshot.quarantined.length} deployment(s) quarantined`,
       guidance:
-        'A staged image failed its boot checks and was moved back. Known-good images are never re-judged; clearing a quarantine is a terminal-only action.',
+        'A staged image failed its boot checks and was moved back. Known-good images are never re-judged; clear one here, with confirmation, to let that image be staged again.',
     };
   }
   if (snapshot.failures.length) {
