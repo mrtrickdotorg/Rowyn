@@ -71,7 +71,7 @@ Requirements include Git, Python 3 with PyYAML, Bash, ShellCheck, skopeo, and ac
 ./build/validate.sh
 ```
 
-actionlint also runs ShellCheck over each workflow's inline `run:` scripts, so those findings follow the installed ShellCheck version; CI uses Ubuntu 24.04's 0.9.0. The gate checks shell syntax, ShellCheck errors, actionlint's workflow expression and needs-context analysis, workflow YAML, Ubuntu-only build guards, image and installer trust contracts, and regression tests. Advisory ShellCheck warnings are reported separately.
+actionlint also runs ShellCheck over each workflow's inline `run:` scripts, so those findings follow the ShellCheck it finds. Every workflow that validates installs its own checksum-pinned ShellCheck 0.11.0 (`/usr/local/bin/shellcheck`) next to actionlint, so a run-script finding is identical on every machine instead of tracking the runner image's copy; a local run uses whatever ShellCheck is installed, and validation prints that version. The gate checks shell syntax, ShellCheck errors, actionlint's workflow expression and needs-context analysis, workflow YAML, Ubuntu-only build guards, image and installer trust contracts, and regression tests. Advisory ShellCheck warnings are reported separately.
 
 Additional integration checks use a local upstream checkout containing the pinned installer commit and the isolated Ubuntu runtime fixtures:
 

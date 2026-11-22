@@ -48,6 +48,9 @@ jobs:
           ACTIONLINT_VERSION: v1.7.12
           ACTIONLINT_TARBALL: actionlint_1.7.12_linux_amd64.tar.gz
           ACTIONLINT_TARBALL_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+          SHELLCHECK_VERSION: v0.11.0
+          SHELLCHECK_TARBALL: shellcheck-v0.11.0.linux.x86_64.tar.gz
+          SHELLCHECK_TARBALL_SHA256: b7af85e41cc99489dcc21d66c6d5f3685138f06d34651e6d34b42ec6d54fe6f6
         run: |
           for attempt in 1 2 3; do
             if sudo apt-get update -o Acquire::Retries=3 -o Acquire::http::Timeout=15; then
@@ -60,7 +63,25 @@ jobs:
               exit 1
             fi
           done
-          sudo apt-get install -y --no-install-recommends python3-yaml shellcheck skopeo
+          sudo apt-get install -y --no-install-recommends python3-yaml skopeo
+          # actionlint lints each workflow's inline run scripts with the
+          # ShellCheck on PATH, so that one is pinned too (same values as
+          # build.yml) and wins over the runner image's copy at
+          # /usr/local/bin.
+          curl -fsSL --retry 3 \
+            "https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/${SHELLCHECK_TARBALL}" \
+            -o "${RUNNER_TEMP}/${SHELLCHECK_TARBALL}"
+          echo "${SHELLCHECK_TARBALL_SHA256}  ${RUNNER_TEMP}/${SHELLCHECK_TARBALL}" | sha256sum -c -
+          tar -C "${RUNNER_TEMP}" -xzf "${RUNNER_TEMP}/${SHELLCHECK_TARBALL}"
+          sudo install -m 0755 \
+            "${RUNNER_TEMP}/shellcheck-${SHELLCHECK_VERSION}/shellcheck" \
+            /usr/local/bin/shellcheck
+          shellcheck --version
+          reported_shellcheck="$(shellcheck --version | sed -n 's/^version: //p')"
+          if [[ "${reported_shellcheck}" != "${SHELLCHECK_VERSION#v}" ]]; then
+            echo "::error::shellcheck ${reported_shellcheck:-missing} is not the pinned ${SHELLCHECK_VERSION}" >&2
+            exit 1
+          fi
           # ./build/validate.sh requires the pinned actionlint, so the pin
           # lives in every workflow that validates (same values as build.yml).
           curl -fsSL --retry 3 \

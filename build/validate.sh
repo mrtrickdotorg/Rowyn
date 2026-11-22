@@ -35,7 +35,10 @@ command -v skopeo >/dev/null 2>&1 \
 command -v actionlint >/dev/null 2>&1 \
     || fail "actionlint is required for workflow expression and needs-context checks"
 
-echo "[validate] ShellCheck warnings and errors"
+# CI installs a checksum-pinned ShellCheck before this runs, so workflow
+# inline run-script findings do not change with the runner image. Report the
+# version here so a local run against a different release is visible.
+echo "[validate] ShellCheck $(shellcheck --version | sed -n 's/^version: //p') warnings and errors"
 shellcheck --severity=warning "${scripts[@]}"
 
 echo "[validate] ShellCheck passed"

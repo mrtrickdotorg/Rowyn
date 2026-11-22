@@ -67,7 +67,7 @@ The front page covers using Rowyn. Build instructions, installer internals, sign
 sudo podman build -t rowyn:local .
 ```
 
-Validation needs Bash, Git, Python 3 with PyYAML, `shellcheck`, `skopeo`, and `actionlint`. The last three are separate tools on most distributions, and validation stops early when any is missing. GitHub Actions installs a checksum-pinned `actionlint` release in every workflow that validates, so workflow expression and `needs`-context mistakes fail validation instead of silently disabling a gate. The update-policy signature tests verify checked-in signatures offline.
+Validation needs Bash, Git, Python 3 with PyYAML, `shellcheck`, `skopeo`, and `actionlint`. The last three are separate tools on most distributions, and validation stops early when any is missing. GitHub Actions installs checksum-pinned `actionlint` and ShellCheck releases in every workflow that validates, so workflow expression and `needs`-context mistakes fail validation instead of silently disabling a gate, and the inline `run:` scripts are linted by the same ShellCheck 0.11.0 everywhere rather than by whatever the runner image ships. The update-policy signature tests verify checked-in signatures offline.
 
 The guide also documents optional Ubuntu runtime checks and pinned-source installer tests. Source validation does not replace a real installation and reboot test.
 
