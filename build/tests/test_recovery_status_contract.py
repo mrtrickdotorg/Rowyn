@@ -1,25 +1,28 @@
 #!/usr/bin/env python3
-"""Contract for the Hub's clear-quarantine instruction.
+"""Contract for RecoveryStatus.clear_quarantine_cmd.
 
-The shared crate's recovery status builds the command a user is handed
-to clear a boot-health quarantine (RecoveryStatus.clear_quarantine_cmd,
+The shared crate's recovery status builds the runnable terminal command
+for clearing a boot-health quarantine (RecoveryStatus.clear_quarantine_cmd,
 surfaced through the Hub's recovery_status command). Upstream's form —
 ``sudo kyth-boot-health clear-quarantine --digest <digest>`` — cannot
 run on a Rowyn system in either respect: Rowyn's helper ships at
 /usr/libexec/rowyn-boot-health (never on PATH), and its clear-quarantine
 takes the digest as a positional argument (there is no --digest flag).
 The branding rename alone produced ``sudo rowyn-boot-health ...``,
-which is still not a runnable command. The port therefore repoints the
-instruction at the Hub's boot-health panel, where clearing a quarantine
-is one confirmed click, and keeps the terminal command as an explicitly
-labelled fallback (apply step in build/ubuntu-hub-source.py).
+which is still not a runnable command. The port repoints it at the
+shipped helper (apply step in build/ubuntu-hub-source.py).
 
-These tests pin the two ends together:
+The field stays a pure command: no kept page renders it, and telling a
+reader where to click is the boot-health panel's own copy, so prose in
+this string would be text nobody displays. Both halves are pinned here:
+
 - the real helper's CLI (clear-quarantine exists, digest positional,
   --digest rejected by argparse);
 - the image layout (the Containerfile installs the helper at the path
-  the instruction names);
-- the generator's repointing, in source and (gated) after a real port.
+  the command names);
+- the generator's repointing, in source and (gated) after a real port;
+- the field's shape (one command, no instruction sentence);
+- the panel copy that actually names the control.
 """
 import os
 from pathlib import Path
@@ -34,11 +37,7 @@ GENERATOR = ROOT / "build/ubuntu-hub-source.py"
 CONTAINERFILE = ROOT / "Containerfile"
 PIN = "2baf8496b5aa904c0784f4290df743ee17edae48"
 DIGEST = "sha256:" + "a" * 64
-PANEL_POINTER = ("Clear it from the Hub: Updates, then Boot health, "
-                  "then Clear quarantine.")
-FALLBACK_COMMAND = ("Terminal fallback: sudo /usr/libexec/rowyn-boot-health "
-                    "clear-quarantine")
-CORRECT_COMMAND = f'"{PANEL_POINTER} {FALLBACK_COMMAND} {{}}"'
+CORRECT_COMMAND = '"sudo /usr/libexec/rowyn-boot-health clear-quarantine {}"'
 
 
 def load_module(name, file):
@@ -95,28 +94,26 @@ class GeneratorSourceTests(unittest.TestCase):
         self.assertIn(
             '"sudo kyth-boot-health clear-quarantine --digest {}"',
             self.script)
-        # The replacement is assembled from two Python literals, so the script
-        # holds the two halves; the joined instruction is pinned against real
-        # generated output in PinnedGeneratedTests below.
-        self.assertIn(PANEL_POINTER, self.script)
-        self.assertIn(FALLBACK_COMMAND + " {}", self.script)
+        self.assertIn(CORRECT_COMMAND, self.script)
 
-    def test_the_pointer_names_a_control_the_panel_really_has(self):
-        # The instruction answers "where do I click?", so the named control
-        # must be the one the confirmation dialog is attached to.
-        self.assertIn("then Clear quarantine.", PANEL_POINTER)
+    def test_the_field_stays_one_command(self):
+        # `..._cmd` names an executable command; an instruction sentence here
+        # would be a string no kept page renders.
+        self.assertTrue(CORRECT_COMMAND.startswith('"sudo /usr/libexec/rowyn-boot-health'))
+        self.assertNotIn("Hub", CORRECT_COMMAND)
+        self.assertNotIn("fallback", CORRECT_COMMAND.lower())
+        self.assertNotIn("Clear it from the Hub", self.script)
+        sudoers = (ROOT / "shared/rowyn-upgrade.sudoers").read_text()
+        self.assertIn("/usr/libexec/rowyn-boot-health clear-quarantine -", sudoers)
+
+    def test_the_panel_copy_is_where_the_control_is_named(self):
+        # The pointer a user follows lives in the Hub's own copy, next to the
+        # control it names.
         control = (ROOT / "build/hub/src/components/BootQuarantineClear.tsx").read_text()
         self.assertIn("Clear quarantine", control)
         self.assertIn('role="alertdialog"', control)
-
-    def test_the_terminal_form_is_labelled_a_fallback(self):
-        self.assertTrue(FALLBACK_COMMAND.startswith("Terminal fallback: "))
-        # The fallback is a runnable command, not a bare PATH name: sudo will
-        # ask for a password because the allowlist only grants the Hub's fixed
-        # `clear-quarantine -` argv.
-        self.assertIn("sudo /usr/libexec/rowyn-boot-health clear-quarantine", FALLBACK_COMMAND)
-        sudoers = (ROOT / "shared/rowyn-upgrade.sudoers").read_text()
-        self.assertIn("/usr/libexec/rowyn-boot-health clear-quarantine -", sudoers)
+        panel = (ROOT / "build/hub/src/components/BootHealthPanel.tsx").read_text()
+        self.assertIn("asks for confirmation first", panel)
 
     def test_containerfile_installs_the_helper_at_the_named_path(self):
         self.assertIn(
@@ -153,14 +150,13 @@ class PinnedGeneratedTests(unittest.TestCase):
             status = (root / "src/rowyn-shared-rs/src/system"
                       / "recovery_status.rs").read_text()
             self.assertIn(CORRECT_COMMAND, status)
-            self.assertIn(PANEL_POINTER, status)
-            self.assertIn(FALLBACK_COMMAND, status)
+            self.assertNotIn("Clear it from the Hub", status)
+            self.assertNotIn("Terminal fallback", status)
             self.assertNotIn("kyth-boot-health", status)
             self.assertNotIn("clear-quarantine --digest", status)
             self.assertNotIn('"sudo rowyn-boot-health', status)
-            # No bare command left behind for a reader to mistake for the
-            # recommended route.
-            self.assertNotIn('"sudo /usr/libexec/rowyn-boot-health', status)
+            # The literal holds the command alone: no instruction sentence.
+            self.assertEqual(status.count("clear-quarantine {}"), 1)
 
 
 if __name__ == "__main__":
