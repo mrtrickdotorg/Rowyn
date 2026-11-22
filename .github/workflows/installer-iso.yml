@@ -297,7 +297,7 @@ jobs:
             cd "$(dirname "${iso}")"
             sha256sum -- "$(basename "${iso}")" > "$(basename "${checksum}")"
           )
-          cat "${checksum}" | tee -a "$GITHUB_STEP_SUMMARY"
+          tee -a "$GITHUB_STEP_SUMMARY" < "${checksum}"
           cosign sign-blob --yes --bundle "${bundle}" "${checksum}"
           cosign verify-blob \
             --bundle "${bundle}" \
