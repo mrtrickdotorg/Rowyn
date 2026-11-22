@@ -28,6 +28,13 @@ command -v shellcheck >/dev/null 2>&1 || fail "shellcheck is required"
 command -v skopeo >/dev/null 2>&1 \
     || fail "skopeo is required for the offline update-policy signature tests"
 
+# Actionlint resolves job needs and expression contexts, which neither the YAML
+# parse below nor the string contracts can: a job that reads
+# needs.validate.outputs without depending on validate evaluates the expression
+# to an empty string, so a release gate silently stops gating.
+command -v actionlint >/dev/null 2>&1 \
+    || fail "actionlint is required for workflow expression and needs-context checks"
+
 echo "[validate] ShellCheck warnings and errors"
 shellcheck --severity=warning "${scripts[@]}"
 
@@ -43,6 +50,10 @@ for workflow in sorted(Path('.github/workflows').glob('*.yml')):
         yaml.safe_load(handle)
 PY
 echo "[validate] workflow YAML parsed"
+
+echo "[validate] actionlint"
+actionlint
+echo "[validate] actionlint passed"
 
 deprecated_tool_cache_count="$( { grep -Fh 'tool-cache:' .github/workflows/{build,installer-iso}.yml || true; } | wc -l)"
 (( deprecated_tool_cache_count == 0 )) \

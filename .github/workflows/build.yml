@@ -99,6 +99,10 @@ jobs:
 
       - name: Install validation tools
         shell: bash --noprofile --norc -euo pipefail {0}
+        env:
+          ACTIONLINT_VERSION: v1.7.12
+          ACTIONLINT_TARBALL: actionlint_1.7.12_linux_amd64.tar.gz
+          ACTIONLINT_TARBALL_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
         run: |
           for attempt in 1 2 3; do
             if sudo apt-get update -o Acquire::Retries=3 -o Acquire::http::Timeout=15; then
@@ -112,6 +116,18 @@ jobs:
             fi
           done
           sudo apt-get install -y --no-install-recommends python3-yaml shellcheck skopeo
+          # actionlint resolves job needs and expression contexts, which a YAML
+          # parse cannot: a job that reads needs.validate.outputs without
+          # depending on validate gets an empty string and its gate silently
+          # disappears. The release and its checksum are pinned so the lint
+          # result cannot change under us.
+          curl -fsSL --retry 3 \
+            "https://github.com/rhysd/actionlint/releases/download/${ACTIONLINT_VERSION}/${ACTIONLINT_TARBALL}" \
+            -o "${RUNNER_TEMP}/${ACTIONLINT_TARBALL}"
+          echo "${ACTIONLINT_TARBALL_SHA256}  ${RUNNER_TEMP}/${ACTIONLINT_TARBALL}" | sha256sum -c -
+          tar -C "${RUNNER_TEMP}" -xzf "${RUNNER_TEMP}/${ACTIONLINT_TARBALL}" actionlint
+          sudo install -m 0755 "${RUNNER_TEMP}/actionlint" /usr/local/bin/actionlint
+          actionlint -version
 
       - name: Validate Rowyn source and CI contracts
         shell: bash --noprofile --norc -euo pipefail {0}
@@ -378,6 +394,7 @@ jobs:
           # revision label stay byte-identical along with everything
           # else. Word splitting of the pathspec is intended — it is
           # a space-separated list of git pathspecs.
+          # shellcheck disable=SC2086
           input_revision="$(git log -1 --format=%H -- ${ROWYN_IMAGE_INPUT_PATHSPEC})"
           [[ "${input_revision}" =~ ^[0-9a-f]{40}$ ]]
           echo "input_revision=${input_revision}" >> "${GITHUB_OUTPUT}"

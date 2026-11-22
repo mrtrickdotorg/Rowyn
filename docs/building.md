@@ -65,13 +65,13 @@ Updates explains the running, staged-next-boot, and previous rollback deployment
 
 ## Validate source changes
 
-Requirements include Git, Python 3 with PyYAML, Bash, ShellCheck, and skopeo. Validation stops before the suite when `shellcheck` or `skopeo` is missing: ShellCheck reviews every shell script, and the update-policy signature tests verify the checked-in `dir:` signatures offline. Run from the repository root:
+Requirements include Git, Python 3 with PyYAML, Bash, ShellCheck, skopeo, and actionlint. Validation stops before the suite when `shellcheck`, `skopeo`, or `actionlint` is missing: ShellCheck reviews every shell script, actionlint resolves workflow job needs and expression contexts (a job that reads `needs.validate.outputs` without depending on `validate` gets an empty string, so its gate quietly stops gating), and the update-policy signature tests verify the checked-in `dir:` signatures offline. Run from the repository root:
 
 ```bash
 ./build/validate.sh
 ```
 
-The gate checks shell syntax, ShellCheck errors, workflow YAML, Ubuntu-only build guards, image and installer trust contracts, and regression tests. Advisory ShellCheck warnings are reported separately.
+The gate checks shell syntax, ShellCheck errors, actionlint's workflow expression and needs-context analysis, workflow YAML, Ubuntu-only build guards, image and installer trust contracts, and regression tests. Advisory ShellCheck warnings are reported separately.
 
 Additional integration checks use a local upstream checkout containing the pinned installer commit and the isolated Ubuntu runtime fixtures:
 

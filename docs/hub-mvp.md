@@ -103,9 +103,9 @@ claiming success.
 ## Tests
 
 `ROWYN_TEST_UPSTREAM_REPO=/path/to/pinned/checkout ./build/validate.sh` covers
-source and actual export contracts. Validation needs `shellcheck` and `skopeo`
-as well as Python 3 with PyYAML, and stops before the suite when either is
-missing. In a fresh exported Hub run
+source and actual export contracts. Validation needs `shellcheck`, `skopeo`,
+and `actionlint` as well as Python 3 with PyYAML, and stops before the suite
+when any is missing. In a fresh exported Hub run
 `npm ci && npm run build && node --test tests/*.test.mjs`, then in `src-tauri`
 `cargo test --locked`. The `Hub source tests` CI job runs that export, the
 Rowyn suite (`node --test tests/rowyn-*.test.mjs`) and the Rowyn Rust tests
