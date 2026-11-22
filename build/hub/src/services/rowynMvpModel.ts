@@ -67,7 +67,7 @@ function normalizeTitle(name: string): string {
 const compatByAppId = new Map<string, CompatEntry>();
 const compatByName = new Map<string, CompatEntry>();
 for (const game of compatData.games as CompatEntry[]) {
-  const match = /\/app\/(\d+)\//.exec(game.source_url ?? '');
+  const match = (game.source_url ?? '').match(/\/app\/(\d+)\//);
   if (match) compatByAppId.set(match[1], game);
   compatByName.set(normalizeTitle(game.name), game);
 }
