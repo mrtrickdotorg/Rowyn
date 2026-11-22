@@ -38,13 +38,17 @@ export function BootQuarantineClear({
 
   return (
     <span className="rowyn-quarantine-action">
-      <button className="action-button" type="button" onClick={() => setOpen(true)} disabled={busy}>
-        Clear quarantine
-      </button>
+      {!open && (
+        <button className="action-button" type="button" onClick={() => setOpen(true)} disabled={busy}>
+          Clear quarantine
+        </button>
+      )}
+      {/* In-card confirmation, like RowynDebCard: no backdrop and no focus
+          trap, so the dialog is not claimed to be modal. */}
       {open && (
         <div
           role="alertdialog"
-          aria-modal="true"
+          aria-modal="false"
           aria-label="Clear this quarantine?"
           className="rowyn-quarantine-dialog glass"
         >

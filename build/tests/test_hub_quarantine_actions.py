@@ -94,7 +94,7 @@ class ThePanelStaysReadOnlyAndConfirms(unittest.TestCase):
 
     def test_the_confirmation_is_an_in_page_dialog(self):
         control = (HUB / "src/components/BootQuarantineClear.tsx").read_text(encoding="utf-8")
-        for needle in ('role="alertdialog"', "aria-modal=\"true\"",
+        for needle in ('role="alertdialog"', "aria-modal=\"false\"",
                        "Clear the quarantine for this deployment?",
                        "Nothing is downloaded, installed,", "onCleared()",
                        "clearBootQuarantine(digest, true)"):

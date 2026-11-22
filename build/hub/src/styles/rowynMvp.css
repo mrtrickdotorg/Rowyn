@@ -148,6 +148,20 @@
 .rowyn-recovery-slots dd { margin: 4px 0 0; overflow-wrap: anywhere; font-size: .75rem; }
 .rowyn-recovery-slots button { margin-top: 8px; }
 
+/* Boot-health quarantines: the digest is a 71-character token with nothing to
+   break on, so it must wrap instead of running under the card edge. */
+.rowyn-boot-health li code,
+.rowyn-quarantine-dialog code { overflow-wrap: anywhere; }
+.rowyn-quarantine-action { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-top: 10px; }
+.rowyn-quarantine-dialog {
+  display: flex; flex-direction: column; gap: 8px;
+  margin-top: 10px; padding: 16px; border-radius: 14px;
+  border: 1px solid rgba(239, 182, 90, .35);
+  background: rgba(239, 182, 90, .06);
+}
+.rowyn-quarantine-dialog p { margin: 0; }
+.rowyn-quarantine-dialog .home-actions { margin-top: 4px; }
+
 @media (prefers-reduced-motion: reduce) {
   .rowyn-launcher, .home-destination, .home-destination-arrow { transition: none; }
   .rowyn-launcher:hover, .home-destination:hover, .home-destination:active { transform: none; }
