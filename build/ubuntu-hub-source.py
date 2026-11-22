@@ -519,6 +519,26 @@ def apply_rowyn_qol(root):
                        "  const guidance: UpdateGuidance = (() => {")
     text = cut_between(text, '      <div className="updates-status-grid updates-status-grid-single"',
                        '      <div className="updates-actions-card updates-primary-actions">')
+    # The primary action is the one restart Rowyn performs, and only when a
+    # staged deployment exists; name it for what it does instead of leaving a
+    # generic "apply" that reads like another download step.
+    text = replace_once(text, 'label: busy === "apply" ? "Restarting…" : "Restart to apply"',
+                        'label: busy === "apply" ? "Restarting…" : "Restart to finish updating"')
+    text = replace_once(
+        text,
+        'next: "Choose “Restart to apply” when you’re ready. Save open work first."',
+        'next: "Choose “Restart to finish updating” when you’re ready. Save open work first."')
+    # Comments naming the action are copy too: no stale "Restart to apply"
+    # may survive next to a button that says something else.
+    for stale, current in (
+        ("// the next action at Restart to apply.",
+         "// the next action at Restart to finish updating."),
+        ("// download/stage, restart to apply, and rollback.",
+         "// download/stage, restart to finish updating, and rollback."),
+        ('// successful stage the primary button must read "Restart to apply", not',
+         '// successful stage the primary button must read "Restart to finish updating", not'),
+    ):
+        text = replace_once(text, stale, current)
     overview.write_text(text)
     app_store = web / "src/components/AppStoreSection.tsx"
     text = 'import { AppRemovalConfirmation } from "./AppRemovalConfirmation";\n' + app_store.read_text()
@@ -1988,6 +2008,56 @@ def port_source(root):
         text,
         "The KythOS bootc guard helper is not installed on this system.",
         "The Rowyn bootc guard helper is not installed on this system.")
+    # --- Restart to finish updating ----------------------------------------
+    # The retained apply action hard-codes the finalizer's `reboot` argv, so a
+    # click carrying no staged deployment still finalized /boot and restarted
+    # the machine. Bind the action to the digest that is actually staged and
+    # refuse otherwise: the restart happens only for a deployment the page can
+    # name, and a status that cannot be read is a refusal, never an assumption.
+    text = replace_once(
+        text,
+        "#[tauri::command]\npub(crate) fn apply_staged() -> Result<UpdateActionLaunch, String> {",
+        '''/// The digest waiting in the staged deployment slot.
+///
+/// Reads the same probe section and bounded `bootc status --json` fallback
+/// `update_status` reads; nothing is fetched from the network and no
+/// deployment is touched. An unreadable status is a refusal, never an
+/// assumption that an update is waiting.
+fn staged_digest_for_restart() -> Result<String, String> {
+    let data = rowyn_shared::system::probe::read_section("bootc-status-data")
+        .or_else(rowyn_shared::system::bootc_query::fetch_status_data)
+        .ok_or_else(|| {
+            "Could not read the current deployment status, so nothing was restarted. Refresh Updates and try again."
+                .to_string()
+        })?;
+    rowyn_shared::system::bootc_query::image_digest_from_status(&data, "staged").ok_or_else(|| {
+        "No update is staged, so nothing will restart. Check for updates first.".to_string()
+    })
+}
+
+#[tauri::command]
+pub(crate) fn apply_staged() -> Result<UpdateActionLaunch, String> {''')
+    text = replace_once(
+        text,
+        '''    // No in-process lock check (see bootc_upgrade): the slot above keeps
+    // the restart from racing an upgrade/switch launched from this Hub.
+    let slot = take_mutating_slot()?;
+    start_update_job(
+        "apply",
+        "Restart to apply staged update",''',
+        '''    // Rowyn: read the staged digest before taking the mutating slot, so a
+    // click with nothing staged is refused here instead of finalizing /boot
+    // and queueing a restart the user did not ask for.
+    let staged_digest = staged_digest_for_restart()?;
+    // No in-process lock check (see bootc_upgrade): the slot above keeps
+    // the restart from racing an upgrade/switch launched from this Hub.
+    let slot = take_mutating_slot()?;
+    start_update_job(
+        "apply",
+        &format!("Restart to finish updating {staged_digest}"),''')
+    changes.append(
+        "updates.rs: apply_staged requires a staged digest ("
+        "staged_digest_for_restart) and names it in the job detail")
     updates.write_text(text)
     changes.append(
         f"updates.rs: releases API -> mrtrickdotorg/Rowyn; image refs -> ghcr.io/mrtrickdotorg/rowyn@ "

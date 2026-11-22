@@ -116,6 +116,9 @@ def adapt(web, replace_once):
         r'''  assert.match(apps, /AppRemovalConfirmation/);
   assert.match(apps, /setRemoval\(app\)/);
   assert.match(apps, /if \(!removal \|\| busy !== null\) return/);''')
+    # Rowyn names the staged-update restart for what it does.
+    text = replace_once(text, 'assert.match(updatesOverview, /Choose “Restart to apply”/);',
+                        'assert.match(updatesOverview, /Choose “Restart to finish updating”/);')
     path.write_text(text)
 
     path = web / "tests/hub-shell-smoke.test.mjs"
