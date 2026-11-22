@@ -76,9 +76,9 @@ export function BootQuarantineClear({
 
   async function confirm() {
     setState(beginQuarantineClear);
-    const next = await finishQuarantineClear(digest, clearBootQuarantine);
-    setState(next);
-    if (next.cleared) onCleared();
+    // `onCleared` runs only after the bridge reports a real clear, so a refusal
+    // can never look like a freshly read record.
+    setState(await finishQuarantineClear(digest, clearBootQuarantine, onCleared));
   }
 
   return (

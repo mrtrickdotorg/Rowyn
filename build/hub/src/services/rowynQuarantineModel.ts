@@ -45,15 +45,17 @@ export function beginQuarantineClear(state: QuarantineDialogState): QuarantineDi
 /**
  * Runs the confirmed clear: always with `confirmed: true`, since reaching this
  * function means the dialog was acknowledged. A refusal keeps the dialog open
- * with the bridge's own message and asks for no refresh.
+ * with the bridge's own message and returns before `onCleared`, so the panel
+ * never re-reads — nor appears to have changed — on a refusal.
  */
 export async function finishQuarantineClear(
   digest: string,
   clear: ClearQuarantine,
+  onCleared: () => void | Promise<void> = () => {},
 ): Promise<QuarantineDialogState> {
+  let message: string;
   try {
-    const message = await clear(digest, true);
-    return { open: false, busy: false, message, cleared: true };
+    message = await clear(digest, true);
   } catch (cause) {
     return {
       open: true,
@@ -62,4 +64,9 @@ export async function finishQuarantineClear(
       cleared: false,
     };
   }
+  const cleared: QuarantineDialogState = { open: false, busy: false, message, cleared: true };
+  // The only re-read: after the bridge reported success, and awaited so the
+  // panel shows the new record by the time the dialog closes.
+  await onCleared();
+  return cleared;
 }

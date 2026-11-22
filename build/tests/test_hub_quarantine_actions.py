@@ -114,9 +114,10 @@ class ThePanelStaysReadOnlyAndConfirms(unittest.TestCase):
         control = (HUB / "src/components/BootQuarantineClear.tsx").read_text(encoding="utf-8")
         for needle in ('role="alertdialog"', "aria-modal=\"false\"",
                        "Clear the quarantine for this deployment?",
-                       "Nothing is downloaded, installed,", "onCleared()",
-                       "finishQuarantineClear(digest, clearBootQuarantine)"):
+                       "Nothing is downloaded, installed,",
+                       "finishQuarantineClear(digest, clearBootQuarantine, onCleared)"):
             self.assertIn(needle, control)
+        self.assertIn("onCleared: () => void", control)
         for forbidden in ("window.confirm", "setInterval", "setTimeout", "sudo"):
             self.assertNotIn(forbidden, control)
 

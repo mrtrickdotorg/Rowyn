@@ -2,51 +2,42 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { BootQuarantineClear } from './BootQuarantineClear';
 import { rowynBootHealthSnapshot } from '../services/rowynBootHealth';
-import type { BootHealthSnapshot } from '../services/rowynBootHealthModel';
+import {
+  BOOT_HEALTH_VIEW_EMPTY,
+  createBootHealthPanel,
+  type BootHealthPanel as BootHealthPanelCycle,
+  type BootHealthPanelView,
+} from '../services/rowynBootHealthPanel';
 import { reportStatusSource } from '../services/rowynStatusSources';
 import '../styles/rowynMvp.css';
 
 /**
  * The boot-health record. This panel only reads it; staging, rollback and
  * restarts stay elsewhere. The single write — clearing one quarantine after an
- * explicit confirmation — lives in BootQuarantineClear.
+ * explicit confirmation — lives in BootQuarantineClear, which asks this panel
+ * to re-read the record through `onCleared` once the bridge confirms it.
  */
 export function BootHealthPanel({ compact = false }: { compact?: boolean }) {
-  const [snapshot, setSnapshot] = useState<BootHealthSnapshot | null>(null);
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-  const mounted = useRef(false);
-  const generation = useRef(0);
-
-  async function read() {
-    const token = ++generation.current;
-    setBusy(true);
-    setError('');
-    try {
-      const next = await rowynBootHealthSnapshot();
-      if (!mounted.current || token !== generation.current) return;
-      setSnapshot(next);
-    } catch (cause) {
-      if (!mounted.current || token !== generation.current) return;
-      setSnapshot(null);
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      if (mounted.current && token === generation.current) setBusy(false);
-    }
+  const [view, setView] = useState<BootHealthPanelView>(BOOT_HEALTH_VIEW_EMPTY);
+  const cycle = useRef<BootHealthPanelCycle | null>(null);
+  if (cycle.current === null) {
+    cycle.current = createBootHealthPanel(rowynBootHealthSnapshot, setView);
   }
+  const panel = cycle.current;
 
   useEffect(() => {
-    mounted.current = true;
-    void read();
-    return () => { mounted.current = false; generation.current++; };
+    panel.activate();
+    void panel.read();
+    return () => panel.dispose();
   }, []);
 
   // Absence of the record is not a failure, but it does mean this host has no
   // boot-health source to show.
   useEffect(() => {
-    reportStatusSource('bootHealth', snapshot?.available === true);
-  }, [snapshot]);
+    reportStatusSource('bootHealth', view.snapshot?.available === true);
+  }, [view]);
 
+  const { snapshot, error, busy } = view;
   const state = error ? 'unavailable' : snapshot?.state ?? 'pending';
   const label = error ? 'Boot health unavailable' : snapshot?.label ?? 'Reading boot-health record…';
   const guidance = error
@@ -75,7 +66,7 @@ export function BootHealthPanel({ compact = false }: { compact?: boolean }) {
             <BootQuarantineClear
               digest={item.digest}
               reasonLabel={item.reasonLabel}
-              onCleared={() => void read()}
+              onCleared={panel.onCleared}
             />
           </li>
         ))}
@@ -99,7 +90,7 @@ export function BootHealthPanel({ compact = false }: { compact?: boolean }) {
       </ul>
     )}
     <div className="home-actions">
-      <button className="action-button" type="button" disabled={busy} onClick={() => void read()}>
+      <button className="action-button" type="button" disabled={busy} onClick={() => void panel.read()}>
         {busy ? 'Reading…' : 'Refresh boot health'}
       </button>
       <Link to="/diagnostics?section=Diagnostics">Open Diagnostics</Link>

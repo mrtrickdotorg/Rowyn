@@ -11,8 +11,8 @@ const directory = await mkdtemp(resolve(tmpdir(), 'rowyn-quarantine-clear-'));
 const outfile = resolve(directory, 'ui.cjs');
 after(() => rm(directory, { recursive: true, force: true }));
 
-// The real component and its real transitions, bundled; only the bridge is a
-// stand-in, so nothing here reaches Tauri or a window.
+// The real components, the real read cycle and the real transitions, bundled;
+// only the bridge is a stand-in, so nothing here reaches Tauri or a window.
 await build({
   stdin: {
     resolveDir: root,
@@ -22,7 +22,9 @@ await build({
       import { renderToStaticMarkup } from 'react-dom/server';
       import { QuarantineDialog } from './src/components/BootQuarantineClear';
       import * as flow from './src/services/rowynQuarantineModel';
-      export { flow };
+      import { createBootHealthPanel } from './src/services/rowynBootHealthPanel';
+      import { parseBootHealth } from './src/services/rowynBootHealthModel';
+      export { flow, createBootHealthPanel, parseBootHealth };
       export function dialog(props) {
         return renderToStaticMarkup(<QuarantineDialog {...props} />);
       }
@@ -42,6 +44,27 @@ const flow = ui.flow;
 const DIGEST = 'sha256:' + '1'.repeat(64);
 const REASON = 'Older than the booted image';
 const CLEARED = `Quarantine cleared for ${DIGEST}.`;
+
+// The same record the image writes, through the real parser: one quarantined
+// deployment, then the same record after the clear.
+const QUARANTINED = JSON.stringify({
+  schema_version: 1,
+  known_good: { [DIGEST]: {} },
+  quarantined: { [DIGEST]: { reason: 'downgrade', quarantined_at: '2026-11-01T10:00:00Z' } },
+});
+const STAGED_AGAIN = JSON.stringify({ schema_version: 1, known_good: { [DIGEST]: {} } });
+
+/** A panel whose bridge answers with the given records in order and counts them. */
+function panelAnswering(records, failing = false) {
+  const calls = { reads: 0 };
+  const views = [];
+  const panel = ui.createBootHealthPanel(async () => {
+    const index = calls.reads++;
+    if (failing) throw new Error('The boot-health record could not be read.');
+    return ui.parseBootHealth(records[Math.min(index, records.length - 1)]);
+  }, (view) => views.push(view));
+  return { panel, views, reads: () => calls.reads };
+}
 
 test('the dialog names the digest, the reason, and what clearing does', () => {
   const html = ui.dialog({
@@ -101,27 +124,89 @@ test('confirming sends the digest once, marked confirmed, and asks for a refresh
     flow.openQuarantineDialog(flow.QUARANTINE_DIALOG_CLOSED));
   assert.equal(running.busy, true);
 
-  const done = await flow.finishQuarantineClear(DIGEST, clear);
+  const refreshed = [];
+  const done = await flow.finishQuarantineClear(DIGEST, clear, () => { refreshed.push(true); });
   assert.deepEqual(calls, [[DIGEST, true]]);
   assert.deepEqual(done, { open: false, busy: false, message: CLEARED, cleared: true });
+  assert.deepEqual(refreshed, [true], 'a successful clear asks for exactly one refresh');
 });
 
 test('a refusal keeps the dialog open with the bridge message and no refresh', async () => {
   const clear = async () => {
     throw new Error(`${DIGEST} is not quarantined now, so nothing was changed.`);
   };
-  const refused = await flow.finishQuarantineClear(DIGEST, clear);
+  const refreshed = [];
+  const refused = await flow.finishQuarantineClear(DIGEST, clear, () => { refreshed.push(true); });
   assert.equal(refused.open, true);
   assert.equal(refused.cleared, false);
   assert.equal(refused.busy, false);
   assert.match(refused.message, /is not quarantined now/);
+  assert.deepEqual(refreshed, [], 'a refusal must not ask for a refresh');
+});
+
+test('the panel re-reads the record after a successful clear', async () => {
+  const { panel, views, reads } = panelAnswering([QUARANTINED, STAGED_AGAIN]);
+  await panel.read();
+  assert.equal(reads(), 1);
+  assert.equal(panel.view().snapshot.quarantined.length, 1);
+  assert.match(panel.view().snapshot.label, /1 deployment\(s\) quarantined/);
+
+  const outcome = await flow.finishQuarantineClear(DIGEST, async () => CLEARED, panel.onCleared);
+  assert.equal(outcome.cleared, true);
+  assert.equal(reads(), 2, 'the clear must make the panel read the record again');
+  assert.equal(panel.view().busy, false);
+  assert.equal(panel.view().error, '');
+  assert.equal(panel.view().snapshot.quarantined.length, 0);
+  assert.match(panel.view().snapshot.label, /1 verified deployment\(s\)/);
+  assert.equal(views.at(-1).snapshot.quarantined.length, 0,
+    'the view published for the render is the re-read one');
+});
+
+test('a refusal leaves the panel on the record it last read', async () => {
+  const { panel, reads } = panelAnswering([QUARANTINED, STAGED_AGAIN]);
+  await panel.read();
+  const before = panel.view().snapshot;
+
+  const outcome = await flow.finishQuarantineClear(
+    DIGEST,
+    async () => { throw new Error(`${DIGEST} is not quarantined now, so nothing was changed.`); },
+    panel.onCleared);
+  assert.equal(outcome.cleared, false);
+  assert.equal(reads(), 1, 'a refusal must not re-read the record');
+  assert.equal(panel.view().snapshot, before, 'the shown record is untouched');
+  assert.equal(panel.view().snapshot.quarantined.length, 1);
+});
+
+test('a re-read that fails is reported as unavailable, not as a cleared record', async () => {
+  const { panel } = panelAnswering([QUARANTINED], true);
+  await panel.read();
+  assert.equal(panel.view().snapshot, null);
+  assert.match(panel.view().error, /could not be read/);
+  assert.equal(panel.view().busy, false);
+});
+
+test('a disposed panel publishes nothing, so unmount cannot refresh a gone page', async () => {
+  const { panel, views } = panelAnswering([QUARANTINED, STAGED_AGAIN]);
+  await panel.read();
+  const published = views.length;
+  panel.dispose();
+  await panel.onCleared();
+  assert.equal(views.length, published);
+  assert.equal(panel.view().snapshot.quarantined.length, 1);
 });
 
 test('the component clears through the bridge and refreshes only on success', async () => {
-  const source = await readFile(resolve(root, 'src/components/BootQuarantineClear.tsx'), 'utf8');
-  assert.match(source, /finishQuarantineClear\(digest, clearBootQuarantine\)/);
-  assert.match(source, /if \(next\.cleared\) onCleared\(\);/);
-  assert.match(source, /setState\(beginQuarantineClear\)/);
-  assert.match(source, /onCancel=\{\(\) => setState\(cancelQuarantineDialog\)\}/);
-  assert.match(source, /onClick=\{\(\) => setState\(openQuarantineDialog\)\}/);
+  const control = await readFile(resolve(root, 'src/components/BootQuarantineClear.tsx'), 'utf8');
+  assert.match(control, /finishQuarantineClear\(digest, clearBootQuarantine, onCleared\)/);
+  assert.doesNotMatch(control, /if \(next\.cleared\)/);
+  assert.match(control, /setState\(beginQuarantineClear\)/);
+  assert.match(control, /onCancel=\{\(\) => setState\(cancelQuarantineDialog\)\}/);
+  assert.match(control, /onClick=\{\(\) => setState\(openQuarantineDialog\)\}/);
+
+  // The panel renders from the read cycle tested above and hands that cycle's
+  // re-read to the clear control, so the covered code is the code that runs.
+  const panel = await readFile(resolve(root, 'src/components/BootHealthPanel.tsx'), 'utf8');
+  assert.match(panel, /createBootHealthPanel\(rowynBootHealthSnapshot, setView\)/);
+  assert.match(panel, /onCleared=\{panel\.onCleared\}/);
+  assert.doesNotMatch(panel, /invoke\(/);
 });
