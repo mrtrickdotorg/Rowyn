@@ -14,6 +14,7 @@ PORT = ROOT / "build/ubuntu-hub-source.py"
 SUDOERS = ROOT / "shared/rowyn-upgrade.sudoers"
 HELPER = ROOT / "shared/rowyn-boot-health"
 HUB = ROOT / "build/hub"
+READ_BRIDGE = HUB / "src-tauri/src/commands/rowyn_boot_health.rs"
 BRIDGE = HUB / "src-tauri/src/commands/rowyn_boot_health_actions.rs"
 
 
@@ -72,6 +73,23 @@ class TheBridgeIsFixedArgumentAndFailsClosed(unittest.TestCase):
             text.index("if !quarantined(&record)?"),
             text.index("run_bounded_with_input("),
             "the digest must be checked against the record before anything runs")
+
+    def test_a_debug_fixture_path_override_exists_and_is_gated(self):
+        text = READ_BRIDGE.read_text(encoding="utf-8")
+        self.assertIn("ROWYN_BOOT_HEALTH_PATH", text)
+        self.assertIn("#[cfg(debug_assertions)]", text)
+        self.assertIn("#[cfg(not(debug_assertions))]", text)
+        # The fixed path keeps its owner/mode rule: only a debug fixture, which
+        # the developer owns, skips it.
+        self.assertIn("let unsafe_owner = require_root &&", text)
+        self.assertIn("read_record(Path::new(PATH), true)", text)
+        self.assertIn("read_record(&path, false)", text)
+
+    def test_docs_say_how_to_use_the_override(self):
+        docs = (ROOT / "docs/boot-health.md").read_text(encoding="utf-8")
+        self.assertIn("Exercising the panel without root", docs)
+        self.assertIn("ROWYN_BOOT_HEALTH_PATH=/tmp/boot-health.json", docs)
+        self.assertIn("compiled out of release builds", docs)
 
     def test_tests_exist_for_the_refusals(self):
         tests = (HUB / "src-tauri/src/commands/rowyn_boot_health_actions_tests.rs").read_text(

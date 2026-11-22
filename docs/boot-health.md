@@ -86,6 +86,40 @@ confirms first, then calls `clear-quarantine -` through the sudoers allowlist
 with the digest on stdin, after checking the digest is still quarantined in the
 record it reads itself. Reading a quarantine never needs elevation.
 
+### Exercising the panel without root
+
+A debug build of the Hub can read a fixture record instead of the real one, so
+the panel and its confirmation can be checked on a machine that has never
+written a record or judged a boot:
+
+```bash
+cat > /tmp/boot-health.json <<'JSON'
+{
+  "schema_version": 1,
+  "known_good": {"sha256:<64 hex>": {"version": "0.0.9"}},
+  "failures": {},
+  "quarantined": {"sha256:<another 64 hex>": {"reason": "downgrade",
+    "quarantined_at": "2026-11-22T10:12:00Z"}},
+  "rollback": {},
+  "last_boot": {"digest": "sha256:<the known-good one>", "healthy": true,
+    "recorded_at": "2026-11-22T10:15:00Z"}
+}
+JSON
+ROWYN_BOOT_HEALTH_PATH=/tmp/boot-health.json cargo run -- --page Updates
+```
+
+Digests must be `sha256:` plus 64 lowercase hex characters; the panel's model
+drops a row that is not, and `reason` picks the label (`unhealthy-boot`,
+`downgrade`, `manual`).
+
+The override is compiled out of release builds, and it only relaxes the
+ownership check for the file it names: the fixed
+`/var/lib/rowyn/boot-health.json` still has to be a root-owned, non-world-writable
+regular file. Clearing from a fixture still runs the real privileged helper, so
+the clear only succeeds when that digest is genuinely quarantined in the real
+record — the fixture exercises the panel, the confirmation, and the refusal
+messages, not the write.
+
 ## Update policy
 
 `/etc/rowyn/update-policy.conf` (defaults in
