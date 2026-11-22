@@ -121,6 +121,13 @@ class Sandbox:
                               capture_output=True, text=True, timeout=120, env=env,
                               input=stdin)
 
+    def unmodified_helper(self):
+        """Install the helper exactly as shipped, real root gate and all."""
+        self.helper.write_text(HELPER.read_text(encoding="utf-8"),
+                               encoding="utf-8")
+        self.helper.chmod(0o755)
+        return self.helper
+
     def load(self):
         return json.loads((self.state / "boot-health.json").read_text(encoding="utf-8"))
 
@@ -289,6 +296,15 @@ class QuarantineCommandTests(unittest.TestCase):
         self.assertEqual(sb.run("clear-quarantine", "-", stdin="sha256:zz\n").returncode, 2)
         self.assertEqual(sb.run("clear-quarantine", "-", stdin=DIGEST).returncode, 1)
 
+    def test_the_stdin_form_validates_before_touching_the_record(self):
+        sb = Sandbox(self)
+        self.assertEqual(sb.run("quarantine", DIGEST, "manual").returncode, 0)
+        record = sb.state / "boot-health.json"
+        before = record.read_bytes()
+        result = sb.run("clear-quarantine", "-", stdin="sha256:zz\n")
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(record.read_bytes(), before)
+
     def test_a_digest_in_argv_is_still_one_digest(self):
         """Whitespace after the digest must not become a second argument."""
         sb = Sandbox(self)
@@ -296,6 +312,33 @@ class QuarantineCommandTests(unittest.TestCase):
         result = sb.run("clear-quarantine", "-", stdin=f"  {DIGEST}  \nextra\n")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn(DIGEST, sb.load()["quarantined"])
+
+
+@unittest.skipIf(os.geteuid() == 0,
+                 "the root gate only fires for an unprivileged caller")
+class RootGateTests(unittest.TestCase):
+    """The helper as shipped refuses to change the record without root."""
+
+    def test_unprivileged_clear_refuses_and_leaves_the_record_byte_identical(self):
+        sb = Sandbox(self)
+        self.assertEqual(sb.run("quarantine", DIGEST, "manual").returncode, 0)
+        record = sb.state / "boot-health.json"
+        before = record.read_bytes()
+        sb.unmodified_helper()
+        result = sb.run("clear-quarantine", "-", stdin=DIGEST + "\n")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("must run as root", result.stderr)
+        self.assertEqual(record.read_bytes(), before)
+        self.assertIn(DIGEST, sb.load()["quarantined"])
+
+    def test_unprivileged_clear_creates_no_record_when_none_exists(self):
+        sb = Sandbox(self)
+        sb.unmodified_helper()
+        result = sb.run("clear-quarantine", "-", stdin=DIGEST + "\n")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("must run as root", result.stderr)
+        self.assertFalse(sb.state.exists())
 
 
 class DowngradeTests(unittest.TestCase):
