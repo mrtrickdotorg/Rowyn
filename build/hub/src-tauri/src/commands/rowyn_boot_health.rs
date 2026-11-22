@@ -28,7 +28,10 @@ fn validate(raw: &str) -> Result<String, String> {
     Ok(raw.to_owned())
 }
 
-fn collect() -> Result<String, String> {
+/// The validated record text. `pub(crate)` so the one writer module
+/// (`rowyn_boot_health_actions`) can check a digest is really quarantined
+/// against the same bounded, root-owned read this module performs.
+pub(crate) fn collect() -> Result<String, String> {
     let file = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK)

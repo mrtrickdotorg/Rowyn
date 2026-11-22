@@ -34,7 +34,8 @@ class QolBootHealthTests(unittest.TestCase):
         self.assertIn("<BootHealthPanel compact />", dashboard)
         panel = (ROOT / "build/hub/src/components/BootHealthPanel.tsx").read_text()
         for token in ("rowynBootHealthSnapshot", "Refresh boot health",
-                      "Read-only. Clearing a quarantine is a terminal-only action."):
+                      "Read-only apart from clearing a quarantine",
+                      "asks for confirmation first", "BootQuarantineClear"):
             self.assertIn(token, panel)
         bridge = (ROOT / "build/hub/src-tauri/src/commands/rowyn_boot_health.rs").read_text()
         for token in ("/var/lib/rowyn/boot-health.json", "O_NOFOLLOW", "spawn_blocking",

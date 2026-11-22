@@ -81,6 +81,11 @@ sudo rowyn-boot-health quarantine sha256:… manual
 Clearing a quarantine only allows the digest to be staged again; it does not
 update or reboot anything.
 
+The Hub's boot-health panel runs the same helper: clearing a quarantine there
+confirms first, then calls `clear-quarantine -` through the sudoers allowlist
+with the digest on stdin, after checking the digest is still quarantined in the
+record it reads itself. Reading a quarantine never needs elevation.
+
 ## Update policy
 
 `/etc/rowyn/update-policy.conf` (defaults in

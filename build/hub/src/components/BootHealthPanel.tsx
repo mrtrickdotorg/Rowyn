@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { BootQuarantineClear } from './BootQuarantineClear';
 import { rowynBootHealthSnapshot } from '../services/rowynBootHealth';
 import type { BootHealthSnapshot } from '../services/rowynBootHealthModel';
 import { reportStatusSource } from '../services/rowynStatusSources';
 import '../styles/rowynMvp.css';
 
 /**
- * Read-only view of the boot-health record. Nothing here stages, rolls back,
- * reboots, or clears a quarantine: those are system-side actions.
+ * The boot-health record. This panel only reads it; staging, rollback and
+ * restarts stay elsewhere. The single write — clearing one quarantine after an
+ * explicit confirmation — lives in BootQuarantineClear.
  */
 export function BootHealthPanel({ compact = false }: { compact?: boolean }) {
   const [snapshot, setSnapshot] = useState<BootHealthSnapshot | null>(null);
@@ -70,6 +72,11 @@ export function BootHealthPanel({ compact = false }: { compact?: boolean }) {
           <li key={item.digest}>
             <code className="break-all">{item.digest}</code> — {item.reasonLabel}
             {item.at ? ` (${item.at})` : ''}
+            <BootQuarantineClear
+              digest={item.digest}
+              reasonLabel={item.reasonLabel}
+              onCleared={() => void read()}
+            />
           </li>
         ))}
       </ul>
@@ -97,6 +104,9 @@ export function BootHealthPanel({ compact = false }: { compact?: boolean }) {
       </button>
       <Link to="/diagnostics?section=Diagnostics">Open Diagnostics</Link>
     </div>
-    <p className="card-copy">Read-only. Clearing a quarantine is a terminal-only action.</p>
+    <p className="card-copy">
+      Read-only apart from clearing a quarantine, which asks for confirmation first. Clearing only
+      lets that image be staged again; it never downloads or restarts anything.
+    </p>
   </section>;
 }

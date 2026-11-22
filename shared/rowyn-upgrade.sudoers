@@ -13,3 +13,7 @@
 %sudo ALL=(root) NOPASSWD: /usr/bin/rowyn-bootc-guard check
 %sudo ALL=(root) NOPASSWD: /usr/bin/rowyn-bootc-guard switch-latest
 %sudo ALL=(root) NOPASSWD: /usr/bin/rowyn-bootc-guard switch-testing
+# The Hub's boot-health panel clears a quarantine through the same helper the
+# terminal uses. The digest travels on stdin, so the grant stays one literal
+# argv with no wildcard to widen it.
+%sudo ALL=(root) NOPASSWD: /usr/libexec/rowyn-boot-health clear-quarantine -

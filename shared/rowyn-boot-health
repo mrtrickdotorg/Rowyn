@@ -578,6 +578,19 @@ def cmd_quarantine(cfg: Config, digest: str, reason: str) -> int:
     return 0
 
 
+def read_digest_argument(digest: str) -> str:
+    """`-` means the digest arrives on stdin instead of argv.
+
+    The Hub's bridge runs one literal, allowlisted argv
+    (`clear-quarantine -`): a caller-supplied digest in argv would need a
+    sudoers wildcard and would be readable by every `ps`. One bounded line
+    keeps the grant literal and the digest out of the process arguments.
+    """
+    if digest != "-":
+        return digest
+    return sys.stdin.readline(4096).strip()
+
+
 def cmd_clear_quarantine(cfg: Config, digest: str) -> int:
     if not DIGEST_RE.fullmatch(digest):
         log(f"not a sha256 image digest: {digest!r}")
@@ -632,7 +645,7 @@ def main(argv: list[str]) -> int:
         return cmd_refuse_downgrade(cfg, args.allow)
     if args.command == "quarantine":
         return cmd_quarantine(cfg, args.digest, args.reason)
-    return cmd_clear_quarantine(cfg, args.digest)
+    return cmd_clear_quarantine(cfg, read_digest_argument(args.digest))
 
 
 if __name__ == "__main__":

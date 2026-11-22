@@ -126,8 +126,8 @@ class BootHealthWiring(unittest.TestCase):
         for forbidden in ("clear-quarantine", "pkexec", "sudo", "systemctl",
                           "invoke(", "fs::", "writeFile"):
             self.assertNotIn(forbidden, panel)
-        self.assertIn("terminal-only action", panel)
-        self.assertIn("Read-only.", panel)
+        self.assertIn("asks for confirmation first", panel)
+        self.assertIn("Read-only", panel)
 
 
 class SettingsCoverage(unittest.TestCase):

@@ -94,7 +94,11 @@ starts polling.
 Updates and Home read `/var/lib/rowyn/boot-health.json` through a bounded,
 root-owned, symlink-refusing native command and a strict frontend model: known
 good count, per-digest failures, quarantine reasons, and rollback attempts. The
-panel is read-only; clearing a quarantine stays a terminal-only action.
+panel reads the record. Clearing one quarantine is the only write, and it asks
+for confirmation first: the Hub runs the same fixed-argument `clear-quarantine -`
+helper the terminal uses, with the digest on stdin, after re-checking that the
+digest is still quarantined in the record it reads itself. Clearing only allows
+that image to be staged again; nothing is downloaded, installed or restarted.
 
 Copy actions try the webview clipboard, fall back to a selection copy, and
 report a typed failure that points at the native report download instead of

@@ -694,7 +694,7 @@ def apply_rowyn_mvp(root):
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source, target)
     commands_mod = web / "src-tauri/src/commands/mod.rs"
-    commands_mod.write_text(commands_mod.read_text() + '\npub(crate) mod rowyn_diagnostics;\npub(crate) mod rowyn_play;\npub(crate) mod rowyn_steam;\npub(crate) mod rowyn_development;\npub(crate) mod rowyn_boot_health;\n')
+    commands_mod.write_text(commands_mod.read_text() + '\npub(crate) mod rowyn_diagnostics;\npub(crate) mod rowyn_play;\npub(crate) mod rowyn_steam;\npub(crate) mod rowyn_development;\npub(crate) mod rowyn_boot_health;\npub(crate) mod rowyn_boot_health_actions;\n')
     main = web / "src-tauri/src/main.rs"
     main.write_text(replace_once(main.read_text(), 'tauri::generate_handler![',
         'tauri::generate_handler![\n'
@@ -708,7 +708,8 @@ def apply_rowyn_mvp(root):
         '            commands::rowyn_development::rowyn_development_job,\n'
         '            commands::rowyn_development::rowyn_development_cancel,\n'
         '            commands::rowyn_development::rowyn_development_open,\n'
-        '            commands::rowyn_boot_health::rowyn_boot_health_snapshot,'))
+                    '            commands::rowyn_boot_health::rowyn_boot_health_snapshot,\n'
+        '            commands::rowyn_boot_health_actions::rowyn_clear_boot_quarantine,'))
     commands_mod = web / "src-tauri/src/commands/mod.rs"
     commands_mod.write_text(commands_mod.read_text() + '\npub(crate) mod rowyn_work;\n')
     main.write_text(replace_once(main.read_text(), 'tauri::generate_handler![',

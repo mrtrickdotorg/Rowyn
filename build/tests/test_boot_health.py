@@ -96,7 +96,7 @@ class Sandbox:
         path.chmod(0o755)
         return path
 
-    def run(self, *args, active=None, rollback_rc=None, extra=None):
+    def run(self, *args, active=None, rollback_rc=None, extra=None, stdin=None):
         env = dict(os.environ)
         env.update({
             "ROWYN_BOOT_HEALTH_DIR": str(self.state),
@@ -118,7 +118,8 @@ class Sandbox:
         if extra:
             env.update(extra)
         return subprocess.run([sys.executable, str(self.helper), *args],
-                              capture_output=True, text=True, timeout=120, env=env)
+                              capture_output=True, text=True, timeout=120, env=env,
+                              input=stdin)
 
     def load(self):
         return json.loads((self.state / "boot-health.json").read_text(encoding="utf-8"))
@@ -272,6 +273,29 @@ class QuarantineCommandTests(unittest.TestCase):
     def test_clearing_an_unquarantined_digest_fails(self):
         sb = Sandbox(self)
         self.assertEqual(sb.run("clear-quarantine", DIGEST).returncode, 1)
+
+    def test_the_hub_bridge_form_reads_the_digest_from_stdin(self):
+        """`clear-quarantine -` is the one literal argv the Hub is granted."""
+        sb = Sandbox(self)
+        self.assertEqual(sb.run("quarantine", DIGEST, "manual").returncode, 0)
+        result = sb.run("clear-quarantine", "-", stdin=DIGEST + "\n")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn(DIGEST, sb.load()["quarantined"])
+        self.assertIn(DIGEST, result.stdout)
+
+    def test_the_stdin_form_validates_like_the_positional_one(self):
+        sb = Sandbox(self)
+        self.assertEqual(sb.run("clear-quarantine", "-", stdin="\n").returncode, 2)
+        self.assertEqual(sb.run("clear-quarantine", "-", stdin="sha256:zz\n").returncode, 2)
+        self.assertEqual(sb.run("clear-quarantine", "-", stdin=DIGEST).returncode, 1)
+
+    def test_a_digest_in_argv_is_still_one_digest(self):
+        """Whitespace after the digest must not become a second argument."""
+        sb = Sandbox(self)
+        self.assertEqual(sb.run("quarantine", DIGEST, "manual").returncode, 0)
+        result = sb.run("clear-quarantine", "-", stdin=f"  {DIGEST}  \nextra\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn(DIGEST, sb.load()["quarantined"])
 
 
 class DowngradeTests(unittest.TestCase):
