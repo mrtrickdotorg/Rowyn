@@ -376,7 +376,8 @@ class MvpSteamGames(unittest.TestCase):
         rust = (ROOT / "build/hub/src-tauri/src/commands/rowyn_steam.rs").read_text()
         for needle in ('MANGOHUD_FLATPAK_PATH', 'MANGOHUD_NATIVE_PATH', 'read_mangohud_config',
                        'pub(crate) async fn rowyn_mangohud_config', 'spawn_blocking',
-                       'native_readable', 'native_settings',
+                       'native_readable', 'native_settings', 'XDG_CONFIG_HOME',
+                       'mangohud_native_config', 'read_mangohud_config_at',
                        '.var/app/com.valvesoftware.Steam/config/MangoHud/MangoHud.conf'):
             self.assertIn(needle, rust)
         # The section names both paths and never creates, edits or backs up the

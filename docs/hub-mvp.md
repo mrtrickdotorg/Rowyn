@@ -89,7 +89,9 @@ minutes, while shaders compile.
 
 **MangoHud settings** follows the launcher boundary selected above. Flathub
 Steam reads `~/.var/app/com.valvesoftware.Steam/config/MangoHud/MangoHud.conf`;
-a host-native MangoHud reads `~/.config/MangoHud/MangoHud.conf`. The read
+a host-native MangoHud reads `$XDG_CONFIG_HOME/MangoHud/MangoHud.conf` when that
+variable is an absolute path (else `~/.config/MangoHud/MangoHud.conf`), shown as
+`~/…` when under home and absolutely otherwise. The read
 reports both paths and the state of the one in use — exists, readable, how many
 settings — and names the other boundary's file so a guide-follower can see why
 their settings do nothing, rather than treating either file as a fallback. The

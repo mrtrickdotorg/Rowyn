@@ -27,7 +27,7 @@ const base = {
   exists: true,
   readable: true,
   settings: 3,
-  native_path: '.config/MangoHud/MangoHud.conf',
+  native_path: '~/.config/MangoHud/MangoHud.conf',
   native_exists: false,
   native_readable: false,
   native_settings: 0,
@@ -46,6 +46,8 @@ test('the path follows the launcher boundary and stays home-relative', () => {
   assert.match(m.mangohudConfigLabel(base), /3 setting\(s\)/);
 });
 
+const brokeredPath = '/mnt/games-config/MangoHud/MangoHud.conf';
+
 test('the host boundary reads the host file, not the sandbox file', () => {
   const both = {
     ...base,
@@ -60,6 +62,13 @@ test('the host boundary reads the host file, not the sandbox file', () => {
   assert.match(label, /5 setting\(s\)/);
   assert.match(label, /~\/\.config\/MangoHud\/MangoHud\.conf/);
   assert.doesNotMatch(label, /3 setting/);
+
+  // An XDG root outside home arrives as an absolute path and is printed as
+  // such, not prefixed with ~/.
+  const xdg = brokeredPath;
+  const xdgState = m.mangohudConfigState({ ...base, native_path: xdg }, 'host');
+  assert.equal(xdgState.path, xdg);
+  assert.match(m.mangohudConfigLabel({ ...base, native_path: xdg }, 'host'), /\/mnt\/games-config\/MangoHud\/MangoHud\.conf/);
   // Flatpak wording still names the sandbox file for the same reading.
   assert.match(m.mangohudConfigLabel(both, 'flatpak'), /3 setting\(s\)/);
 });

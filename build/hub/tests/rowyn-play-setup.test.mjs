@@ -47,7 +47,7 @@ const READY = {
     steam_detected: true, flatpak_steam: true,
     path: '.var/app/com.valvesoftware.Steam/config/MangoHud/MangoHud.conf',
     exists: true, readable: true, settings: 4,
-    native_path: '.config/MangoHud/MangoHud.conf', native_exists: false,
+    native_path: '~/.config/MangoHud/MangoHud.conf', native_exists: false,
     native_readable: false, native_settings: 0, warnings: 0,
   },
   mangohudFailed: false,

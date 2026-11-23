@@ -65,7 +65,8 @@ the MangoHud and vkBasalt switches.
 
 MangoHud's settings live inside the Flathub sandbox at
 `~/.var/app/com.valvesoftware.Steam/config/MangoHud/MangoHud.conf`, and a
-host-native MangoHud reads `~/.config/MangoHud/MangoHud.conf`. Neither path
+host-native MangoHud reads `$XDG_CONFIG_HOME/MangoHud/MangoHud.conf` when that
+variable is set to an absolute path (the `~/.config` path otherwise). Neither path
 is a fallback for the other: a Flatpak game never reads the host file, and a
 host-native game never reads the sandbox one. The Play page follows the
 launcher boundary selected above — sandbox path for Flatpak Steam, host path

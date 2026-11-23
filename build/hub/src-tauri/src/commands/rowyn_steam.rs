@@ -925,14 +925,18 @@ pub(crate) async fn rowyn_steam_shader_cache() -> Result<ShaderCacheStatus, Stri
 // --- MangoHud config path -------------------------------------------------
 // Flathub Steam reads MangoHud's settings inside its sandbox from
 // `~/.var/app/com.valvesoftware.Steam/config/MangoHud/MangoHud.conf`, not the
-// `~/.config/MangoHud/MangoHud.conf` most guides name. This read reports both
-// paths home-relative, whether the sandboxed config exists, and how many
-// settings it holds. It never creates, edits or backs up the file: a missing
-// config is reported as missing, and the page only offers text to copy.
+// `~/.config/MangoHud/MangoHud.conf` most guides name. A host-native MangoHud
+// reads `$XDG_CONFIG_HOME/MangoHud/MangoHud.conf` when that variable is an
+// absolute path, and the home `.config` path otherwise. This read reports both
+// paths (home-relative when they are under home), whether each config exists,
+// and how many settings it holds. It never creates, edits or backs up either
+// file: a missing config is reported as missing, and the page only offers text
+// to copy.
 
 const MANGOHUD_FLATPAK_PATH: &str =
     ".var/app/com.valvesoftware.Steam/config/MangoHud/MangoHud.conf";
 const MANGOHUD_NATIVE_PATH: &str = ".config/MangoHud/MangoHud.conf";
+const MANGOHUD_CONFIG_FILE: &str = "MangoHud/MangoHud.conf";
 const MAX_MANGOHUD_BYTES: u64 = 64 * 1024;
 
 #[derive(Debug, Serialize)]
@@ -947,8 +951,9 @@ pub(crate) struct MangohudConfig {
     readable: bool,
     /// Non-empty, non-comment lines in the existing config.
     settings: usize,
-    /// The host path MangoHud reads outside Flathub Steam.
-    native_path: &'static str,
+    /// The host path MangoHud reads outside Flathub Steam, resolved from
+    /// `$XDG_CONFIG_HOME` when it is an absolute path. `~/…` when under home.
+    native_path: String,
     native_exists: bool,
     native_readable: bool,
     native_settings: usize,
@@ -964,25 +969,48 @@ fn count_mangohud_settings(text: &str) -> usize {
         .count()
 }
 
-/// (exists, readable, settings) for one home-relative config path. A symlinked
-/// or non-regular file counts as present but unread, and a warning keeps that
+/// (exists, readable, settings) for one config path. A symlinked or
+/// non-regular file counts as present but unread, and a warning keeps that
 /// visible instead of reading as an empty config.
-fn mangohud_file(home: &Path, relative: &str, warnings: &mut usize) -> (bool, bool, usize) {
-    let path = home.join(relative);
-    if fs::symlink_metadata(&path).is_err() {
+fn mangohud_file(path: &Path, warnings: &mut usize) -> (bool, bool, usize) {
+    if fs::symlink_metadata(path).is_err() {
         return (false, false, 0);
     }
-    match read_bounded_text(&path, MAX_MANGOHUD_BYTES, warnings) {
+    match read_bounded_text(path, MAX_MANGOHUD_BYTES, warnings) {
         Some(text) => (true, true, count_mangohud_settings(&text)),
         None => (true, false, 0),
     }
 }
 
-fn read_mangohud_config(home: &Path) -> MangohudConfig {
+/// The host config this boundary actually reads, and a display string that
+/// keeps a home path relative: `~/…` under home, the absolute path otherwise.
+fn mangohud_native_config(
+    home: &Path,
+    xdg_config_home: Option<&Path>,
+) -> (std::path::PathBuf, String) {
+    let absolute = xdg_config_home
+        .filter(|dir| dir.is_absolute())
+        .map(|dir| dir.join(MANGOHUD_CONFIG_FILE))
+        .unwrap_or_else(|| home.join(MANGOHUD_NATIVE_PATH));
+    let display = absolute
+        .strip_prefix(home)
+        .map(|relative| format!("~/{}", relative.display()))
+        .unwrap_or_else(|_| absolute.to_string_lossy().into_owned());
+    (absolute, display)
+}
+
+fn read_mangohud_config_at(
+    home: &Path,
+    xdg_config_home: Option<&Path>,
+) -> MangohudConfig {
     let mut warnings = 0;
-    let (exists, readable, settings) = mangohud_file(home, MANGOHUD_FLATPAK_PATH, &mut warnings);
+    let (exists, readable, settings) = mangohud_file(
+        &home.join(MANGOHUD_FLATPAK_PATH),
+        &mut warnings,
+    );
+    let (native_absolute, native_path) = mangohud_native_config(home, xdg_config_home);
     let (native_exists, native_readable, native_settings) =
-        mangohud_file(home, MANGOHUD_NATIVE_PATH, &mut warnings);
+        mangohud_file(&native_absolute, &mut warnings);
     MangohudConfig {
         steam_detected: !steam_roots(home).is_empty(),
         flatpak_steam: home.join(".var/app/com.valvesoftware.Steam").is_dir(),
@@ -990,12 +1018,19 @@ fn read_mangohud_config(home: &Path) -> MangohudConfig {
         exists,
         readable,
         settings,
-        native_path: MANGOHUD_NATIVE_PATH,
+        native_path,
         native_exists,
         native_readable,
         native_settings,
         warnings,
     }
+}
+
+/// Command entry point: the host config path follows XDG_CONFIG_HOME when the
+/// environment sets an absolute one.
+fn read_mangohud_config(home: &Path) -> MangohudConfig {
+    let xdg = std::env::var_os("XDG_CONFIG_HOME").map(std::path::PathBuf::from);
+    read_mangohud_config_at(home, xdg.as_deref())
 }
 
 #[tauri::command]

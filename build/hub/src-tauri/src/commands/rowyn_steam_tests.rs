@@ -369,7 +369,7 @@ fn shader_cache_keeps_junk_and_unreadable_config_visible() {
 fn mangohud_config_reads_the_flatpak_path_without_writing() {
     let temporary = tempfile::tempdir().unwrap();
     let home = temporary.path();
-    let missing = read_mangohud_config(home);
+    let missing = read_mangohud_config_at(home, None);
     assert!(!missing.steam_detected);
     assert!(!missing.flatpak_steam);
     assert!(!missing.exists);
@@ -380,9 +380,10 @@ fn mangohud_config_reads_the_flatpak_path_without_writing() {
     assert!(missing
         .path
         .ends_with(".var/app/com.valvesoftware.Steam/config/MangoHud/MangoHud.conf"));
+    assert_eq!(missing.native_path, "~/.config/MangoHud/MangoHud.conf");
 
     fs::create_dir_all(home.join(".var/app/com.valvesoftware.Steam/.local/share/Steam")).unwrap();
-    let empty = read_mangohud_config(home);
+    let empty = read_mangohud_config_at(home, None);
     assert!(empty.steam_detected);
     assert!(empty.flatpak_steam);
     assert!(!empty.exists);
@@ -391,7 +392,7 @@ fn mangohud_config_reads_the_flatpak_path_without_writing() {
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     let contents = "# the overlay\nfps_limit=0\ngpu_stats\n\n   \ncpu_stats\n";
     fs::write(&path, contents).unwrap();
-    let read = read_mangohud_config(home);
+    let read = read_mangohud_config_at(home, None);
     assert!(read.exists);
     assert!(read.readable);
     assert_eq!(read.settings, 3);
@@ -406,6 +407,51 @@ fn mangohud_config_reads_the_flatpak_path_without_writing() {
 }
 
 #[test]
+fn mangohud_native_path_follows_xdg_config_home_when_it_is_absolute() {
+    let temporary = tempfile::tempdir().unwrap();
+    let home = temporary.path();
+    let xdg = home.join("xdg-config");
+    let conf = xdg.join("MangoHud/MangoHud.conf");
+    fs::create_dir_all(conf.parent().unwrap()).unwrap();
+    fs::write(&conf, "gpu_stats\nfps_limit=0\n").unwrap();
+    // The default path holds a different config that must not be counted.
+    let default = home.join(MANGOHUD_NATIVE_PATH);
+    fs::create_dir_all(default.parent().unwrap()).unwrap();
+    fs::write(&default, "gpu_stats\ncpu_stats\nframe_timing\n").unwrap();
+
+    let resolved = read_mangohud_config_at(home, Some(&xdg));
+    assert_eq!(resolved.native_path, "~/xdg-config/MangoHud/MangoHud.conf");
+    assert!(resolved.native_exists);
+    assert!(resolved.native_readable);
+    assert_eq!(resolved.native_settings, 2);
+    // The Flatpak path is unchanged by XDG_CONFIG_HOME.
+    assert_eq!(
+        resolved.path,
+        ".var/app/com.valvesoftware.Steam/config/MangoHud/MangoHud.conf"
+    );
+    // A read leaves both files byte-identical.
+    assert_eq!(fs::read_to_string(&conf).unwrap(), "gpu_stats\nfps_limit=0\n");
+    assert_eq!(
+        fs::read_to_string(&default).unwrap(),
+        "gpu_stats\ncpu_stats\nframe_timing\n"
+    );
+
+    // Unset (None) or a relative variable falls back to ~/.config.
+    for fallback in [None, Some(Path::new("relative/config"))] {
+        let plain = read_mangohud_config_at(home, fallback);
+        assert_eq!(plain.native_path, "~/.config/MangoHud/MangoHud.conf");
+        assert_eq!(plain.native_settings, 3);
+    }
+
+    // A config root outside home is named absolutely rather than as ~/.
+    let outside = tempfile::tempdir().unwrap();
+    let external = read_mangohud_config_at(home, Some(outside.path()));
+    assert!(!external.native_exists);
+    assert!(external.native_path.starts_with('/'));
+    assert!(!external.native_path.starts_with("~/"));
+}
+
+#[test]
 fn mangohud_config_keeps_the_ignored_host_path_and_unreadable_files_visible() {
     let temporary = tempfile::tempdir().unwrap();
     let home = temporary.path();
@@ -414,7 +460,7 @@ fn mangohud_config_keeps_the_ignored_host_path_and_unreadable_files_visible() {
     fs::write(home.join(MANGOHUD_NATIVE_PATH), "gpu_stats\nfps_limit=0\n").unwrap();
     // The host path exists and is read for the host boundary, but Flathub
     // Steam still does not read it.
-    let native_only = read_mangohud_config(home);
+    let native_only = read_mangohud_config_at(home, None);
     assert!(native_only.steam_detected);
     assert!(!native_only.flatpak_steam);
     assert!(!native_only.exists);
@@ -428,7 +474,7 @@ fn mangohud_config_keeps_the_ignored_host_path_and_unreadable_files_visible() {
     let conf = home.join(MANGOHUD_FLATPAK_PATH);
     fs::create_dir_all(conf.parent().unwrap()).unwrap();
     std::os::unix::fs::symlink(&target, &conf).unwrap();
-    let linked = read_mangohud_config(home);
+    let linked = read_mangohud_config_at(home, None);
     assert!(linked.exists);
     assert!(!linked.readable);
     assert!(linked.warnings > 0);

@@ -13,7 +13,8 @@ import type { MangohudConfig } from './rowynMvp';
 export type MangohudBoundary = 'flatpak' | 'host';
 
 export interface MangohudPathState {
-  /** Home-relative with the `~/` prefix; no absolute home path is printed. */
+  /** `~/…` when under home; the absolute path when XDG_CONFIG_HOME points
+   * outside home. No absolute home path is printed. */
   path: string;
   exists: boolean;
   readable: boolean;
@@ -28,7 +29,7 @@ export function mangohudConfigState(
 ): MangohudPathState {
   return boundary === 'host'
     ? {
-      path: `~/${status.native_path}`,
+      path: status.native_path,
       exists: status.native_exists,
       readable: status.native_readable,
       settings: status.native_settings,
@@ -74,7 +75,7 @@ export function mangohudConfigLabel(
   // player who followed the wrong guide knows why their settings do nothing.
   const other = state.boundary === 'host'
     ? (status.exists ? ` Flathub Steam’s config at ~/${status.path} is not read by host-native MangoHud.` : '')
-    : (status.native_exists ? ` A file at ~/${status.native_path} is ignored by Flathub Steam.` : '');
+    : (status.native_exists ? ` A file at ${status.native_path} is ignored by Flathub Steam.` : '');
   return `MangoHud settings for ${where}: no config yet — ${where} reads ${state.path} and uses MangoHud’s defaults until one exists.${other}${skipped}`;
 }
 
