@@ -62,6 +62,24 @@ test('the cover note counts what was read and says it stayed local', () => {
   assert.equal(m.steamLibraryCoverNote([]), '');
 });
 
+test('one dated provenance note carries the caveats the cards used to repeat', () => {
+  const note = m.steamLibraryProvenance('2026-05-18', 40);
+  assert.match(note, /last checked 2026-05-18/);
+  assert.match(note, /cover 40 titles/);
+  assert.match(note, /Titles without a note show no verdict/);
+  assert.match(note, /no network request/);
+  assert.match(note, /not guarantees/);
+  assert.match(note, /not Rowyn game validation/);
+  // The date and the update caveat appear once, in the section note.
+  assert.equal(note.split('2026-05-18').length - 1, 1);
+  assert.equal(note.split('updates can change').length - 1, 1);
+
+  // Without a dataset, no date is invented and no verdict is claimed.
+  const none = m.steamLibraryProvenance(null, 0);
+  assert.match(none, /no title carries a verdict/i);
+  assert.doesNotMatch(none, /last checked/);
+});
+
 test('the model projects, it does not fetch or measure', () => {
   for (const name of Object.keys(m)) {
     assert.equal(typeof m[name], 'function', name);

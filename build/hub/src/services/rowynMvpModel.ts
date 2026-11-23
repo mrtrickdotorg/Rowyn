@@ -64,14 +64,29 @@ function normalizeTitle(name: string): string {
   return name.toLowerCase().replace(/[™®©]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
+const compatEntries = compatData.games as CompatEntry[];
 const compatByAppId = new Map<string, CompatEntry>();
 const compatByName = new Map<string, CompatEntry>();
-for (const game of compatData.games as CompatEntry[]) {
+for (const game of compatEntries) {
   const match = (game.source_url ?? '').match(/\/app\/(\d+)\//);
   if (match) compatByAppId.set(match[1], game);
   compatByName.set(normalizeTitle(game.name), game);
 }
 
+/**
+ * The dataset's newest check date and its size. The Play page states these
+ * once per section; a card never repeats a date or a "not tested" caveat.
+ */
+export function compatReviewedOn(): string | null {
+  const dates = compatEntries
+    .map((game) => game.checked)
+    .filter((value) => /^\d{4}-\d{2}-\d{2}$/.test(value))
+    .sort();
+  return dates.length ? dates[dates.length - 1] : null;
+}
+export function compatVerdictCount(): number {
+  return compatEntries.length;
+}
 export function compatVerdict(appId: string, name: string): CompatVerdict | null {
   const game = compatByAppId.get(appId) ?? compatByName.get(normalizeTitle(name));
   if (!game) return null;

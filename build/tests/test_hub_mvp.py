@@ -198,7 +198,7 @@ class MvpSteamGames(unittest.TestCase):
     def test_scan_is_manual_read_only_and_never_claims_compatibility(self):
         page = (ROOT / "build/hub/src/pages/RowynPlay.tsx").read_text()
         for needle in ('Scan Steam games (local only)', 'rowynSteamGamesScan',
-                       'not mean Rowyn tested', 'ProtonDB community reports',
+                       'steamLibraryProvenance(', 'ProtonDB community reports',
                        'No scan runs automatically', 'custom library location may not have been scanned'):
             self.assertIn(needle, page)
         service = (ROOT / "build/hub/src/services/rowynMvp.ts").read_text()
@@ -288,6 +288,28 @@ class MvpSteamGames(unittest.TestCase):
         # Covers are bytes from Steam's cache on this disk, never a download.
         for forbidden in ('reqwest', 'TcpStream', 'UdpSocket'):
             self.assertNotIn(forbidden, rust)
+
+    def test_compatibility_provenance_is_one_dated_note_per_section(self):
+        page = (ROOT / "build/hub/src/pages/RowynPlay.tsx").read_text()
+        # The per-title date and "not tested" line are gone from the cards; the
+        # Steam library section states both once, from the dataset itself.
+        self.assertNotIn('Detected from this machine’s Steam metadata', page)
+        self.assertNotIn('Curated verdict checked', page)
+        self.assertNotIn('game updates can change it', page)
+        self.assertEqual(page.count('reviewed 2026-10-31'), 1)
+        for needle in ('steamLibraryProvenance(compatReviewedOn(), compatVerdictCount())',
+                       'verdict && <p className="card-copy"', 'Provenance — reviewed'):
+            self.assertIn(needle, page)
+        model = (ROOT / "build/hub/src/services/rowynSteamLibraryModel.ts").read_text()
+        for needle in ('steamLibraryProvenance', 'last checked',
+                       'Titles without a note show no verdict', 'no network request'):
+            self.assertIn(needle, model)
+        compat = (ROOT / "build/hub/src/services/rowynMvpModel.ts").read_text()
+        for needle in ('compatReviewedOn', 'compatVerdictCount', 'compatEntries'):
+            self.assertIn(needle, compat)
+        # The section note is one date from the shipped dataset, not a second
+        # copy of every entry's date.
+        self.assertNotIn('2026-05-18', model)
 
     def test_shader_pre_caching_reads_steams_flag_without_editing_it(self):
         page = (ROOT / "build/hub/src/pages/RowynPlay.tsx").read_text()

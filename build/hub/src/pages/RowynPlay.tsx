@@ -2,14 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import { ExternalLink } from '../components/ExternalLink';
 import { cancelInstall, fetchInstalledFlatpaks, installFlatpak, uninstallFlatpak, waitInstallJob, invalidateSharedReads, getInFlightJob, type InstalledFlatpaksResult } from '../services/liveData';
 import { rowynControllerScan, openRowynLauncher, rowynSteamGamesScan, rowynSteamRecentPlay, rowynSteamShaderCache, rowynSteamPlayStatus, rowynSteamPlayApply, rowynDisplayModesScan, rowynVulkanLayersScan, rowynVulkanLayerInstall, rowynMangohudConfig, rowynSunshineStatus, rowynSunshineFirewallOpen, rowynSunshineAutostartEnable, rowynGamescopeStatus, rowynGamemodeStatus, type SteamPlayStatus, type DisplayModes, type VulkanLayers, type MangohudConfig, type SunshineStatus, type GamescopeStatus, type GamemodeStatus, type RecentPlay, type ShaderCacheStatus, type ControllerReport } from '../services/rowynMvp';
-import { LAUNCHERS, launcherState, installLauncher, createPlayStatusOwner, launchOptions, steamCompatibilityLinks, compatVerdict, type SteamScan } from '../services/rowynMvpModel';
+import { LAUNCHERS, launcherState, installLauncher, createPlayStatusOwner, launchOptions, steamCompatibilityLinks, compatVerdict, compatReviewedOn, compatVerdictCount, type SteamScan } from '../services/rowynMvpModel';
 import { loadProfiles, saveProfiles, profileFor, isDefaultProfile, assembleProfileOptions, type GameProfile } from '../services/rowynPlayProfilesModel';
 import { openRowynSettings } from '../services/rowynSettings';
 import { playSetupSteps, SETUP_MARKERS } from '../services/rowynPlaySetupModel';
 import { formatPlaytime, formatLastPlayed, recentPlayStatus } from '../services/rowynPlayRecentModel';
 import { shaderPreCachingLabel, SHADER_PRE_CACHING_TIP } from '../services/rowynPlayShaderModel';
 import { mangohudConfigLabel, mangohudConfigPath, MANGOHUD_READ_NOTE, MANGOHUD_RECOMMENDED } from '../services/rowynPlayMangohudModel';
-import { coverInitials, sortSteamGames, steamLibraryCoverNote, steamStateChip } from '../services/rowynSteamLibraryModel';
+import { coverInitials, sortSteamGames, steamLibraryCoverNote, steamLibraryProvenance, steamStateChip } from '../services/rowynSteamLibraryModel';
 import { CONTROLLER_READ_NOTE, controllerAdvice, controllerSummary } from '../services/rowynControllerModel';
 import { copyText } from '../services/rowynClipboard';
 import { useSectionFollow, type SectionMap } from '../hooks/useSectionFollow';
@@ -230,7 +230,7 @@ export function Play() {
       </section>}
     </section>
     <section className="glass dashboard-card" id="hub-section-steam-library"><h2>Steam library</h2>
-      <p className="card-copy">Local metadata only, in the common native and Flatpak locations: recently played comes from Steam’s own local profile, installed titles from Steam’s app manifests when you ask for a scan. Neither reads game files, sends a network request, launches a title, or rates compatibility. ProtonDB links are community reports and do not mean Rowyn tested the game.</p>
+      <p className="card-copy">{steamLibraryProvenance(compatReviewedOn(), compatVerdictCount())}</p>
       <h3>Shader pre-caching</h3>
       <p className="card-copy" role="status">{shaderFailed && !shaderCache ? 'The shader pre-caching read could not run.' : shaderPreCachingLabel(shaderCache)}</p>
       <p className="card-copy">{SHADER_PRE_CACHING_TIP}</p>
@@ -290,8 +290,7 @@ export function Play() {
             <details className="rowyn-disclosure">
               <summary>Launch options</summary>
               <div className="rowyn-disclosure-body">
-                <p className="card-copy">Detected from this machine’s Steam metadata; compatibility was not tested by Rowyn.</p>
-                {verdict && <p className="card-copy"><span className="rowyn-state">{verdict.label}</span> — {verdict.note} Anti-cheat: {verdict.anticheat}. Curated verdict checked {verdict.checked}; game updates can change it.</p>}
+                {verdict && <p className="card-copy"><span className="rowyn-state">{verdict.label}</span> — {verdict.note} Anti-cheat: {verdict.anticheat}.</p>}
                 <h4>Launch profile for this game</h4>
           <p className="card-copy">Remembered per title on this machine and rebuilt below using the boundary chosen in Compatibility (currently: {boundary === 'flatpak' ? 'Flatpak Steam' : 'host-native'}). Paste the result into Steam → Properties → Launch Options for this game; the builder above remains the unsaved default profile.</p>
           <label><input type="checkbox" checked={profile.mangohud} onChange={(event) => updateProfile(item.app_id, { mangohud: event.target.checked })} /> MangoHud overlay</label>
@@ -306,7 +305,7 @@ export function Play() {
           <p className="card-copy">Launch options: <code>{assembled}</code></p>
           <div className="home-actions"><button className="action-button" onClick={() => void copyText(assembled)}>Copy launch options</button>
           {!isDefaultProfile(profile) && <button className="action-button" onClick={() => updateProfile(item.app_id, { mangohud: false, vkbasalt: false, gamescope: false, gamemode: false, gaming: false, mimalloc: false, extra: '' })}>Reset profile</button>}</div>
-                  <div className="home-actions"><ExternalLink href={links.protondb}>ProtonDB community reports (not a guarantee)</ExternalLink>
+                  <div className="home-actions"><ExternalLink href={links.protondb}>ProtonDB community reports</ExternalLink>
                     <ExternalLink href={links.steamStore}>Steam store page</ExternalLink></div>
               </div>
             </details>
@@ -316,8 +315,8 @@ export function Play() {
       {!!steamScan?.warnings && <p className="card-copy" role="status">Partial scan: skipped or unreadable library metadata may hide additional titles.</p>}
     </section>
     <section className="glass dashboard-card" id="hub-section-compatibility"><h2>Compatibility &amp; anti-cheat</h2>
-      <p className="card-copy">Guidance reviewed 2026-10-31; not Rowyn-validated game results. Linux/Proton support changes with game, launcher and anti-cheat updates. Kernel-level Windows anti-cheat generally cannot run under Proton. Easy Anti-Cheat and BattlEye support requires the game developer to enable Linux/Proton support; the middleware name alone proves nothing. Check the exact title and multiplayer mode before buying or installing.</p>
-      <p className="card-copy">Provenance: <ExternalLink href="https://partner.steamgames.com/doc/steamdeck/proton">Valve’s Proton / anti-cheat documentation</ExternalLink> (developer guidance), <ExternalLink href="https://www.protondb.com/">ProtonDB</ExternalLink> and <ExternalLink href="https://areweanticheatyet.com/">Are We Anti-Cheat Yet?</ExternalLink> (community reports, not guarantees). Links require a web browser; no compatibility lookup or network probe runs in this page.</p>
+      <p className="card-copy">Kernel-level Windows anti-cheat generally cannot run under Proton. Easy Anti-Cheat and BattlEye support requires the game developer to enable Linux/Proton support; the middleware name alone proves nothing. Check the exact title and multiplayer mode before buying or installing.</p>
+      <p className="card-copy">Provenance — reviewed 2026-10-31: local guidance, not Rowyn-validated game results, and Linux/Proton support changes with game, launcher and anti-cheat updates. Sources: <ExternalLink href="https://partner.steamgames.com/doc/steamdeck/proton">Valve’s Proton / anti-cheat documentation</ExternalLink> (developer guidance), <ExternalLink href="https://www.protondb.com/">ProtonDB</ExternalLink> and <ExternalLink href="https://areweanticheatyet.com/">Are We Anti-Cheat Yet?</ExternalLink> (community reports, not guarantees). Links require a web browser; no compatibility lookup or network probe runs in this page.</p>
       <label>Game label (local only; never executed)<input value={game} maxLength={80} onChange={(event) => setGame(event.target.value)} placeholder="Your game" /></label>
       <label>Where does this game run?<select value={boundary} onChange={(event) => setBoundary(event.target.value as 'flatpak' | 'host')}><option value="flatpak">Flatpak Steam / sandboxed launcher</option><option value="host">Host-native Steam / host command</option></select></label>
       <label><input type="checkbox" checked={gaming} disabled={boundary === 'flatpak'} onChange={(event) => setGaming(event.target.checked)} /> Use Rowyn gaming slice / GameMode when available</label>

@@ -92,10 +92,18 @@ saw — from the helper's USB rows or from the name of a controller-like input
 device, so a Bluetooth pad gets the same advice as a wired one — and emitted in
 the table's order. The helper's own hint text, device list and USB ids are
 still dropped, and the table names no command or file to change. It is a readiness read, not
-input testing: no button, stick, trigger or rumble test runs. Compatibility copy is
-dated 2026-10-31, sourced to Valve's Proton anti-cheat developer documentation
-and linked community reports; it is **not Rowyn game validation** or an online
-lookup. Links use the Hub's system-browser bridge.
+input testing: no button, stick, trigger or rumble test runs.
+
+Compatibility copy is dated once per section rather than once per title. The
+Compatibility section carries a single provenance note (reviewed 2026-10-31,
+sourced to Valve's Proton anti-cheat developer documentation and linked
+community reports; it is **not Rowyn game validation** or an online lookup),
+and the Steam library section states the curated dataset's own date and size
+once — last checked 2026-05-18, covering 40 titles. A verdict appears only on
+a title that has one; no card repeats a date or a "not tested" label. The
+dataset is re-checked before any release that ships a change to those notes,
+and its date is shown in the library section rather than repeated on each
+card. Links use the Hub's system-browser bridge.
 
 Launch options are per-game copy-only text, not saved config or an execution
 bridge. Host wrappers are for an already-installed host-native launcher. They

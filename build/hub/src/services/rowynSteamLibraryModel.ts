@@ -47,6 +47,17 @@ export function coverInitials(name: string): string {
   return initials || '?';
 }
 
+/** B4: one dated provenance note for the whole Steam library section.
+ * It names what the local reads cover, the curated dataset's date and size,
+ * and that a title without a note carries no verdict — so no card has to
+ * repeat a date or a "not tested" line. */
+export function steamLibraryProvenance(reviewedOn: string | null, verdictCount: number): string {
+  const verdicts = verdictCount && reviewedOn
+    ? `Curated compatibility notes cover ${verdictCount} titles and were last checked ${reviewedOn}; they are guidance, not Rowyn game validation, and game, launcher or anti-cheat updates can change them. Titles without a note show no verdict.`
+    : 'No curated compatibility notes ship with this build, so no title carries a verdict.';
+  return `Local reads only: shader pre-caching, play history, installed titles and cover art come from Steam’s own files, with no network request, no launch and no game-file access. ${verdicts} ProtonDB links are community reports, not guarantees.`;
+}
+
 /** What the cover read established, and what it did not. */
 export function steamLibraryCoverNote(games: SteamGame[]): string {
   if (!games.length) return '';
