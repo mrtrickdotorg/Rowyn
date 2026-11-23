@@ -1,5 +1,6 @@
 //! Small curated launcher opener; installs remain in the existing Flatpak jobs.
 use rowyn_shared::system::process::{run_bounded_command, spawn_detached};
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
@@ -43,19 +44,42 @@ fn scope_apps(scope: &str) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 #[tauri::command]
-pub(crate) async fn rowyn_launcher_open(id: String) -> Result<String, String> {
+pub(crate) async fn rowyn_launcher_open(
+    id: String,
+    gamemode: Option<bool>,
+) -> Result<String, String> {
     launcher_id(&id)?;
+    let gamemode = gamemode.unwrap_or(false);
     tauri::async_runtime::spawn_blocking(move || {
         let user = scope_apps("--user");
         let system = scope_apps("--system");
         let failed: Vec<&str> = [("user", &user), ("system", &system)].iter()
             .filter_map(|(scope, result)| result.is_err().then_some(*scope)).collect();
         let scope = installed_scope(&id, user.as_deref().unwrap_or(""), system.as_deref().unwrap_or(""), &failed)?;
-        let mut command = Command::new("/usr/bin/flatpak");
-        command.args(["run", scope, "--", &id]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+        // GameMode wraps the launcher on the host, so its session hooks run for
+        // as long as the launcher does. The sandbox is never entered or escaped:
+        // gamemoderun starts the same `flatpak run` this command always starts.
+        let mut command = if gamemode {
+            if !Path::new(GAMEMODERUN).is_file() {
+                return Err("GameMode is not installed on this system, so the launcher was not started under it.".into());
+            }
+            let mut command = Command::new(GAMEMODERUN);
+            command.args(["/usr/bin/flatpak", "run", scope, "--", &id]);
+            command
+        } else {
+            let mut command = Command::new("/usr/bin/flatpak");
+            command.args(["run", scope, "--", &id]);
+            command
+        };
+        command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
         spawn_detached(&mut command).map_err(|_| "Could not start launcher.".to_string())?;
         // Detached application: do not claim its window or login succeeded.
-        Ok("Launch requested. If no window appears, inspect the launcher itself; window readiness is not verified.".into())
+        Ok(if gamemode {
+            "Launch requested under GameMode. GameMode stays active while the launcher runs; window readiness is not verified."
+        } else {
+            "Launch requested. If no window appears, inspect the launcher itself; window readiness is not verified."
+        }
+        .into())
     }).await.map_err(|_| "Launcher worker failed".to_string())?
 }
 // --- Display HDR/VRR status -------------------------------------------------
@@ -290,6 +314,145 @@ pub(crate) async fn rowyn_vulkan_layer_install(layer: String) -> Result<VulkanLa
     })
     .await
     .map_err(|_| "Vulkan layer install worker failed".to_string())?
+}
+
+// --- GameMode (gamemoded) state and the Flatpak client ----------------------
+// Rowyn's GameMode hooks (low-latency PipeWire, the performance power profile)
+// only run when something asks gamemoded to start. The per-game launch option
+// for a sandboxed game is `gamemoderun %command%`, which needs the client
+// inside Steam's own sandbox, and the daemon on the host. Both are read here:
+// the Flathub Steam build ships no gamemoderun, so the option is offered only
+// when the deployed app files actually contain it. Nothing is assumed.
+
+const GAMEMODERUN: &str = "/usr/games/gamemoderun";
+
+#[derive(Debug, PartialEq, Clone)]
+struct DaemonState {
+    installed: bool,
+    active: bool,
+    scope: Option<&'static str>,
+}
+
+fn unit_state(raw: &str) -> Option<(String, String)> {
+    let mut load = None;
+    let mut active = None;
+    for line in raw.lines() {
+        let line = line.trim();
+        if let Some(value) = line.strip_prefix("LoadState=") {
+            load = Some(value.trim().to_string());
+        } else if let Some(value) = line.strip_prefix("ActiveState=") {
+            active = Some(value.trim().to_string());
+        }
+    }
+    Some((load?, active?))
+}
+
+/// GameMode's daemon is D-Bus-activated, so an installed-but-inactive unit is
+/// normal and is not reported as broken. A running unit of either scope wins.
+fn daemon_state_from(
+    user: Option<(String, String)>,
+    system: Option<(String, String)>,
+) -> DaemonState {
+    let mut found: Vec<(&'static str, (String, String))> = Vec::new();
+    for (scope, state) in [("user", user), ("system", system)] {
+        if let Some(state) = state {
+            if state.0 != "not-found" && !state.0.is_empty() {
+                found.push((scope, state));
+            }
+        }
+    }
+    match found
+        .iter()
+        .find(|(_, (_, active))| active == "active")
+        .or_else(|| found.first())
+    {
+        Some((scope, (_, active))) => DaemonState {
+            installed: true,
+            active: active == "active",
+            scope: Some(scope),
+        },
+        None => DaemonState {
+            installed: false,
+            active: false,
+            scope: None,
+        },
+    }
+}
+
+fn systemctl_show(scope: &str) -> Option<(String, String)> {
+    let mut command = Command::new("/usr/bin/systemctl");
+    if scope == "user" {
+        command.arg("--user");
+    }
+    command
+        .args(["show", "-p", "LoadState", "-p", "ActiveState", "gamemoded"])
+        .env("LC_ALL", "C");
+    let output = run_bounded_command(command, Duration::from_secs(5)).ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    unit_state(&String::from_utf8_lossy(&output.stdout))
+}
+
+/// The deployed app's `current/active` symlinks point at the current commit, so
+/// no commit hash is guessed. A missing client is a fact about this Steam
+/// build, not an error.
+fn flatpak_gamemoderun_in(roots: &[PathBuf], app_id: &str) -> bool {
+    let relative = Path::new("current/active/files/bin/gamemoderun");
+    roots
+        .iter()
+        .any(|root| root.join("app").join(app_id).join(relative).is_file())
+}
+
+fn flatpak_app_roots(home: &Path) -> Vec<PathBuf> {
+    vec![
+        home.join(".local/share/flatpak"),
+        PathBuf::from("/var/lib/flatpak"),
+    ]
+}
+
+#[derive(Debug, serde::Serialize)]
+pub(crate) struct GamemodeStatus {
+    daemon_installed: bool,
+    daemon_active: bool,
+    daemon_scope: Option<String>,
+    sandbox_client: bool,
+    available: bool,
+    detail: String,
+}
+
+fn gamemode_status(daemon: DaemonState, sandbox_client: bool) -> GamemodeStatus {
+    let detail = if !sandbox_client {
+        "This Steam Flatpak ships no gamemoderun, so `gamemoderun %command%` would fail as an unknown command. Rowyn's GameMode hooks can still cover a whole launcher session: start the launcher under GameMode instead."
+    } else if !daemon.installed {
+        "gamemoderun is present in Steam's sandbox, but gamemoded is not installed, so there is nothing to activate. Install the gamemode daemon."
+    } else {
+        "GameMode activates with this option. Per-process registration fails inside the Flatpak sandbox, so renice and CPU pinning do not apply; Rowyn's session hooks — low-latency audio and the performance power profile — still run on the host."
+    };
+    GamemodeStatus {
+        daemon_installed: daemon.installed,
+        daemon_active: daemon.active,
+        daemon_scope: daemon.scope.map(str::to_string),
+        sandbox_client,
+        available: daemon.installed && sandbox_client,
+        detail: detail.to_string(),
+    }
+}
+
+#[tauri::command]
+pub(crate) async fn rowyn_gamemode_status() -> Result<GamemodeStatus, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let daemon = daemon_state_from(systemctl_show("user"), systemctl_show("system"));
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_default();
+        gamemode_status(
+            daemon,
+            flatpak_gamemoderun_in(&flatpak_app_roots(&home), "com.valvesoftware.Steam"),
+        )
+    })
+    .await
+    .map_err(|_| "GameMode check worker failed".to_string())
 }
 
 // --- Host gamescope availability -------------------------------------------

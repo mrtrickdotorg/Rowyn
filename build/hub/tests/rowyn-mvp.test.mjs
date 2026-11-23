@@ -125,6 +125,17 @@ test('vkBasalt is an env switch on both boundaries and composes with MangoHud', 
   assert.equal(m.launchOptions('host', false, false, false, false), '%command%');
 });
 
+test('GameMode wraps the Flatpak command and never duplicates the host wrapper', () => {
+  assert.equal(m.launchOptions('flatpak', false, false, false, false, true), 'gamemoderun %command%');
+  assert.equal(m.launchOptions('flatpak', false, false, true, false, true), 'MANGOHUD=1 gamemoderun %command%');
+  assert.equal(
+    m.launchOptions('flatpak', false, false, true, true, true),
+    'MANGOHUD=1 ENABLE_VKBASALT=1 gamemoderun %command%');
+  // The host wrapper runs gamemoderun itself, so the flag changes nothing there.
+  assert.equal(m.launchOptions('host', true, false, false, false, true), '/usr/bin/rowyn-game-launch %command%');
+  assert.equal(m.launchOptions('host', false, false, false, false, true), '%command%');
+});
+
 test('curated compat verdicts resolve by app id, then by title, else null', () => {
   const cs2 = m.compatVerdict('730', 'Counter-Strike 2');
   assert.ok(cs2);

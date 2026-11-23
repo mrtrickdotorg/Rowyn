@@ -59,6 +59,61 @@ fn installed_scope_is_explicit_and_missing_scope_is_not_false_success() {
 }
 
 #[test]
+fn gamemode_daemon_prefers_a_running_unit_and_reads_not_found() {
+    let idle = ("loaded".to_string(), "inactive".to_string());
+    let running = ("loaded".to_string(), "active".to_string());
+    let absent = ("not-found".to_string(), "inactive".to_string());
+    let both = daemon_state_from(Some(idle.clone()), Some(running));
+    assert!(both.installed && both.active);
+    assert_eq!(both.scope, Some("system"));
+    let user_only = daemon_state_from(Some(idle), None);
+    assert!(user_only.installed && !user_only.active);
+    assert_eq!(user_only.scope, Some("user"));
+    let missing = daemon_state_from(None, Some(absent));
+    assert!(!missing.installed);
+    assert_eq!(missing.scope, None);
+}
+
+#[test]
+fn unit_state_needs_both_load_and_active_fields() {
+    assert_eq!(
+        unit_state("LoadState=loaded\nActiveState=active\n"),
+        Some(("loaded".to_string(), "active".to_string()))
+    );
+    assert_eq!(unit_state("ActiveState=active\n"), None);
+    assert_eq!(unit_state(""), None);
+}
+
+#[test]
+fn the_sandbox_client_is_read_from_the_deployed_app_files() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("flatpak");
+    let id = "com.valvesoftware.Steam";
+    assert!(!flatpak_gamemoderun_in(&[root.clone()], id));
+    let bin = root.join("app").join(id).join("current/active/files/bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::write(bin.join("gamemoderun"), b"#!/bin/sh\n").unwrap();
+    assert!(flatpak_gamemoderun_in(&[root], id));
+    // A directory of that name is not an executable.
+    assert!(!flatpak_gamemoderun_in(&[temp.path().join("elsewhere")], id));
+}
+
+#[test]
+fn gamemode_status_promises_only_what_both_pieces_support() {
+    let installed = DaemonState { installed: true, active: false, scope: Some("user") };
+    let absent = DaemonState { installed: false, active: false, scope: None };
+    let ready = gamemode_status(DaemonState { installed: true, active: true, scope: Some("user") }, true);
+    assert!(ready.available);
+    assert!(ready.detail.contains("Per-process registration fails"));
+    let no_client = gamemode_status(installed.clone(), false);
+    assert!(!no_client.available);
+    assert!(no_client.detail.contains("ships no gamemoderun"));
+    let no_daemon = gamemode_status(absent, true);
+    assert!(!no_daemon.available);
+    assert!(no_daemon.detail.contains("nothing to activate"));
+}
+
+#[test]
 fn gamescope_is_offered_only_when_the_binary_resolves() {
     let found = gamescope_status_from(Some(std::path::PathBuf::from("/usr/bin/gamescope")));
     assert!(found.available);

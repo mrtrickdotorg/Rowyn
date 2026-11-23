@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ExternalLink } from '../components/ExternalLink';
 import { cancelInstall, fetchInstalledFlatpaks, installFlatpak, uninstallFlatpak, waitInstallJob, invalidateSharedReads, getInFlightJob, type InstalledFlatpaksResult } from '../services/liveData';
-import { rowynControllerScan, openRowynLauncher, rowynSteamGamesScan, rowynSteamPlayStatus, rowynSteamPlayApply, rowynDisplayModesScan, rowynVulkanLayersScan, rowynVulkanLayerInstall, rowynSunshineStatus, rowynSunshineFirewallOpen, rowynSunshineAutostartEnable, rowynGamescopeStatus, type SteamPlayStatus, type DisplayModes, type VulkanLayers, type SunshineStatus, type GamescopeStatus } from '../services/rowynMvp';
+import { rowynControllerScan, openRowynLauncher, rowynSteamGamesScan, rowynSteamPlayStatus, rowynSteamPlayApply, rowynDisplayModesScan, rowynVulkanLayersScan, rowynVulkanLayerInstall, rowynSunshineStatus, rowynSunshineFirewallOpen, rowynSunshineAutostartEnable, rowynGamescopeStatus, rowynGamemodeStatus, type SteamPlayStatus, type DisplayModes, type VulkanLayers, type SunshineStatus, type GamescopeStatus, type GamemodeStatus } from '../services/rowynMvp';
 import { LAUNCHERS, launcherState, installLauncher, createPlayStatusOwner, launchOptions, steamCompatibilityLinks, compatVerdict, type Reading, type SteamScan } from '../services/rowynMvpModel';
 import { loadProfiles, saveProfiles, profileFor, isDefaultProfile, assembleProfileOptions, type GameProfile } from '../services/rowynPlayProfilesModel';
 import { copyText } from '../services/rowynClipboard';
@@ -47,6 +47,8 @@ export function Play() {
   const [mimalloc, setMimalloc] = useState(false);
   const [mangohud, setMangohud] = useState(false);
   const [vkbasalt, setVkbasalt] = useState(false);
+  const [gameMode, setGameMode] = useState(false);
+  const [launchGamemode, setLaunchGamemode] = useState(false);
   const [steamPlay, setSteamPlay] = useState<SteamPlayStatus | null>(null);
   const [layers, setLayers] = useState<VulkanLayers | null>(null);
   const [displays, setDisplays] = useState<DisplayModes | null>(null);
@@ -55,6 +57,8 @@ export function Play() {
   const [sunshine, setSunshine] = useState<SunshineStatus | null>(null);
   const [gamescope, setGamescope] = useState<GamescopeStatus | null>(null);
   const [gamescopeFailed, setGamescopeFailed] = useState(false);
+  const [gamemodeStatus, setGamemodeStatus] = useState<GamemodeStatus | null>(null);
+  const [gamemodeFailed, setGamemodeFailed] = useState(false);
 
   function updateProfile(appId: string, patch: Partial<GameProfile>) {
     setProfiles((current) => {
@@ -66,7 +70,11 @@ export function Play() {
   const [pending, setPending] = useState<PendingLauncher | null>(null);
   const lock = useRef(false);
   const statusOwner = useRef(createPlayStatusOwner(setStatus));
-  const options = launchOptions(boundary, gaming, mimalloc, mangohud, vkbasalt);
+  // GameMode only changes the string when the sandbox it applies to actually
+  // carries the client, so an unusable flag never reaches the copy button.
+  const gamemodeUsable = gamemodeStatus?.available === true;
+  const gamemodeDaemon = gamemodeStatus?.daemon_installed === true;
+  const options = launchOptions(boundary, gaming, mimalloc, mangohud, vkbasalt, gamemodeUsable ? gameMode : false);
   const tracked = activeInstall ?? getInFlightJob('install');
   async function refreshLaunchers() {
     invalidateSharedReads('installed-flatpaks');
@@ -86,12 +94,15 @@ export function Play() {
     void run('Reading installed launchers…', refreshLaunchers);
   }, []);
   useEffect(() => {
-    // Host gamescope availability gates the per-game option, so it is read
-    // once when the page opens. A PATH lookup, not a command run: no timers.
+    // Host gamescope and GameMode availability gate per-game options, so both
+    // are read once when the page opens. Bounded reads, never timers.
     let cancelled = false;
     rowynGamescopeStatus()
       .then((next) => { if (!cancelled) setGamescope(next); })
       .catch(() => { if (!cancelled) setGamescopeFailed(true); });
+    rowynGamemodeStatus()
+      .then((next) => { if (!cancelled) setGamemodeStatus(next); })
+      .catch(() => { if (!cancelled) setGamemodeFailed(true); });
     return () => { cancelled = true; };
   }, []);
   async function confirmPending() {
@@ -129,13 +140,15 @@ export function Play() {
       <p className="card-copy" role="status">{status}</p>
       {installedCount !== null && <p className="card-copy">{installedCount} of {LAUNCHERS.length} launchers installed for this account.</p>}
       {busy && <p className="card-copy" role="progressbar" aria-label="Play action in progress">Working… Install jobs remain cancellable here or in Apps.</p>}
+      {gamemodeDaemon && <p className="card-copy"><label><input type="checkbox" checked={launchGamemode} onChange={(event) => setLaunchGamemode(event.target.checked)} /> Start launchers under GameMode (whole session: Rowyn&apos;s performance power profile and low-latency audio stay on while the launcher runs)</label></p>}
+      {gamemodeStatus && !gamemodeDaemon && <p className="card-copy">GameMode&apos;s daemon (gamemoded) was not found, so launchers start normally.</p>}
       <div className="rowyn-launchers">{LAUNCHERS.map((launcher) => {
         const state = launcherState(launcher.id, scan);
         const detail = launcherStateDetail(scan, state);
         return <article className="rowyn-launcher" key={launcher.id}><h2>{launcher.name}</h2>
           <p className="card-copy">{launcher.description}</p><p className="rowyn-state">{launcherStateLabel(scan, state)}</p><code>{launcher.id}</code>
           {detail && <p className="card-copy">{detail}</p>}
-          <div className="home-actions"><button className="action-button" disabled={busy || state !== 'installed'} onClick={() => run(`Opening ${launcher.name}…`, () => openRowynLauncher(launcher.id))}>Open {launcher.name}</button>
+          <div className="home-actions"><button className="action-button" disabled={busy || state !== 'installed'} onClick={() => run(`Opening ${launcher.name}…`, () => openRowynLauncher(launcher.id, launchGamemode))}>Open {launcher.name}</button>
           <button className="action-button" disabled={busy || !!pending || state !== 'not installed' || !!tracked} onClick={() => setPending({ kind: 'install', id: launcher.id, name: launcher.name })}>Install {launcher.name}</button>
           <button className="action-button" disabled={busy || !!pending || state !== 'installed' || !!tracked} onClick={() => setPending({ kind: 'remove', id: launcher.id, name: launcher.name })}>Remove {launcher.name}</button></div>
         </article>;
@@ -172,10 +185,16 @@ export function Play() {
         const profile = profileFor(profiles, item.app_id);
         // gamescope is a host-side wrapper, never a Flatpak layer step: the
         // option is offered only on the host boundary, and only when this
-        // session resolves the binary. A saved flag is masked rather than
-        // emitted as a prefix that would fail at launch.
+        // session resolves the binary. GameMode is the mirror image: the client
+        // has to exist inside Steam's sandbox. Either saved flag is masked
+        // rather than emitted as a command that would fail at launch.
         const gamescopeUsable = boundary === 'host' && gamescope?.available === true;
-        const assembled = assembleProfileOptions(boundary, gamescopeUsable ? profile : { ...profile, gamescope: false });
+        const profileForAssembly = {
+          ...profile,
+          gamescope: gamescopeUsable ? profile.gamescope : false,
+          gamemode: gamemodeUsable ? profile.gamemode : false,
+        };
+        const assembled = assembleProfileOptions(boundary, profileForAssembly);
         return <article className="rowyn-launcher" key={item.app_id}><h3>{item.name}</h3>
           <p className="card-copy">Steam App ID {item.app_id} · detected from local metadata; compatibility not tested by Rowyn.</p>
           {verdict && <p className="card-copy"><span className="rowyn-state">{verdict.label}</span> — {verdict.note} Anti-cheat: {verdict.anticheat}. Curated verdict checked {verdict.checked}; game updates can change it.</p>}
@@ -183,6 +202,8 @@ export function Play() {
           <p className="card-copy">Remembered per title on this machine and rebuilt below using the boundary chosen in Compatibility (currently: {boundary === 'flatpak' ? 'Flatpak Steam' : 'host-native'}). Paste the result into Steam → Properties → Launch Options for this game; the builder above remains the unsaved default profile.</p>
           <label><input type="checkbox" checked={profile.mangohud} onChange={(event) => updateProfile(item.app_id, { mangohud: event.target.checked })} /> MangoHud overlay</label>
           <label><input type="checkbox" checked={profile.vkbasalt} onChange={(event) => updateProfile(item.app_id, { vkbasalt: event.target.checked })} /> vkBasalt post-processing</label>
+          {boundary === 'flatpak' && gamemodeUsable && <label><input type="checkbox" checked={profile.gamemode} onChange={(event) => updateProfile(item.app_id, { gamemode: event.target.checked })} /> GameMode (gamemoderun %command%): audio and power-profile hooks apply; renice and CPU pinning cannot inside the sandbox</label>}
+          {boundary === 'flatpak' && !gamemodeUsable && <p className="card-copy">{gamemodeFailed ? 'GameMode availability could not be read, so the option is not offered.' : gamemodeStatus ? gamemodeStatus.detail : 'Checking for GameMode…'}</p>}
           {gamescopeUsable && <label><input type="checkbox" checked={profile.gamescope} onChange={(event) => updateProfile(item.app_id, { gamescope: event.target.checked })} /> gamescope (host: wraps this command in the gamescope compositor)</label>}
           {boundary === 'host' && !gamescopeUsable && <p className="card-copy">{gamescopeFailed ? 'gamescope availability could not be read, so the option is not offered.' : gamescope ? gamescope.detail : 'Checking for gamescope…'}</p>}
           <label><input type="checkbox" checked={profile.gaming} disabled={boundary === 'flatpak'} onChange={(event) => updateProfile(item.app_id, { gaming: event.target.checked })} /> Rowyn gaming slice / GameMode wrapper (host only)</label>
@@ -190,7 +211,7 @@ export function Play() {
           <label>Extra launch options (kept verbatim)<input value={profile.extra} maxLength={200} onChange={(event) => updateProfile(item.app_id, { extra: event.target.value })} placeholder="e.g. -high or PROTON_LOG=1" /></label>
           <p className="card-copy">Launch options: <code>{assembled}</code></p>
           <div className="home-actions"><button className="action-button" onClick={() => void copyText(assembled)}>Copy launch options</button>
-          {!isDefaultProfile(profile) && <button className="action-button" onClick={() => updateProfile(item.app_id, { mangohud: false, vkbasalt: false, gamescope: false, gaming: false, mimalloc: false, extra: '' })}>Reset profile</button>}</div>
+          {!isDefaultProfile(profile) && <button className="action-button" onClick={() => updateProfile(item.app_id, { mangohud: false, vkbasalt: false, gamescope: false, gamemode: false, gaming: false, mimalloc: false, extra: '' })}>Reset profile</button>}</div>
           <div className="home-actions"><ExternalLink href={links.protondb}>ProtonDB community reports (not a guarantee)</ExternalLink>
             <ExternalLink href={links.steamStore}>Steam store page</ExternalLink></div>
         </article>;
@@ -203,6 +224,8 @@ export function Play() {
       <label>Game label (local only; never executed)<input value={game} maxLength={80} onChange={(event) => setGame(event.target.value)} placeholder="Your game" /></label>
       <label>Where does this game run?<select value={boundary} onChange={(event) => setBoundary(event.target.value as 'flatpak' | 'host')}><option value="flatpak">Flatpak Steam / sandboxed launcher</option><option value="host">Host-native Steam / host command</option></select></label>
       <label><input type="checkbox" checked={gaming} disabled={boundary === 'flatpak'} onChange={(event) => setGaming(event.target.checked)} /> Use Rowyn gaming slice / GameMode when available</label>
+      {boundary === 'flatpak' && gamemodeUsable && <label><input type="checkbox" checked={gameMode} onChange={(event) => setGameMode(event.target.checked)} /> GameMode (gamemoderun %command%): Rowyn&apos;s low-latency audio and performance power profile apply; renice and CPU pinning cannot inside the sandbox</label>}
+      {boundary === 'flatpak' && !gamemodeUsable && <p className="card-copy">{gamemodeFailed ? 'GameMode availability could not be read, so the option is not offered.' : gamemodeStatus ? gamemodeStatus.detail : 'Checking for GameMode…'}</p>}
       <label><input type="checkbox" checked={mimalloc} disabled={boundary === 'flatpak'} onChange={(event) => setMimalloc(event.target.checked)} /> Try mimalloc for this game only (experimental; may regress or warn on 32-bit games)</label>
       <label><input type="checkbox" checked={mangohud} onChange={(event) => setMangohud(event.target.checked)} /> MangoHud overlay (frame rate and frame-time readout; needs the MangoHud Vulkan layer below)</label>
       <label><input type="checkbox" checked={vkbasalt} onChange={(event) => setVkbasalt(event.target.checked)} /> vkBasalt post-processing (sharpening and colour effects such as CAS; needs the vkBasalt Vulkan layer below)</label>

@@ -16,6 +16,10 @@ export interface GameProfile {
    * page's layer card); on the host boundary this emits the gamescope
    * wrapper prefix for a Distrobox/native gamescope install. */
   gamescope: boolean;
+  /** Rule GameMode in on the Flatpak boundary: emits `gamemoderun %command%`.
+   * The host boundary already runs gamemoderun through rowyn-game-launch, so
+   * this flag changes nothing there. */
+  gamemode: boolean;
   gaming: boolean;
   mimalloc: boolean;
   /** Free-form extra launch options, appended verbatim. */
@@ -26,6 +30,7 @@ export const EMPTY_PROFILE: GameProfile = {
   mangohud: false,
   vkbasalt: false,
   gamescope: false,
+  gamemode: false,
   gaming: false,
   mimalloc: false,
   extra: '',
@@ -50,6 +55,7 @@ function sanitizeProfile(value: unknown): GameProfile {
     mangohud: raw.mangohud === true,
     vkbasalt: raw.vkbasalt === true,
     gamescope: raw.gamescope === true,
+    gamemode: raw.gamemode === true,
     gaming: raw.gaming === true,
     mimalloc: raw.mimalloc === true,
     extra: typeof raw.extra === 'string' ? raw.extra : '',
@@ -93,7 +99,8 @@ export function profileFor(profiles: Record<string, GameProfile>, appId: string)
 
 export function isDefaultProfile(profile: GameProfile): boolean {
   return !profile.mangohud && !profile.vkbasalt && !profile.gamescope
-    && !profile.gaming && !profile.mimalloc && profile.extra.trim() === '';
+    && !profile.gamemode && !profile.gaming && !profile.mimalloc
+    && profile.extra.trim() === '';
 }
 
 /**
@@ -107,7 +114,7 @@ export function isDefaultProfile(profile: GameProfile): boolean {
  * branch on the Play page, is what carries it.
  */
 export function assembleProfileOptions(boundary: 'flatpak' | 'host', profile: GameProfile): string {
-  const base = launchOptions(boundary, profile.gaming, profile.mimalloc, profile.mangohud, profile.vkbasalt);
+  const base = launchOptions(boundary, profile.gaming, profile.mimalloc, profile.mangohud, profile.vkbasalt, profile.gamemode);
   const withScope = boundary === 'host' && profile.gamescope ? insertGamescope(base, profile) : base;
   const extra = profile.extra.trim();
   return extra ? `${withScope} ${extra}` : withScope;

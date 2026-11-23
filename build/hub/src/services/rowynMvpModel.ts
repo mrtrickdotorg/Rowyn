@@ -122,7 +122,7 @@ export function createPlayStatusOwner(write: (message: string) => void) {
     },
   };
 }
-export function launchOptions(boundary: 'flatpak' | 'host', gaming: boolean, mimalloc: boolean, mangohud = false, vkbasalt = false): string {
+export function launchOptions(boundary: 'flatpak' | 'host', gaming: boolean, mimalloc: boolean, mangohud = false, vkbasalt = false, gamemode = false): string {
   // MangoHud and vkBasalt are environment switches, not wrapper binaries:
   // MANGOHUD=1 / ENABLE_VKBASALT=1 activate the Vulkan layers wherever the
   // layers themselves are installed — inside the Flatpak (the Freedesktop
@@ -131,7 +131,11 @@ export function launchOptions(boundary: 'flatpak' | 'host', gaming: boolean, mim
   // Distrobox/terminal context). The env assignments must precede any
   // wrapper path on the host boundary.
   const env = [mangohud ? 'MANGOHUD=1' : '', vkbasalt ? 'ENABLE_VKBASALT=1' : ''].filter(Boolean).join(' ');
-  if (boundary === 'flatpak') return [env, '%command%'].filter(Boolean).join(' ');
+  // GameMode wraps the sandboxed command with the client that ships inside
+  // Steam's own Flatpak — the image's /usr/games/gamemoderun is not reachable
+  // there. On the host boundary rowyn-game-launch already runs gamemoderun,
+  // so the flag is only meaningful here.
+  if (boundary === 'flatpak') return [env, gamemode ? 'gamemoderun' : '', '%command%'].filter(Boolean).join(' ');
   return [env, gaming ? '/usr/bin/rowyn-game-launch' : '', mimalloc ? '/usr/bin/rowyn-mimalloc-run' : '', '%command%'].filter(Boolean).join(' ');
 }
 export function steamCompatibilityLinks(appId: string) {

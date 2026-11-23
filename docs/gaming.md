@@ -63,6 +63,36 @@ branch Steam actually uses, installs the missing ones, and its
 launch-options builder — including the per-game profiles — composes
 the MangoHud and vkBasalt switches.
 
+## GameMode for Flatpak Steam games
+
+GameMode is installed in the image, and `/etc/gamemode.ini` hooks Rowyn's
+low-latency PipeWire quantum (256 samples) and the `performance` power
+profile onto every GameMode session. Whether a *sandboxed* Steam game can
+ask for one depends on the client inside Steam's own Flatpak:
+`gamemoderun %command%` runs `/app`-side, and the host's
+`/usr/games/gamemoderun` is not reachable from there. The Play page reads
+the deployed Steam app files and offers the per-game GameMode option only
+when that build actually ships `gamemoderun`. The current Flathub build
+does not, and the page says so rather than handing the player a launch
+option that would fail as an unknown command.
+
+Where the option is offered, the limits are stated with it. GameMode's
+per-process registration does not cross the Flatpak PID namespace
+(`gamemoded -s <pid>` reports the game as active but not registered), so
+`renice` and CPU pinning do not reach the game, and MangoHud's GameMode
+chip reads off for the same reason. The daemon-side hooks do apply: the
+session drops to the short audio quantum and the power profile moves to
+`performance` while GameMode is active. The daemon is D-Bus-activated, so
+an installed-but-inactive `gamemoded` is normal and is not reported as
+broken.
+
+The route that works with today's Steam build covers the launcher instead:
+**Start launchers under GameMode** on the Play page starts
+`flatpak run …` through `/usr/games/gamemoderun`, so GameMode is active for
+as long as the launcher is. It is opt-in and per session for a reason —
+the power profile and raised clocks last until the launcher exits,
+including time spent in the store or the friends list.
+
 gamescope's per-game option is host-only, and honest about it: it
 prefixes a native command with the `gamescope` binary, so the Play page
 offers it only on the host boundary and only when `gamescope` resolves

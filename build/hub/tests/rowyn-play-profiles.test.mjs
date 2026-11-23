@@ -28,7 +28,7 @@ function fakeStorage() {
   };
 }
 
-const FULL = { mangohud: true, vkbasalt: true, gamescope: false, gaming: true, mimalloc: true, extra: '' };
+const FULL = { mangohud: true, vkbasalt: true, gamescope: false, gamemode: true, gaming: true, mimalloc: true, extra: '' };
 
 test('profiles persist per title and survive a reload', () => {
   const storage = fakeStorage();
@@ -69,10 +69,20 @@ test('the default profile assembles to the stateless strings', () => {
 test('assembly composes env switches, wrappers and extras in order', () => {
   assert.equal(
     m.assembleProfileOptions('flatpak', { ...FULL, extra: '-high' }),
-    'MANGOHUD=1 ENABLE_VKBASALT=1 %command% -high');
+    'MANGOHUD=1 ENABLE_VKBASALT=1 gamemoderun %command% -high');
+  // Host keeps its own wrapper, which already runs gamemoderun — the saved
+  // GameMode flag must not be prefixed a second time.
   assert.equal(
     m.assembleProfileOptions('host', FULL),
     'MANGOHUD=1 ENABLE_VKBASALT=1 /usr/bin/rowyn-game-launch /usr/bin/rowyn-mimalloc-run %command%');
+});
+
+test('GameMode composes on the Flatpak boundary only', () => {
+  assert.equal(
+    m.assembleProfileOptions('flatpak', { ...m.EMPTY_PROFILE, gamemode: true }),
+    'gamemoderun %command%');
+  assert.equal(m.assembleProfileOptions('host', { ...m.EMPTY_PROFILE, gamemode: true }), '%command%');
+  assert.equal(m.isDefaultProfile({ ...m.EMPTY_PROFILE, gamemode: true }), false);
 });
 
 test('gamescope prefixes the host boundary after the env switches only', () => {

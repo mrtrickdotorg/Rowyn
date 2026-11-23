@@ -20,9 +20,9 @@ export async function exportRowynReport(report: string): Promise<string> {
   nativeOnly();
   return invoke<string>('rowyn_export_report', { report });
 }
-export async function openRowynLauncher(id: string): Promise<string> {
+export async function openRowynLauncher(id: string, gamemode = false): Promise<string> {
   nativeOnly();
-  return invoke<string>('rowyn_launcher_open', { id });
+  return invoke<string>('rowyn_launcher_open', { id, gamemode });
 }
 export async function rowynSteamGamesScan(): Promise<SteamScan> {
   nativeOnly();
@@ -47,6 +47,11 @@ export interface VulkanLayers { steam_runtime_branch: string | null; mangohud_br
 export async function rowynVulkanLayersScan(): Promise<VulkanLayers> {
   nativeOnly();
   return invoke<VulkanLayers>('rowyn_vulkan_layers_scan');
+}
+export interface GamemodeStatus { daemon_installed: boolean; daemon_active: boolean; daemon_scope: string | null; sandbox_client: boolean; available: boolean; detail: string }
+export async function rowynGamemodeStatus(): Promise<GamemodeStatus> {
+  nativeOnly();
+  return invoke<GamemodeStatus>('rowyn_gamemode_status');
 }
 export interface GamescopeStatus { available: boolean; detail: string }
 export async function rowynGamescopeStatus(): Promise<GamescopeStatus> {
