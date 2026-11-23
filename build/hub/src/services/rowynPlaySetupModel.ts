@@ -1,16 +1,17 @@
-// Play's "Get set up to play" strip: the four steps a new player has to
-// clear, projected from readings the page already performs. It adds no
-// bridge call and no timer of its own — the page runs Steam Play, Vulkan
-// layers, displays and controllers once on open, and the same readings feed
-// the sections below. A step is only ever "done" because a reading says so.
+// Play's "Get set up to play" strip: the steps a new player has to clear,
+// projected from readings the page already performs. It adds no bridge call
+// and no timer of its own — the page runs Steam Play, Vulkan layers, displays
+// and controllers, and reads shader pre-caching, recent play and the MangoHud
+// config once on open; the same readings feed the sections below. A step is
+// only ever "done" because a reading says so.
 
-import type { SteamPlayStatus, VulkanLayers } from './rowynMvp';
+import type { MangohudConfig, RecentPlay, ShaderCacheStatus, SteamPlayStatus, VulkanLayers } from './rowynMvp';
 import type { Reading } from './rowynMvpModel';
 
 export type SetupState = 'done' | 'todo' | 'pending' | 'unknown';
 
 export interface SetupStep {
-  key: 'steam' | 'steamPlay' | 'layers' | 'controllers';
+  key: 'steam' | 'steamPlay' | 'layers' | 'shader' | 'recent' | 'mangohud' | 'controllers';
   label: string;
   hint: string;
   state: SetupState;
@@ -33,6 +34,12 @@ export interface PlaySetupInput {
   layersFailed: boolean;
   controllers: Reading[] | null;
   controllersFailed: boolean;
+  shaderCache: ShaderCacheStatus | null;
+  shaderFailed: boolean;
+  recentPlay: RecentPlay | null;
+  recentFailed: boolean;
+  mangohudConfig: MangohudConfig | null;
+  mangohudFailed: boolean;
 }
 
 const LAYERS = [
@@ -156,6 +163,136 @@ function layersStep(input: PlaySetupInput): SetupStep {
   };
 }
 
+function shaderStep(input: PlaySetupInput): SetupStep {
+  const { shaderCache } = input;
+  if (!shaderCache) {
+    return {
+      key: 'shader',
+      label: 'Check shader pre-caching',
+      hint: input.shaderFailed
+        ? 'Steam’s shader setting could not be read; use Check shader pre-caching.'
+        : 'Reading Steam’s shader setting…',
+      state: unresolved(input.shaderFailed),
+    };
+  }
+  if (!shaderCache.steam_detected) {
+    return {
+      key: 'shader',
+      label: 'Check shader pre-caching',
+      hint: 'Steam was not detected, so its shader setting cannot be read.',
+      state: 'unknown',
+    };
+  }
+  if (!shaderCache.config_read) {
+    return {
+      key: 'shader',
+      label: 'Check shader pre-caching',
+      hint: 'Steam’s config.vdf could not be read; start Steam once and check again.',
+      state: 'unknown',
+    };
+  }
+  if (shaderCache.pre_caching === false) {
+    // A real choice, but the one setting that decides whether a first launch
+    // stutters, so the strip names where to change it rather than assuming.
+    return {
+      key: 'shader',
+      label: 'Enable Shader Pre-Caching',
+      hint: 'Steam’s own setting is off. Turn it on in Steam → Settings → Downloads so shaders compile ahead of time; Rowyn does not change it.',
+      state: 'todo',
+    };
+  }
+  return {
+    key: 'shader',
+    label: shaderCache.pre_caching === true ? 'Shader pre-caching on' : 'Shader pre-caching at default',
+    hint: shaderCache.pre_caching === true
+      ? 'Steam’s own setting is on.'
+      : 'Steam has not recorded the setting, so its default (on) applies.',
+    state: 'done',
+  };
+}
+
+function recentStep(input: PlaySetupInput): SetupStep {
+  const { recentPlay } = input;
+  if (!recentPlay) {
+    return {
+      key: 'recent',
+      label: 'Read recent play',
+      hint: input.recentFailed
+        ? 'Steam’s play history could not be read; use Refresh recently played.'
+        : 'Reading Steam’s play history…',
+      state: unresolved(input.recentFailed),
+    };
+  }
+  if (!recentPlay.steam_detected) {
+    return {
+      key: 'recent',
+      label: 'Read recent play',
+      hint: 'Steam was not detected, so there is no local play history to read.',
+      state: 'unknown',
+    };
+  }
+  if (!recentPlay.profile_read) {
+    return {
+      key: 'recent',
+      label: 'Read recent play',
+      hint: 'Steam’s local profile could not be read; start Steam once and refresh.',
+      state: 'unknown',
+    };
+  }
+  return {
+    key: 'recent',
+    label: 'Recent play read',
+    hint: recentPlay.games.length
+      ? `Steam records ${recentPlay.games.length} recently played title(s); Rowyn measured nothing here.`
+      : 'Steam records no recently played title with a local name yet.',
+    state: 'done',
+  };
+}
+
+function mangohudStep(input: PlaySetupInput): SetupStep {
+  const { mangohudConfig } = input;
+  if (!mangohudConfig) {
+    return {
+      key: 'mangohud',
+      label: 'Check MangoHud settings',
+      hint: input.mangohudFailed
+        ? 'The MangoHud settings read could not run; use Check MangoHud settings.'
+        : 'Reading MangoHud’s configuration…',
+      state: unresolved(input.mangohudFailed),
+    };
+  }
+  if (!mangohudConfig.steam_detected) {
+    return {
+      key: 'mangohud',
+      label: 'Check MangoHud settings',
+      hint: 'Steam was not detected, so there is no MangoHud config to read.',
+      state: 'unknown',
+    };
+  }
+  if (mangohudConfig.exists && mangohudConfig.readable) {
+    return {
+      key: 'mangohud',
+      label: 'MangoHud settings read',
+      hint: `${mangohudConfig.settings} setting(s) in ~/${mangohudConfig.path}; the overlay still needs MANGOHUD=1 in the launch options.`,
+      state: 'done',
+    };
+  }
+  if (mangohudConfig.exists) {
+    return {
+      key: 'mangohud',
+      label: 'Check MangoHud settings',
+      hint: `~/${mangohudConfig.path} exists but could not be read; use Check MangoHud settings.`,
+      state: 'unknown',
+    };
+  }
+  return {
+    key: 'mangohud',
+    label: 'Set up MangoHud (optional)',
+    hint: `No config yet at ~/${mangohudConfig.path}; MangoHud uses its defaults. Copy the recommended config under Compatibility if you want the overlay.`,
+    state: 'todo',
+  };
+}
+
 function controllersStep(input: PlaySetupInput): SetupStep {
   const { controllers } = input;
   if (!controllers) {
@@ -185,5 +322,13 @@ function controllersStep(input: PlaySetupInput): SetupStep {
 }
 
 export function playSetupSteps(input: PlaySetupInput): SetupStep[] {
-  return [steamStep(input.steam), steamPlayStep(input), layersStep(input), controllersStep(input)];
+  return [
+    steamStep(input.steam),
+    steamPlayStep(input),
+    layersStep(input),
+    shaderStep(input),
+    recentStep(input),
+    mangohudStep(input),
+    controllersStep(input),
+  ];
 }

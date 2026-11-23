@@ -151,6 +151,11 @@ export function Play() {
     rowynSteamShaderCache()
       .then((next) => { if (!cancelled) setShaderCache(next); })
       .catch(() => { if (!cancelled) setShaderFailed(true); });
+    // A7: the config read is bounded and read-only too, so the setup strip can
+    // project it instead of leaving a step that never resolves.
+    rowynMangohudConfig()
+      .then((next) => { if (!cancelled) setMangohudConfig(next); })
+      .catch(() => { if (!cancelled) setMangohudFailed(true); });
     return () => { cancelled = true; };
   }, []);
   async function confirmPending() {
@@ -182,6 +187,9 @@ export function Play() {
     layersFailed: checkFailure.layers === true,
     controllers: controllers?.findings ?? null,
     controllersFailed: checkFailure.controllers === true,
+    shaderCache, shaderFailed,
+    recentPlay, recentFailed,
+    mangohudConfig, mangohudFailed,
   });
   return <div className="page-content rowyn-mvp">
     <section className="glass dashboard-card" id="hub-section-gaming">
