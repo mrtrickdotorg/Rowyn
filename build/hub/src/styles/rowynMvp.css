@@ -211,3 +211,34 @@
 .rowyn-setup-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .rowyn-setup-body strong { font-size: .92rem; }
 .rowyn-setup-hint { font-size: .82rem; line-height: 1.5; color: var(--text-muted, #a7adb9); }
+
+/* Play → Steam library: the list leads with cached cover art, and each title's
+   settings fold into one disclosure so the section reads as a library rather
+   than a configuration screen. */
+.rowyn-library { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr)); gap: 12px; margin-top: 16px; }
+.rowyn-library-card { display: grid; grid-template-columns: 116px minmax(0, 1fr); align-items: start; gap: 14px; padding: 14px; border: 1px solid var(--hairline, rgba(255,255,255,.12)); border-radius: 16px; background: linear-gradient(145deg, rgba(255,255,255,.035), rgba(255,255,255,.012)); transition: border-color .18s ease; }
+.rowyn-library-card:hover { border-color: var(--accent-tint-border, rgba(77,141,255,.4)); }
+.rowyn-library-cover { display: block; width: 116px; aspect-ratio: 2 / 3; object-fit: cover; border: 1px solid var(--hairline, rgba(255,255,255,.1)); border-radius: 10px; background: rgba(0,0,0,.28); }
+.rowyn-library-cover.is-empty { display: grid; place-items: center; color: var(--text-muted, #a7adb9); font-size: 1.5rem; font-weight: 750; letter-spacing: .06em; background: linear-gradient(150deg, rgba(77,141,255,.14), rgba(118,104,245,.1)); }
+.rowyn-library-body { display: flex; min-width: 0; flex-direction: column; gap: 6px; }
+.rowyn-library-body h3 { margin: 0; overflow-wrap: anywhere; font-size: 1rem; letter-spacing: -.015em; }
+.rowyn-library-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; }
+.rowyn-library-meta > span:not(.rowyn-state) { color: var(--text-muted, #a7adb9); font-size: .74rem; }
+.rowyn-library-meta .rowyn-state.is-native { border-color: rgba(120, 210, 155, .45); color: #9be6b8; }
+.rowyn-library-meta .rowyn-state.is-proton { border-color: rgba(120, 175, 230, .45); color: #a8cdff; }
+.rowyn-library-meta .rowyn-state.is-tweaks { border-color: rgba(228, 205, 120, .4); color: #e7d79e; }
+.rowyn-library-meta .rowyn-state.is-blocked { border-color: rgba(235, 130, 130, .45); color: #f0a8a8; }
+.rowyn-disclosure { margin-top: 2px; }
+.rowyn-disclosure > summary { cursor: pointer; color: var(--text-muted, #a7adb9); font-size: .8rem; font-weight: 650; }
+.rowyn-disclosure > summary::marker { color: var(--accent-end, #78b7ff); }
+.rowyn-disclosure[open] > summary { margin-bottom: 10px; color: var(--text, #f1f3f7); }
+.rowyn-disclosure-body { display: flex; min-width: 0; flex-direction: column; gap: 4px; padding-left: 12px; border-left: 2px solid var(--accent-tint-border, rgba(77,141,255,.35)); }
+.rowyn-disclosure-body h4 { margin: 10px 0 0; font-size: .86rem; }
+.rowyn-disclosure-body label { margin: 8px 0; font-size: .84rem; }
+.rowyn-disclosure-body .home-actions { margin-top: 10px; }
+@media (max-width: 720px) {
+  .rowyn-library { grid-template-columns: 1fr; }
+  .rowyn-library-card { grid-template-columns: 84px minmax(0, 1fr); }
+  .rowyn-library-cover { width: 84px; }
+}
+@media (prefers-reduced-motion: reduce) { .rowyn-library-card { transition: none; } }

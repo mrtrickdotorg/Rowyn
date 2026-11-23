@@ -45,6 +45,16 @@ library. ProtonDB links are generated only from validated numeric app IDs and
 lead to community reports; they are not Rowyn test results. Custom Steam roots
 outside the locations discovered from Steam's metadata may be missed.
 
+**The library comes first.** Detected titles are sorted for reading and shown
+with Steam's own cached cover art from `appcache/librarycache` — the 600×900
+capsule where it exists, else the header or capsule — embedded as a bounded
+data URL (768 KB per file, 8 MB per scan). A title with no cached artwork gets
+a letter tile, and the page states how many titles actually had a cover; no
+artwork is downloaded and no game files are read. Each title shows a one-word
+curated state (Native, Proton, Tweaks or Blocked, or nothing when there is no
+verdict), and its profile editor, provenance and community links live inside a
+single closed "Launch options" disclosure instead of expanding on the page.
+
 **Recently played** is a separate read of Steam's own per-account local profile
 (`userdata/<account>/config/localconfig.vdf`): Steam's `LastPlayed` timestamp
 and its playtime counter in minutes, shown as Steam recorded them. Titles are

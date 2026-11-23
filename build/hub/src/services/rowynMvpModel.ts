@@ -37,7 +37,7 @@ export function readingStateLabel(state: string): string {
     default: return `unknown state (${state || 'not reported'})`;
   }
 }
-export interface SteamGame { app_id: string; name: string }
+export interface SteamGame { app_id: string; name: string; cover: string | null }
 export interface SteamScan { available: boolean; warnings: number; games: SteamGame[] }
 
 /**
@@ -49,7 +49,7 @@ export interface SteamScan { available: boolean; warnings: number; games: SteamG
  */
 import compatData from '../data/compat_games.json';
 
-export interface CompatVerdict { label: string; note: string; anticheat: string; checked: string }
+export interface CompatVerdict { label: string; note: string; anticheat: string; checked: string; status: string }
 
 const COMPAT_LABELS: Record<string, string> = {
   native: 'Works natively on Linux',
@@ -80,6 +80,7 @@ export function compatVerdict(appId: string, name: string): CompatVerdict | null
     note: game.note,
     anticheat: game.anticheat,
     checked: game.checked,
+    status: game.status,
   };
 }
 export interface DiagnosticsSnapshot { collected_at: number; readings: Reading[] }

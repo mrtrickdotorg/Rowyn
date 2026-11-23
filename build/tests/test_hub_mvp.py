@@ -235,6 +235,30 @@ class MvpSteamGames(unittest.TestCase):
         port = (ROOT / "build/ubuntu-hub-source.py").read_text()
         self.assertIn("commands::rowyn_steam::rowyn_steam_recent_play", port)
 
+    def test_steam_library_leads_with_covers_and_one_disclosure(self):
+        page = (ROOT / "build/hub/src/pages/RowynPlay.tsx").read_text()
+        for needle in ('rowyn-library', 'rowyn-library-cover', 'coverInitials',
+                       'steamStateChip', 'sortSteamGames', '<summary>Launch options</summary>',
+                       'letter tile', 'cached cover art'):
+            self.assertIn(needle, page)
+        # The per-title editor moved into the disclosure; it did not disappear.
+        for needle in ('updateProfile(item.app_id', 'assembleProfileOptions(boundary',
+                       'Copy launch options', 'ProtonDB community reports'):
+            self.assertIn(needle, page)
+        model = (ROOT / "build/hub/src/services/rowynSteamLibraryModel.ts").read_text()
+        for needle in ('sortSteamGames', 'coverInitials', 'steamLibraryCoverNote', 'steamStateChip'):
+            self.assertIn(needle, model)
+        for forbidden in ('fetch(', 'https://', 'setInterval', 'setTimeout'):
+            self.assertNotIn(forbidden, model)
+        rust = (ROOT / "build/hub/src-tauri/src/commands/rowyn_steam.rs").read_text()
+        for needle in ('appcache/librarycache', 'library_600x900.jpg', 'MAX_COVER_BYTES',
+                       'MAX_COVER_TOTAL_BYTES', 'cover: Option<String>', 'fn base64',
+                       'scan_steam_libraries(&home, true)', 'scan_steam_libraries(home, false)'):
+            self.assertIn(needle, rust)
+        # Covers are bytes from Steam's cache on this disk, never a download.
+        for forbidden in ('reqwest', 'TcpStream', 'UdpSocket'):
+            self.assertNotIn(forbidden, rust)
+
     def test_shader_pre_caching_reads_steams_flag_without_editing_it(self):
         page = (ROOT / "build/hub/src/pages/RowynPlay.tsx").read_text()
         for needle in ('Shader pre-caching', 'rowynSteamShaderCache', 'shaderPreCachingLabel',

@@ -8,6 +8,7 @@ import { openRowynSettings } from '../services/rowynSettings';
 import { playSetupSteps, SETUP_MARKERS } from '../services/rowynPlaySetupModel';
 import { formatPlaytime, formatLastPlayed, recentPlayStatus } from '../services/rowynPlayRecentModel';
 import { shaderPreCachingLabel, SHADER_PRE_CACHING_TIP } from '../services/rowynPlayShaderModel';
+import { coverInitials, sortSteamGames, steamLibraryCoverNote, steamStateChip } from '../services/rowynSteamLibraryModel';
 import { copyText } from '../services/rowynClipboard';
 import { useSectionFollow, type SectionMap } from '../hooks/useSectionFollow';
 import '../styles/rowynMvp.css';
@@ -245,6 +246,7 @@ export function Play() {
       {recentPlay && <p className="card-copy" role="status">{recentPlayStatus(recentPlay)}</p>}
       {!!recentPlay?.games.length && <ul className="card-copy" aria-label="Recently played titles">{recentPlay.games.map((item) => <li key={item.app_id}><strong>{item.name}</strong> — {formatPlaytime(item.playtime_minutes)} · {formatLastPlayed(item.last_played)}</li>)}</ul>}
       <h3>Installed titles</h3>
+      <p className="card-copy">The library comes first: Steam’s own cached cover art where this machine has it, a one-word state when the curated data has a verdict, and everything else folded into one <strong>Launch options</strong> disclosure per title. A title with no cached artwork shows a letter tile. Covers are local files — read, never fetched.</p>
       <button className="action-button" disabled={busy} onClick={() => run('Reading Steam library metadata…', async () => {
         setSteamScan(null);
         const next = await rowynSteamGamesScan(); setSteamScan(next);
@@ -256,9 +258,11 @@ export function Play() {
       {steamScan && !steamScan.available && <p className="card-copy">Steam was not detected in common locations. No titles are inferred from this result.</p>}
       {steamScan && steamScan.available && !steamScan.games.length && <p className="card-copy">No fully installed titles were detected in the scanned metadata.</p>}
       {profileWarning && <p className="card-copy" role="status">{profileWarning}</p>}
-      {steamScan?.games.map((item) => {
+      {!!steamScan?.games.length && <p className="card-copy" role="status">{steamLibraryCoverNote(steamScan.games)}</p>}
+      {!!steamScan?.games.length && <div className="rowyn-library">{sortSteamGames(steamScan.games).map((item) => {
         const links = steamCompatibilityLinks(item.app_id);
         const verdict = compatVerdict(item.app_id, item.name);
+        const chip = steamStateChip(item.app_id, item.name);
         const profile = profileFor(profiles, item.app_id);
         // gamescope is a host-side wrapper, never a Flatpak layer step: the
         // option is offered only on the host boundary, and only when this
@@ -272,10 +276,19 @@ export function Play() {
           gamemode: gamemodeUsable ? profile.gamemode : false,
         };
         const assembled = assembleProfileOptions(boundary, profileForAssembly);
-        return <article className="rowyn-launcher" key={item.app_id}><h3>{item.name}</h3>
-          <p className="card-copy">Steam App ID {item.app_id} · detected from local metadata; compatibility not tested by Rowyn.</p>
-          {verdict && <p className="card-copy"><span className="rowyn-state">{verdict.label}</span> — {verdict.note} Anti-cheat: {verdict.anticheat}. Curated verdict checked {verdict.checked}; game updates can change it.</p>}
-          <h4>Launch profile for this game</h4>
+        return <article className="rowyn-library-card" key={item.app_id}>
+          {item.cover
+            ? <img className="rowyn-library-cover" src={item.cover} alt={`${item.name} — Steam’s locally cached cover art`} loading="lazy" />
+            : <div className="rowyn-library-cover is-empty" aria-hidden="true">{coverInitials(item.name)}</div>}
+          <div className="rowyn-library-body">
+            <h3>{item.name}</h3>
+            <p className="rowyn-library-meta">{chip && <span className={`rowyn-state ${chip.tone}`}>{chip.label}</span>}<span>Steam App ID {item.app_id}</span></p>
+            <details className="rowyn-disclosure">
+              <summary>Launch options</summary>
+              <div className="rowyn-disclosure-body">
+                <p className="card-copy">Detected from this machine’s Steam metadata; compatibility was not tested by Rowyn.</p>
+                {verdict && <p className="card-copy"><span className="rowyn-state">{verdict.label}</span> — {verdict.note} Anti-cheat: {verdict.anticheat}. Curated verdict checked {verdict.checked}; game updates can change it.</p>}
+                <h4>Launch profile for this game</h4>
           <p className="card-copy">Remembered per title on this machine and rebuilt below using the boundary chosen in Compatibility (currently: {boundary === 'flatpak' ? 'Flatpak Steam' : 'host-native'}). Paste the result into Steam → Properties → Launch Options for this game; the builder above remains the unsaved default profile.</p>
           <label><input type="checkbox" checked={profile.mangohud} onChange={(event) => updateProfile(item.app_id, { mangohud: event.target.checked })} /> MangoHud overlay</label>
           <label><input type="checkbox" checked={profile.vkbasalt} onChange={(event) => updateProfile(item.app_id, { vkbasalt: event.target.checked })} /> vkBasalt post-processing</label>
@@ -289,10 +302,13 @@ export function Play() {
           <p className="card-copy">Launch options: <code>{assembled}</code></p>
           <div className="home-actions"><button className="action-button" onClick={() => void copyText(assembled)}>Copy launch options</button>
           {!isDefaultProfile(profile) && <button className="action-button" onClick={() => updateProfile(item.app_id, { mangohud: false, vkbasalt: false, gamescope: false, gamemode: false, gaming: false, mimalloc: false, extra: '' })}>Reset profile</button>}</div>
-          <div className="home-actions"><ExternalLink href={links.protondb}>ProtonDB community reports (not a guarantee)</ExternalLink>
-            <ExternalLink href={links.steamStore}>Steam store page</ExternalLink></div>
+                  <div className="home-actions"><ExternalLink href={links.protondb}>ProtonDB community reports (not a guarantee)</ExternalLink>
+                    <ExternalLink href={links.steamStore}>Steam store page</ExternalLink></div>
+              </div>
+            </details>
+          </div>
         </article>;
-      })}
+      })}</div>}
       {!!steamScan?.warnings && <p className="card-copy" role="status">Partial scan: skipped or unreadable library metadata may hide additional titles.</p>}
     </section>
     <section className="glass dashboard-card" id="hub-section-compatibility"><h2>Compatibility &amp; anti-cheat</h2>

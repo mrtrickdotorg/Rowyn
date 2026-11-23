@@ -26,11 +26,26 @@ const RECENT_LIMIT: usize = 8;
 /// Plausibility bounds: junk stays out rather than becoming history.
 const MAX_PLAYTIME_MINUTES: u64 = 60 * 24 * 366 * 30;
 const MAX_LAST_PLAYED: u64 = 4_102_444_800; // 2100-01-01
+/// Steam's cached library artwork. A 600×900 capsule is typically 15–650 KB;
+/// the cap keeps a corrupt or replaced file from entering the page.
+const MAX_COVER_BYTES: u64 = 768 * 1024;
+/// Across one scan: room for a large library, still one bounded message.
+const MAX_COVER_TOTAL_BYTES: usize = 8 * 1024 * 1024;
+const MAX_COVER_VARIANTS: usize = 32;
+/// Preferred artwork first: the 600×900 capsule is the portrait cover.
+const COVER_NAMES: [&str; 4] = [
+    "library_600x900.jpg",
+    "library_header.jpg",
+    "library_capsule.jpg",
+    "header.jpg",
+];
 
 #[derive(Debug, Serialize)]
 pub(crate) struct SteamGame {
     app_id: String,
     name: String,
+    /// A data URL of Steam's own cached cover art, when this machine has it.
+    cover: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -340,6 +355,7 @@ fn parse_manifest(path: &Path, expected_id: &str, warnings: &mut usize) -> Optio
     Some(SteamGame {
         app_id: app_id.to_string(),
         name: name.to_string(),
+        cover: None,
     })
 }
 
@@ -372,7 +388,7 @@ fn steam_roots(home: &Path) -> Vec<PathBuf> {
     roots
 }
 
-fn scan_steam_libraries(home: &Path) -> SteamScan {
+fn scan_steam_libraries(home: &Path, with_covers: bool) -> SteamScan {
     let roots = steam_roots(home);
     if roots.is_empty() {
         return SteamScan {
@@ -443,11 +459,128 @@ fn scan_steam_libraries(home: &Path) -> SteamScan {
             break;
         }
     }
+    let mut games: Vec<SteamGame> = games.into_values().collect();
+    // Covers are the one part of the scan that reads image bytes; they are
+    // attached under a per-file and per-scan budget, and only for the explicit
+    // library scan — the recent-play read asks for names alone.
+    if with_covers {
+        let mut spent = 0usize;
+        for game in &mut games {
+            if spent >= MAX_COVER_TOTAL_BYTES {
+                break;
+            }
+            let Some(path) = roots
+                .iter()
+                .find_map(|root| cover_file(root, &game.app_id))
+            else {
+                continue;
+            };
+            let Some(cover) = read_cover(&path, &mut warnings) else {
+                continue;
+            };
+            if spent + cover.len() > MAX_COVER_TOTAL_BYTES {
+                warnings += 1;
+                break;
+            }
+            spent += cover.len();
+            game.cover = Some(cover);
+        }
+    }
     SteamScan {
         available: true,
         warnings,
-        games: games.into_values().collect(),
+        games,
     }
+}
+
+/// The cover Steam cached for `app_id`, preferring the 600×900 capsule. Modern
+/// clients store each variant in a content-addressed directory
+/// (`librarycache/<appid>/<hash>/library_600x900.jpg`); older ones wrote
+/// `<appid>_library_600x900.jpg` beside it. Both are local files only.
+fn cover_file(root: &Path, app_id: &str) -> Option<PathBuf> {
+    let cache = root.join("appcache/librarycache");
+    let mut variants = Vec::new();
+    if let Ok(entries) = fs::read_dir(cache.join(app_id)) {
+        for entry in entries.flatten().take(MAX_COVER_VARIANTS) {
+            let path = entry.path();
+            let is_dir = fs::symlink_metadata(&path)
+                .map(|metadata| metadata.is_dir() && !metadata.file_type().is_symlink())
+                .unwrap_or(false);
+            if is_dir {
+                variants.push(path);
+            }
+        }
+    }
+    variants.sort();
+    for name in COVER_NAMES {
+        let legacy = cache.join(format!("{app_id}_{name}"));
+        if legacy.is_file() {
+            return Some(legacy);
+        }
+        if let Some(directory) = variants
+            .iter()
+            .find(|directory| directory.join(name).is_file())
+        {
+            return Some(directory.join(name));
+        }
+    }
+    None
+}
+
+fn read_cover(path: &Path, warnings: &mut usize) -> Option<String> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => metadata,
+        _ => {
+            *warnings += 1;
+            return None;
+        }
+    };
+    if metadata.len() == 0 || metadata.len() > MAX_COVER_BYTES {
+        *warnings += 1;
+        return None;
+    }
+    let mut bytes = Vec::new();
+    if File::open(path)
+        .and_then(|file| file.take(MAX_COVER_BYTES + 1).read_to_end(&mut bytes))
+        .is_err()
+        || bytes.len() as u64 > MAX_COVER_BYTES
+    {
+        *warnings += 1;
+        return None;
+    }
+    // Only a JPEG is embedded: a truncated or swapped file must not become a
+    // broken image in the page.
+    if !bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        *warnings += 1;
+        return None;
+    }
+    Some(format!("data:image/jpeg;base64,{}", base64(&bytes)))
+}
+
+/// Base64 for the cover data URL. Written here rather than pulling in a crate:
+/// the encoding is fixed, and the scan is the only caller.
+fn base64(bytes: &[u8]) -> String {
+    const TABLE: &[u8; 64] =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity((bytes.len() + 2) / 3 * 4);
+    for chunk in bytes.chunks(3) {
+        let a = chunk[0];
+        let b = *chunk.get(1).unwrap_or(&0);
+        let c = *chunk.get(2).unwrap_or(&0);
+        out.push(TABLE[(a >> 2) as usize] as char);
+        out.push(TABLE[((a & 0b11) << 4 | b >> 4) as usize] as char);
+        out.push(if chunk.len() > 1 {
+            TABLE[((b & 0b1111) << 2 | c >> 6) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            TABLE[(c & 0b111111) as usize] as char
+        } else {
+            '='
+        });
+    }
+    out
 }
 
 #[tauri::command]
@@ -455,7 +588,7 @@ pub(crate) async fn rowyn_steam_games_scan() -> Result<SteamScan, String> {
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
         .ok_or_else(|| "Could not locate the current user's home directory.".to_string())?;
-    tauri::async_runtime::spawn_blocking(move || scan_steam_libraries(&home))
+    tauri::async_runtime::spawn_blocking(move || scan_steam_libraries(&home, true))
         .await
         .map_err(|error| format!("Steam library scan did not complete: {error}"))
 }
@@ -569,7 +702,7 @@ fn scan_recent_play(home: &Path) -> RecentPlay {
     }
     // Titles come from the manifests, not from a guess: reuse the same
     // bounded scan the library card uses.
-    let names: BTreeMap<String, String> = scan_steam_libraries(home)
+    let names: BTreeMap<String, String> = scan_steam_libraries(home, false)
         .games
         .into_iter()
         .map(|game| (game.app_id, game.name))

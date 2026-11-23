@@ -42,7 +42,7 @@ fn scans_native_and_flatpak_libraries_without_exposing_paths() {
     write_game(&native, 730, "Counter-Strike 2 (not installed)", 2);
     write_game(&native, 8230, "Game files are corrupt", 4 | 128);
 
-    let result = scan_steam_libraries(home);
+    let result = scan_steam_libraries(home, false);
     assert!(result.available);
     assert_eq!(
         result
@@ -61,7 +61,7 @@ fn scans_native_and_flatpak_libraries_without_exposing_paths() {
 #[test]
 fn missing_steam_install_is_unavailable_not_an_empty_library() {
     let temporary = tempfile::tempdir().unwrap();
-    let result = scan_steam_libraries(temporary.path());
+    let result = scan_steam_libraries(temporary.path(), false);
     assert!(!result.available);
     assert!(result.games.is_empty());
 }
@@ -76,9 +76,84 @@ fn malformed_library_file_is_visible_as_partial_not_a_clean_empty_scan() {
         "not valid { \"path\"",
     )
     .unwrap();
-    let result = scan_steam_libraries(temporary.path());
+    let result = scan_steam_libraries(temporary.path(), false);
     assert!(result.available);
     assert!(result.warnings > 0);
+}
+
+const JPEG: [u8; 8] = [0xFF, 0xD8, 0xFF, 0xE0, 0x01, 0x02, 0x03, 0x04];
+
+#[test]
+fn library_scan_attaches_steams_cached_cover_art_locally() {
+    let temporary = tempfile::tempdir().unwrap();
+    let home = temporary.path();
+    let steam = home.join(".local/share/Steam");
+    write_game(&steam, 620, "Portal 2", 4);
+    write_game(&steam, 570, "Dota 2", 4);
+    let cache = steam.join("appcache/librarycache");
+    // Modern layout: one content-addressed directory per artwork variant.
+    fs::create_dir_all(cache.join("620/abcdef")).unwrap();
+    fs::write(cache.join("620/abcdef/library_header.jpg"), JPEG).unwrap();
+    fs::write(cache.join("620/abcdef/library_600x900.jpg"), JPEG).unwrap();
+    // A file that is not a JPEG is not embedded as a broken image.
+    fs::create_dir_all(cache.join("570/abcdef")).unwrap();
+    fs::write(cache.join("570/abcdef/library_600x900.jpg"), b"<html>").unwrap();
+
+    let scan = scan_steam_libraries(home, true);
+    let portal = scan.games.iter().find(|game| game.app_id == "620").unwrap();
+    let cover = portal.cover.as_deref().unwrap();
+    assert!(cover.starts_with("data:image/jpeg;base64,"));
+    // 8 bytes encode to 12 base64 characters, with no padding left over.
+    assert_eq!(cover.trim_start_matches("data:image/jpeg;base64,").len(), 12);
+    assert_eq!(scan.games.iter().find(|game| game.app_id == "570").unwrap().cover, None);
+    assert!(scan.warnings > 0);
+    // The name-only path (recent play) never reads image bytes.
+    let names = scan_steam_libraries(home, false);
+    assert!(names.games.iter().all(|game| game.cover.is_none()));
+    let json = serde_json::to_string(&scan).unwrap();
+    assert!(!json.contains(&home.to_string_lossy().to_string()));
+    assert!(!json.contains("librarycache"));
+}
+
+#[test]
+fn legacy_flat_cover_path_is_read_and_oversized_art_is_refused() {
+    let temporary = tempfile::tempdir().unwrap();
+    let home = temporary.path();
+    let steam = home.join(".local/share/Steam");
+    write_game(&steam, 440, "Team Fortress 2", 4);
+    write_game(&steam, 620, "Portal 2", 4);
+    let cache = steam.join("appcache/librarycache");
+    fs::create_dir_all(&cache).unwrap();
+    // Older clients wrote the artwork beside the per-app directories.
+    fs::write(cache.join("440_library_600x900.jpg"), JPEG).unwrap();
+    fs::create_dir_all(cache.join("620/abcdef")).unwrap();
+    let mut oversized = vec![0xFFu8, 0xD8, 0xFF];
+    oversized.resize(MAX_COVER_BYTES as usize + 1, 0);
+    fs::write(cache.join("620/abcdef/library_600x900.jpg"), oversized).unwrap();
+
+    let scan = scan_steam_libraries(home, true);
+    assert!(scan
+        .games
+        .iter()
+        .find(|game| game.app_id == "440")
+        .unwrap()
+        .cover
+        .is_some());
+    assert_eq!(
+        scan.games.iter().find(|game| game.app_id == "620").unwrap().cover,
+        None
+    );
+    assert!(scan.warnings > 0);
+}
+
+#[test]
+fn base64_matches_the_standard_alphabet_and_padding() {
+    assert_eq!(base64(b""), "");
+    assert_eq!(base64(b"M"), "TQ==");
+    assert_eq!(base64(b"Ma"), "TWE=");
+    assert_eq!(base64(b"Man"), "TWFu");
+    assert_eq!(base64(b"any carnal pleasure."), "YW55IGNhcm5hbCBwbGVhc3VyZS4=");
+    assert_eq!(base64(&JPEG), "/9j/4AECAwQ=");
 }
 
 const LOCAL_CONFIG_APPS: &str = r#""UserLocalConfigStore"
