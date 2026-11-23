@@ -600,13 +600,10 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
 
 # Support tools: local-only scrubbed bug report and controller readiness check
 # (python3 standard library only; both are read-only and make no network calls).
-# rowyn-telemetry-record is the local session writer rowyn-game-launch calls
-# when a wrapped game exits; same local-only discipline.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     install -Dm755 /ctx/shared/rowyn-report /usr/bin/rowyn-report && \
     install -Dm755 /ctx/shared/rowyn-controller-check /usr/bin/rowyn-controller-check && \
-    install -Dm755 /ctx/shared/rowyn-telemetry-record /usr/bin/rowyn-telemetry-record && \
-    for t in rowyn-report rowyn-controller-check rowyn-telemetry-record; do \
+    for t in rowyn-report rowyn-controller-check; do \
       python3 -c "import py_compile,sys; py_compile.compile(sys.argv[1], cfile=sys.argv[2], doraise=True)" /usr/bin/$t /tmp/$t.pyc && \
       rm -f /tmp/$t.pyc; \
     done

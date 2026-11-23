@@ -133,7 +133,6 @@ SHARED_CRATE_KEEP_MODULES = (
     "system::snapshot",
     "system::software_catalog",
     "system::storage",
-    "system::telemetry",
     "system::update_availability",
     "system::update_status",
     "system::updates_unified",
@@ -312,7 +311,7 @@ def sync_cargo_lock(crate, absent_packages):
 # The passes above rebrand user-visible copy and repoint the helpers
 # Rowyn ships; this pass renames what remains internal -- the shared
 # crate's package name and every `kyth_shared::` path, on-disk data
-# paths (telemetry, probe cache, the exe-handler app database), the
+# paths (probe cache, the exe-handler app database), the
 # stage-progress wire token the safe-upgrade helper emits, env
 # vars, and the injected SAML script's identifiers -- with one uniform
 # map, so both ends of every renamed contract move together. The

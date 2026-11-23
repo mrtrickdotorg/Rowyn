@@ -189,7 +189,7 @@ class HubPortContractTests(unittest.TestCase):
         self.assertEqual(hub.SHARED_CRATE_BIN_FILES, 92)
         self.assertEqual(hub.SHARED_CRATE_BIN_SECTIONS, 91)
         keep = set(hub.SHARED_CRATE_KEEP_MODULES)
-        self.assertEqual(len(keep), 58)
+        self.assertEqual(len(keep), 57)
         # Load-bearing core stays; the audit's dead set — including the
         # whole runtime-updater/PGP heritage and the modules the shell
         # cuts orphaned (system::just, the shared privileged protocol) —
@@ -771,8 +771,6 @@ class PinnedHubSourceTests(unittest.TestCase):
             self.assertNotIn("KYTH_STAGE_PROGRESS", updates)
             vpn = (crate / "src/commands/vpn.rs").read_text()
             self.assertIn("submitToRowyn", vpn)
-            telemetry = (shared / "src/system/telemetry.rs").read_text()
-            self.assertIn(".local/share/rowyn/telemetry.db", telemetry)
 
             # No unmasked kyth reference survives anywhere in the
             # export. Deliberate exceptions: the GitHub org in

@@ -11,8 +11,7 @@ kernel boot id) into /var/lib/rowyn/performance/history.json:
 * suspend statistics for this boot from /sys/power/suspend_stats
   (success/fail counters) — null when the kernel does not expose them.
 
-Honesty rules, shared with the telemetry writer: a value Rowyn did not
-measure is null, never estimated. The file is a measurement log, not
+Honesty rule: a value Rowyn did not measure is null, never estimated. The file is a measurement log, not
 policy or safety state, so a corrupt history is replaced rather than
 wedging the recorder (individual malformed entries are dropped).
 

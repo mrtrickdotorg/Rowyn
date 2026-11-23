@@ -99,7 +99,6 @@ SHARED_CRATE_KEEP_MODULES = (
     "system::snapshot",
     "system::software_catalog",
     "system::storage",
-    "system::telemetry",
     "system::update_availability",
     "system::update_status",
     "system::updates_unified",

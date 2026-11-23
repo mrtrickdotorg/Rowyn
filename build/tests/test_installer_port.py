@@ -47,7 +47,7 @@ class InstallerJunkCutContractTests(unittest.TestCase):
         self.assertEqual(installer.SHARED_CRATE_BIN_FILES, hub.SHARED_CRATE_BIN_FILES)
         self.assertEqual(installer.SHARED_CRATE_BIN_SECTIONS, hub.SHARED_CRATE_BIN_SECTIONS)
         self.assertEqual(installer.SHARED_CRATE_KEEP_MODULES, hub.SHARED_CRATE_KEEP_MODULES)
-        self.assertEqual(len(installer.SHARED_CRATE_KEEP_MODULES), 58)
+        self.assertEqual(len(installer.SHARED_CRATE_KEEP_MODULES), 57)
 
     def test_port_script_carries_junk_cut(self):
         script = (ROOT / "build/ubuntu-installer-source.py").read_text()

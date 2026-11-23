@@ -543,7 +543,6 @@ jobs:
             test -s /usr/share/kio/servicemenus/rowyn-development-here.desktop
             test -e /etc/systemd/user/graphical-session.target.wants/rowyn-update-notify.timer
             test -x /usr/bin/rowyn-probe
-            test -x /usr/bin/rowyn-telemetry-record
             test -e /etc/systemd/system/timers.target.wants/rowyn-probe.timer
             test -e /etc/systemd/user/timers.target.wants/rowyn-probe-user.timer
             test -x /usr/libexec/rowyn-performance-record
