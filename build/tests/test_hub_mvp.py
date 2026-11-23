@@ -311,8 +311,12 @@ class MvpSteamGames(unittest.TestCase):
             self.assertIn(needle, page)
         model = (ROOT / "build/hub/src/services/rowynSteamLibraryModel.ts").read_text()
         for needle in ('steamLibraryProvenance', 'last checked',
-                       'Titles without a note show no verdict', 'no network request'):
+                       'Titles without a note show no verdict', 'no network request',
+                       'COMPAT_NOTE_STALE_DAYS', 'compatNoteAgeDays',
+                       'more than six months ago', 'treat them as stale'):
             self.assertIn(needle, model)
+        # The staleness line is part of the one dated note, not a second one.
+        self.assertEqual(model.count('were last checked'), 1)
         compat = (ROOT / "build/hub/src/services/rowynMvpModel.ts").read_text()
         for needle in ('compatReviewedOn', 'compatVerdictCount', 'compatEntries'):
             self.assertIn(needle, compat)

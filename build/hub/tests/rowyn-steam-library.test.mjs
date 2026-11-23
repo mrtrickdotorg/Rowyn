@@ -18,6 +18,13 @@ await build({
   outfile: bundle, bundle: true, format: 'esm', platform: 'node',
 });
 const m = await import(pathToFileURL(bundle).href);
+const mvpBundle = join(temp, 'mvp.mjs');
+await build({
+  entryPoints: ['src/services/rowynMvpModel.ts'],
+  outfile: mvpBundle, bundle: true, format: 'esm', platform: 'node',
+  loader: { '.json': 'json' },
+});
+const mvp = await import(pathToFileURL(mvpBundle).href);
 test.after(() => rmSync(temp, { recursive: true, force: true }));
 
 const game = (app_id, name, cover = null) => ({ app_id, name, cover });
@@ -62,8 +69,10 @@ test('the cover note counts what was read and says it stayed local', () => {
   assert.equal(m.steamLibraryCoverNote([]), '');
 });
 
+const FRESH_NOW = Date.parse('2026-08-01T00:00:00Z');
+
 test('one dated provenance note carries the caveats the cards used to repeat', () => {
-  const note = m.steamLibraryProvenance('2026-05-18', 40);
+  const note = m.steamLibraryProvenance('2026-05-18', 40, FRESH_NOW);
   assert.match(note, /last checked 2026-05-18/);
   assert.match(note, /cover 40 titles/);
   assert.match(note, /Titles without a note show no verdict/);
@@ -80,8 +89,48 @@ test('one dated provenance note carries the caveats the cards used to repeat', (
   assert.doesNotMatch(none, /last checked/);
 });
 
+test('a note older than six months says so in the same dated note', () => {
+  const stale = m.steamLibraryProvenance('2026-05-18', 30, Date.parse('2026-11-23T00:00:00Z'));
+  assert.match(stale, /more than six months ago/);
+  assert.match(stale, /treat them as stale/);
+  assert.match(stale, /ProtonDB/);
+  // Still one dated note: one date and one update caveat, not a second note.
+  assert.equal(stale.split('2026-05-18').length - 1, 1);
+  assert.equal(stale.split('updates can change').length - 1, 1);
+  assert.doesNotMatch(stale, /last checked 2026-05-18; they are guidance/);
+
+  // Six months is the line: day 183 is dated, day 184 is stale.
+  assert.equal(m.COMPAT_NOTE_STALE_DAYS, 183);
+  assert.equal(m.compatNoteAgeDays('2026-05-18', Date.parse('2026-11-17T12:00:00Z')), 183);
+  assert.equal(m.compatNoteAgeDays('2026-05-18', Date.parse('2026-11-18T00:00:00Z')), 184);
+  assert.doesNotMatch(
+    m.steamLibraryProvenance('2026-05-18', 30, Date.parse('2026-11-17T12:00:00Z')),
+    /stale/,
+  );
+  // A date ahead of the clock or an unreadable date makes no stale claim.
+  assert.equal(m.compatNoteAgeDays('2026-12-31', Date.parse('2026-11-23T00:00:00Z')), 0);
+  assert.equal(m.compatNoteAgeDays('not-a-date', Date.now()), null);
+  assert.doesNotMatch(m.steamLibraryProvenance('not-a-date', 30, Date.now()), /stale/);
+});
+
+test('the shipped dataset is flagged when its note would be stale', () => {
+  const reviewedOn = mvp.compatReviewedOn();
+  assert.ok(reviewedOn, 'the shipped dataset must carry a check date');
+  const age = m.compatNoteAgeDays(reviewedOn, Date.now());
+  assert.ok(age !== null && age >= 0);
+  const note = m.steamLibraryProvenance(reviewedOn, mvp.compatVerdictCount());
+  if (age > m.COMPAT_NOTE_STALE_DAYS) {
+    console.warn(
+      `FLAG: curated compatibility notes are ${age} days old (checked ${reviewedOn}); refresh compat_games.json.`,
+    );
+    assert.match(note, /more than six months ago/, 'a stale dataset must be called stale on the page');
+  } else {
+    assert.doesNotMatch(note, /stale/);
+  }
+});
+
 test('the model projects, it does not fetch or measure', () => {
   for (const name of Object.keys(m)) {
-    assert.equal(typeof m[name], 'function', name);
+    assert.ok(['function', 'string', 'number'].includes(typeof m[name]), name);
   }
 });

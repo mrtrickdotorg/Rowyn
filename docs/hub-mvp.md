@@ -103,7 +103,10 @@ sourced to Valve's Proton anti-cheat developer documentation and linked
 community reports; it is **not Rowyn game validation** or an online lookup),
 and the Steam library section states the curated dataset's own date and size
 once — last checked 2026-05-18, counting only the entries whose Steam app ID
-is known. A verdict appears only on
+is known. Once that date is more than six months old the same note says so in
+place ("more than six months ago — treat them as stale and check ProtonDB") and
+the frontend tests print a FLAG naming the age; the check fails if stale data
+is ever presented as merely dated. A verdict appears only on
 a title that has one; no card repeats a date or a "not tested" label. The
 dataset is re-checked before any release that ships a change to those notes,
 and its date is shown in the library section rather than repeated on each

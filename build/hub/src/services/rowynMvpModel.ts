@@ -75,7 +75,7 @@ for (const game of compatEntries) {
 export function compatReviewedOn(): string | null {
   const dates = compatEntries
     .map((game) => game.checked)
-    .filter((value) => /^\d{4}-\d{2}-\d{2}$/.test(value))
+    .filter((value) => /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(`${value}T00:00:00Z`)))
     .sort();
   return dates.length ? dates[dates.length - 1] : null;
 }
