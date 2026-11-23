@@ -197,3 +197,17 @@
 .rowyn-meter { height: 6px; border-radius: 999px; background: rgba(255,255,255,.09); overflow: hidden; }
 .rowyn-meter > span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #6ea8ff, #8fe0b0); }
 @media (max-width: 720px) { .rowyn-diag-head { grid-template-columns: minmax(0, 1fr); } }
+
+/* Play: the "Get set up to play" strip. Read-only status projected from the
+   page's own bounded reads — it owns no actions and adds no timers. */
+.rowyn-setup { margin: 16px 0 4px; }
+.rowyn-setup ol { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); }
+.rowyn-setup li { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border: 1px solid var(--hairline, rgba(255,255,255,.12)); border-radius: 14px; background: linear-gradient(145deg, rgba(255,255,255,.03), rgba(255,255,255,.01)); }
+.rowyn-setup li.is-done { border-color: rgba(120, 210, 155, .45); }
+.rowyn-setup li.is-todo { border-color: rgba(228, 205, 120, .4); }
+.rowyn-setup-marker { flex: none; font-weight: 700; line-height: 1.4; color: var(--text-muted, #a7adb9); }
+.rowyn-setup li.is-done .rowyn-setup-marker { color: #9be6b8; }
+.rowyn-setup li.is-todo .rowyn-setup-marker { color: #e7d79e; }
+.rowyn-setup-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.rowyn-setup-body strong { font-size: .92rem; }
+.rowyn-setup-hint { font-size: .82rem; line-height: 1.5; color: var(--text-muted, #a7adb9); }

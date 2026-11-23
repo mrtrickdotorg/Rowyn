@@ -4,6 +4,7 @@ import { cancelInstall, fetchInstalledFlatpaks, installFlatpak, uninstallFlatpak
 import { rowynControllerScan, openRowynLauncher, rowynSteamGamesScan, rowynSteamPlayStatus, rowynSteamPlayApply, rowynDisplayModesScan, rowynVulkanLayersScan, rowynVulkanLayerInstall, rowynSunshineStatus, rowynSunshineFirewallOpen, rowynSunshineAutostartEnable, rowynGamescopeStatus, rowynGamemodeStatus, type SteamPlayStatus, type DisplayModes, type VulkanLayers, type SunshineStatus, type GamescopeStatus, type GamemodeStatus } from '../services/rowynMvp';
 import { LAUNCHERS, launcherState, installLauncher, createPlayStatusOwner, launchOptions, steamCompatibilityLinks, compatVerdict, type Reading, type SteamScan } from '../services/rowynMvpModel';
 import { loadProfiles, saveProfiles, profileFor, isDefaultProfile, assembleProfileOptions, type GameProfile } from '../services/rowynPlayProfilesModel';
+import { playSetupSteps, SETUP_MARKERS } from '../services/rowynPlaySetupModel';
 import { copyText } from '../services/rowynClipboard';
 import { useSectionFollow, type SectionMap } from '../hooks/useSectionFollow';
 import '../styles/rowynMvp.css';
@@ -59,6 +60,9 @@ export function Play() {
   const [gamescopeFailed, setGamescopeFailed] = useState(false);
   const [gamemodeStatus, setGamemodeStatus] = useState<GamemodeStatus | null>(null);
   const [gamemodeFailed, setGamemodeFailed] = useState(false);
+  // Which of the four on-open reads failed. A later successful re-read wins
+  // over a stale flag, so a manual Check always clears its own step.
+  const [checkFailure, setCheckFailure] = useState<{ steamPlay?: boolean; layers?: boolean; displays?: boolean; controllers?: boolean }>({});
 
   function updateProfile(appId: string, patch: Partial<GameProfile>) {
     setProfiles((current) => {
@@ -105,6 +109,21 @@ export function Play() {
       .catch(() => { if (!cancelled) setGamemodeFailed(true); });
     return () => { cancelled = true; };
   }, []);
+  useEffect(() => {
+    // The four read-only checks run once when the page opens, so the setup
+    // strip reports this machine instead of "not checked yet". Each is a
+    // bounded native read; the manual buttons remain for a fresh read, and
+    // nothing here is a timer.
+    let cancelled = false;
+    const failed = (key: 'steamPlay' | 'layers' | 'displays' | 'controllers') => {
+      if (!cancelled) setCheckFailure((current) => ({ ...current, [key]: true }));
+    };
+    rowynSteamPlayStatus().then((next) => { if (!cancelled) setSteamPlay(next); }).catch(() => failed('steamPlay'));
+    rowynVulkanLayersScan().then((next) => { if (!cancelled) setLayers(next); }).catch(() => failed('layers'));
+    rowynDisplayModesScan().then((next) => { if (!cancelled) setDisplays(next); }).catch(() => failed('displays'));
+    rowynControllerScan().then((next) => { if (!cancelled) setControllers(next); }).catch(() => failed('controllers'));
+    return () => { cancelled = true; };
+  }, []);
   async function confirmPending() {
     const action = pending;
     if (!action) return;
@@ -125,10 +144,27 @@ export function Play() {
     });
   }
   const installedCount = scan ? LAUNCHERS.filter((launcher) => launcherState(launcher.id, scan) === 'installed').length : null;
+  // B1: the strip is a projection of the readings above, never a second read.
+  const setupSteps = playSetupSteps({
+    steam: scan ? launcherState('com.valvesoftware.Steam', scan) : 'pending',
+    steamPlay,
+    steamPlayFailed: checkFailure.steamPlay === true,
+    layers,
+    layersFailed: checkFailure.layers === true,
+    controllers,
+    controllersFailed: checkFailure.controllers === true,
+  });
   return <div className="page-content rowyn-mvp">
     <section className="glass dashboard-card" id="hub-section-gaming">
       <span className="home-eyebrow">Rowyn Play · MVP</span><h1>Play</h1>
       <p className="card-copy">Four launchers, installed as system-wide Flatpaks from Flathub — the same installation Discover uses — with the same jobs as Apps. No native package installs or system tuning. A launcher being installed does not establish game compatibility. Steam game discovery is an explicit, read-only scan of local app manifests; it does not validate or launch games.</p>
+      <section className="rowyn-setup" aria-label="Get set up to play">
+        <p className="home-eyebrow">Get set up to play</p>
+        <ol>{setupSteps.map((step) => <li key={step.key} className={`is-${step.state}`}>
+          <span className="rowyn-setup-marker" aria-hidden="true">{SETUP_MARKERS[step.state]}</span>
+          <span className="rowyn-setup-body"><strong>{step.label}</strong><span className="rowyn-setup-hint">{step.hint}</span></span>
+        </li>)}</ol>
+      </section>
       <div className="home-actions"><button className="action-button" disabled={busy} onClick={() => run('Reading installed launchers…', refreshLaunchers)}>Refresh launchers</button>
         {tracked && <button className="action-button" disabled={cancelBusy} onClick={async () => {
           setCancelBusy(true);
@@ -241,7 +277,7 @@ export function Play() {
         const next = await rowynSteamPlayApply(); setSteamPlay(next);
         return next.mapping_present ? 'Steam Play is now enabled for all titles (Proton Experimental).' : next.detail;
       })}>Enable Steam Play for all titles</button>}</div>
-      {!steamPlay && <p className="card-copy">Not checked yet.</p>}
+      {!steamPlay && <p className="card-copy">{checkFailure.steamPlay ? 'The Steam Play check could not run; use Check Steam Play to retry.' : 'Reading Steam’s configuration…'}</p>}
       {steamPlay && <p className="card-copy">{steamPlay.detail}{steamPlay.steam_running && !steamPlay.mapping_present ? ' Quit Steam to enable the one-click apply.' : ''}</p>}
       <h3>Vulkan layers for Flatpak games</h3>
       <p className="card-copy">MangoHud, gamescope and vkBasalt reach Flatpak games as Freedesktop Vulkan-layer extensions, matched to the runtime branch Steam itself uses — a layer installed for the wrong branch does nothing. On a host-native install the same tools come from the distribution inside Distrobox instead.</p>
@@ -261,7 +297,7 @@ export function Play() {
         const next = await rowynVulkanLayerInstall('vkbasalt'); setLayers(next);
         return next.vkbasalt_branches.includes(next.steam_runtime_branch ?? '') ? `vkBasalt layer installed for runtime ${next.steam_runtime_branch}.` : 'vkBasalt layer install finished; re-check the layer state.';
       })}>Install vkBasalt layer</button>}</div>
-      {!layers && <p className="card-copy">Not checked yet.</p>}
+      {!layers && <p className="card-copy">{checkFailure.layers ? 'The layer list could not be read; use Check Vulkan layers to retry.' : 'Reading installed Flatpak layers…'}</p>}
       {layers && <p className="card-copy">{layers.detail} MangoHud branches installed: {layers.mangohud_branches.join(', ') || 'none'}. gamescope branches installed: {layers.gamescope_branches.join(', ') || 'none'}. vkBasalt branches installed: {layers.vkbasalt_branches.join(', ') || 'none'}.</p>}
       <h3>Displays: HDR and variable refresh</h3>
       <p className="card-copy">What the display stack reports for each output. “Incapable” means the display or its connection does not offer the feature — no setting changes that. Enable HDR per display and variable refresh in System Settings → Display &amp; Monitor; KWin’s variable-refresh policy applies to fullscreen games.</p>
@@ -269,7 +305,7 @@ export function Play() {
         const next = await rowynDisplayModesScan(); setDisplays(next);
         return next.detail;
       })}>Check displays</button></div>
-      {!displays && <p className="card-copy">Not checked yet.</p>}
+      {!displays && <p className="card-copy">{checkFailure.displays ? 'The display scan could not run; use Check displays to retry.' : 'Reading display capabilities…'}</p>}
       {displays && <p className="card-copy">{displays.detail} KWin variable-refresh policy: {displays.vrr_policy ?? 'not set (KWin default)'}.</p>}
       {displays?.outputs.map((output) => <p className="card-copy" key={output.name}>{output.name} — {output.connected ? 'connected' : 'disconnected'} · HDR: {output.hdr ?? 'not reported'} · VRR: {output.vrr ?? 'not reported'}</p>)}
       <p>{game || 'Selected game'} — paste into that game’s launch options:</p><pre aria-label="Launch options">{options}</pre>
@@ -306,7 +342,7 @@ export function Play() {
       <button className="action-button" disabled={busy} onClick={() => run('Reading controller readiness…', async () => {
         setControllers(null); const next = await rowynControllerScan(); setControllers(next); return 'Controller scan finished. Review findings below.';
       })}>Rescan controllers</button>
-      {!controllers && <p className="card-copy">Not checked or unavailable. Scan errors appear above.</p>}
+      {!controllers && <p className="card-copy">{checkFailure.controllers ? 'The controller check could not run; use Rescan controllers to retry.' : 'Reading input devices…'}</p>}
       {controllers?.map((item) => <div key={item.name}><h3>{item.name} <span className="rowyn-state">{item.state}</span></h3><pre>{item.detail}</pre></div>)}
     </section>
   </div>;

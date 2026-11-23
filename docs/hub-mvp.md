@@ -30,6 +30,10 @@ installed and unknown/partial scopes. Opening accepts only the four curated
 IDs, checks both scopes and requests the detected scope. It reports a launch
 request, not that a detached application window or game is working.
 
+Four environment checks — Steam Play state, Vulkan layers, display HDR/VRR and
+controller readiness — are read once when the page opens, bounded and without a
+timer, so the "Get set up to play" strip reports this machine instead of
+staying empty; each keeps its own button for a fresh read. Nothing is polled.
 The MVP detects launcher installations with explicit scans. Steam game discovery
 is a separate, opt-in read-only scan of bounded `libraryfolders.vdf` and
 `appmanifest_*.acf` metadata in common native/Flatpak Steam locations. It
