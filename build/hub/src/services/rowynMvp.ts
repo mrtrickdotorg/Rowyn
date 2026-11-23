@@ -28,6 +28,12 @@ export async function rowynSteamGamesScan(): Promise<SteamScan> {
   nativeOnly();
   return invoke<SteamScan>('rowyn_steam_games_scan');
 }
+export interface RecentGame { app_id: string; name: string; last_played: number; playtime_minutes: number | null }
+export interface RecentPlay { steam_detected: boolean; profile_read: boolean; warnings: number; unnamed: number; games: RecentGame[] }
+export async function rowynSteamRecentPlay(): Promise<RecentPlay> {
+  nativeOnly();
+  return invoke<RecentPlay>('rowyn_steam_recent_play');
+}
 export interface SteamPlayStatus { steam_present: boolean; steam_running: boolean; mapping_present: boolean; detail: string }
 export async function rowynSteamPlayStatus(): Promise<SteamPlayStatus> {
   nativeOnly();

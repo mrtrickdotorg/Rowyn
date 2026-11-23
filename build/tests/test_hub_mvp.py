@@ -212,6 +212,29 @@ class MvpSteamGames(unittest.TestCase):
         for forbidden in ('Command::new', 'sudo', 'pkexec', 'rowyn-game-launch'):
             self.assertNotIn(forbidden, text)
 
+    def test_recent_play_reads_steams_local_profile_without_measuring_it(self):
+        page = (ROOT / "build/hub/src/pages/RowynPlay.tsx").read_text()
+        for needle in ('Recently played', 'rowynSteamRecentPlay', 'formatPlaytime',
+                       'formatLastPlayed', 'RecentPlay', 'no local name'):
+            self.assertIn(needle, page)
+        service = (ROOT / "build/hub/src/services/rowynMvp.ts").read_text()
+        self.assertIn("'rowyn_steam_recent_play'", service)
+        model = (ROOT / "build/hub/src/services/rowynPlayRecentModel.ts").read_text()
+        for needle in ('playtime not recorded', 'last played', 'Rowyn measured nothing here'):
+            self.assertIn(needle, model)
+        for forbidden in ('fetch(', 'setInterval', 'setTimeout'):
+            self.assertNotIn(forbidden, model)
+        rust = (ROOT / "build/hub/src-tauri/src/commands/rowyn_steam.rs").read_text()
+        for needle in ('localconfig.vdf', 'LastPlayed', 'Playtime', 'MAX_LOCAL_CONFIG_BYTES',
+                       'pub(crate) async fn rowyn_steam_recent_play', 'spawn_blocking'):
+            self.assertIn(needle, rust)
+        # The recent-play read stays a local file read: no network client, no
+        # launcher, and no frame-rate or latency fields invented for it.
+        for forbidden in ('reqwest', 'TcpStream', 'UdpSocket', 'avg_fps', 'latency_ms'):
+            self.assertNotIn(forbidden, rust)
+        port = (ROOT / "build/ubuntu-hub-source.py").read_text()
+        self.assertIn("commands::rowyn_steam::rowyn_steam_recent_play", port)
+
 
 class MvpPlay(unittest.TestCase):
     def test_play_uses_curated_flatpak_jobs_and_honest_host_boundary(self):

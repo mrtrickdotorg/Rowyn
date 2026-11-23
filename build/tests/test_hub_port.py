@@ -771,6 +771,10 @@ class PinnedHubSourceTests(unittest.TestCase):
             self.assertNotIn("KYTH_STAGE_PROGRESS", updates)
             vpn = (crate / "src/commands/vpn.rs").read_text()
             self.assertIn("submitToRowyn", vpn)
+            # A4: no session telemetry writer or chart exists, so neither the
+            # shared reader nor the shell command that exposed it survives.
+            self.assertNotIn("telemetry_recent", main)
+            self.assertNotIn("system::telemetry", main)
 
             # No unmasked kyth reference survives anywhere in the
             # export. Deliberate exceptions: the GitHub org in

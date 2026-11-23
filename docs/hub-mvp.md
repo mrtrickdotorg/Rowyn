@@ -34,6 +34,7 @@ Four environment checks — Steam Play state, Vulkan layers, display HDR/VRR and
 controller readiness — are read once when the page opens, bounded and without a
 timer, so the "Get set up to play" strip reports this machine instead of
 staying empty; each keeps its own button for a fresh read. Nothing is polled.
+The Steam section's "Recently played" list is read once on open the same way.
 The MVP detects launcher installations with explicit scans. Steam game discovery
 is a separate, opt-in read-only scan of bounded `libraryfolders.vdf` and
 `appmanifest_*.acf` metadata in common native/Flatpak Steam locations. It
@@ -42,9 +43,16 @@ library paths, launch games, or make compatibility claims. A missing install or
 partial metadata read is shown as unknown/partial rather than a clean empty
 library. ProtonDB links are generated only from validated numeric app IDs and
 lead to community reports; they are not Rowyn test results. Custom Steam roots
-outside the locations and libraries discovered from Steam's metadata may be
-missed. Play history, game execution and per-game compatibility verdicts remain
-deferred.
+outside the locations discovered from Steam's metadata may be missed.
+
+**Recently played** is a separate read of Steam's own per-account local profile
+(`userdata/<account>/config/localconfig.vdf`): Steam's `LastPlayed` timestamp
+and its playtime counter in minutes, shown as Steam recorded them. Titles are
+named only from the install manifests above, so a played title that is not
+installed here is counted rather than labelled, and a missing counter reads
+"playtime not recorded" instead of zero. There is no frame-rate, latency or
+session-length figure, no network request and no timer. Game execution and
+per-game compatibility verdicts remain deferred.
 
 Controller rescan calls the same fixed read-only helper. Compatibility copy is
 dated 2026-10-31, sourced to Valve's Proton anti-cheat developer documentation

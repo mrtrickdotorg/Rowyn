@@ -598,7 +598,7 @@ def apply_rowyn_mvp(root):
             {"key": "Power", "title": "Power and sleep", "description": "Read battery health, charging capabilities, power profile and sleep policy; open KDE settings."}]},
         {"key": "Play", "route": "/play", "sections": [
             {"key": "Gaming", "title": "Launchers", "description": "Install or open Steam, Heroic, Lutris and Bottles as Flatpaks."},
-            {"key": "SteamLibrary", "title": "Installed games", "description": "Local Steam metadata, read only when you ask."},
+            {"key": "SteamLibrary", "title": "Steam library", "description": "Play history and installed titles from Steam's own local metadata."},
             {"key": "Compatibility", "title": "Compatibility", "description": "Dated support guidance, anti-cheat caveats and per-game launch options."},
             {"key": "Controllers", "title": "Controllers", "description": "Read-only controller readiness; rescan after connecting a gamepad."}]},
         {"key": "Work", "route": "/work", "sections": [
@@ -994,6 +994,7 @@ fn system_flatpak_install(app_id: &str, cancel: &AtomicBool) -> Result<(), Strin
         registration_anchor
         + "            commands::rowyn_steam::rowyn_steam_play_status,\n"
         + "            commands::rowyn_steam::rowyn_steam_play_apply,\n"
+        + "            commands::rowyn_steam::rowyn_steam_recent_play,\n"
         + "            commands::rowyn_play::rowyn_display_modes_scan,\n"
         + "            commands::rowyn_play::rowyn_vulkan_layers_scan,\n"
         + "            commands::rowyn_play::rowyn_vulkan_layer_install,\n"
@@ -1002,6 +1003,26 @@ fn system_flatpak_install(app_id: &str, cancel: &AtomicBool) -> Result<(), Strin
         1,
     )
     main_rs.write_text(text)
+
+
+def cut_upstream_telemetry_reader(root):
+    """Delete the shell's `telemetry_recent` command and its registration.
+
+    A4 in the gaming review: Rowyn installs no session telemetry writer and
+    the port has no chart that reads one, so `system::telemetry` is pruned
+    from the shared crate. The upstream command wrapper in `main.rs` outlives
+    that cut and would either fail to compile (module gone) or expose a query
+    that can only return an empty list, so it leaves together with the
+    registration that exposes it.
+    """
+    main = root / "src/rowyn-hub-web/src-tauri/src/main.rs"
+    text = main.read_text()
+    text = cut_between(
+        text,
+        "#[tauri::command]\nasync fn telemetry_recent(",
+        "#[tauri::command]\nfn is_live_session()")
+    text = replace_once(text, "            telemetry_recent,\n", "")
+    main.write_text(text)
 
 
 def apply_rowyn_move_in(root):
@@ -3290,6 +3311,11 @@ mod audit_fix_tests {
 
     apply_rowyn_mvp(root)
     changes.append("Rowyn-owned Diagnostics and Play MVP overlays applied; legacy gaming backend stays removed")
+
+    cut_upstream_telemetry_reader(root)
+    changes.append(
+        "gaming A4: the shell no longer registers telemetry_recent; nothing "
+        "writes that database and no page reads it")
 
     # --- Full internal rename -------------------------------------------
     changes.append("upstream refs repointed: " + repoint_upstream_refs(root))

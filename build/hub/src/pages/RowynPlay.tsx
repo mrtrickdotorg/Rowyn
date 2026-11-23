@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { ExternalLink } from '../components/ExternalLink';
 import { cancelInstall, fetchInstalledFlatpaks, installFlatpak, uninstallFlatpak, waitInstallJob, invalidateSharedReads, getInFlightJob, type InstalledFlatpaksResult } from '../services/liveData';
-import { rowynControllerScan, openRowynLauncher, rowynSteamGamesScan, rowynSteamPlayStatus, rowynSteamPlayApply, rowynDisplayModesScan, rowynVulkanLayersScan, rowynVulkanLayerInstall, rowynSunshineStatus, rowynSunshineFirewallOpen, rowynSunshineAutostartEnable, rowynGamescopeStatus, rowynGamemodeStatus, type SteamPlayStatus, type DisplayModes, type VulkanLayers, type SunshineStatus, type GamescopeStatus, type GamemodeStatus } from '../services/rowynMvp';
+import { rowynControllerScan, openRowynLauncher, rowynSteamGamesScan, rowynSteamRecentPlay, rowynSteamPlayStatus, rowynSteamPlayApply, rowynDisplayModesScan, rowynVulkanLayersScan, rowynVulkanLayerInstall, rowynSunshineStatus, rowynSunshineFirewallOpen, rowynSunshineAutostartEnable, rowynGamescopeStatus, rowynGamemodeStatus, type SteamPlayStatus, type DisplayModes, type VulkanLayers, type SunshineStatus, type GamescopeStatus, type GamemodeStatus, type RecentPlay } from '../services/rowynMvp';
 import { LAUNCHERS, launcherState, installLauncher, createPlayStatusOwner, launchOptions, steamCompatibilityLinks, compatVerdict, type Reading, type SteamScan } from '../services/rowynMvpModel';
 import { loadProfiles, saveProfiles, profileFor, isDefaultProfile, assembleProfileOptions, type GameProfile } from '../services/rowynPlayProfilesModel';
 import { openRowynSettings } from '../services/rowynSettings';
 import { playSetupSteps, SETUP_MARKERS } from '../services/rowynPlaySetupModel';
+import { formatPlaytime, formatLastPlayed, recentPlayStatus } from '../services/rowynPlayRecentModel';
 import { copyText } from '../services/rowynClipboard';
 import { useSectionFollow, type SectionMap } from '../hooks/useSectionFollow';
 import '../styles/rowynMvp.css';
@@ -38,6 +39,8 @@ export function Play() {
   useSectionFollow(SECTIONS);
   const [scan, setScan] = useState<InstalledFlatpaksResult | null>(null);
   const [steamScan, setSteamScan] = useState<SteamScan | null>(null);
+  const [recentPlay, setRecentPlay] = useState<RecentPlay | null>(null);
+  const [recentFailed, setRecentFailed] = useState(false);
   const [controllers, setControllers] = useState<Reading[] | null>(null);
   const [status, setStatus] = useState('Reading installed launchers…');
   const [busy, setBusy] = useState(false);
@@ -125,6 +128,16 @@ export function Play() {
     rowynControllerScan().then((next) => { if (!cancelled) setControllers(next); }).catch(() => failed('controllers'));
     return () => { cancelled = true; };
   }, []);
+  useEffect(() => {
+    // Steam's own play history: read once so the Steam section opens with it
+    // instead of an empty list. Read-only and bounded like the checks above;
+    // the refresh button below is the only second read.
+    let cancelled = false;
+    rowynSteamRecentPlay()
+      .then((next) => { if (!cancelled) setRecentPlay(next); })
+      .catch(() => { if (!cancelled) setRecentFailed(true); });
+    return () => { cancelled = true; };
+  }, []);
   async function confirmPending() {
     const action = pending;
     if (!action) return;
@@ -203,8 +216,19 @@ export function Play() {
         </div>
       </section>}
     </section>
-    <section className="glass dashboard-card" id="hub-section-steam-library"><h2>Installed Steam games</h2>
-      <p className="card-copy">Local metadata only: scans Steam app manifests in common native and Flatpak library paths when you ask. It never reads game files, sends a network request, launches a title, or rates compatibility. ProtonDB links are community reports and do not mean Rowyn tested the game.</p>
+    <section className="glass dashboard-card" id="hub-section-steam-library"><h2>Steam library</h2>
+      <p className="card-copy">Local metadata only, in the common native and Flatpak locations: recently played comes from Steam’s own local profile, installed titles from Steam’s app manifests when you ask for a scan. Neither reads game files, sends a network request, launches a title, or rates compatibility. ProtonDB links are community reports and do not mean Rowyn tested the game.</p>
+      <h3>Recently played</h3>
+      <p className="card-copy">Steam’s last-played time and playtime counter, shown as Steam recorded them — Rowyn measures nothing here. Titles that are not installed on this machine have no local name, so they are counted rather than labelled.</p>
+      <div className="home-actions"><button className="action-button" disabled={busy} onClick={() => run('Reading Steam play history…', async () => {
+        setRecentPlay(null); setRecentFailed(false);
+        const next = await rowynSteamRecentPlay(); setRecentPlay(next);
+        return recentPlayStatus(next);
+      })}>Refresh recently played</button></div>
+      {!recentPlay && <p className="card-copy" role="status">{recentFailed ? 'Steam’s local profile could not be read. Start Steam once, then refresh.' : 'Reading Steam’s local profile…'}</p>}
+      {recentPlay && <p className="card-copy" role="status">{recentPlayStatus(recentPlay)}</p>}
+      {!!recentPlay?.games.length && <ul className="card-copy" aria-label="Recently played titles">{recentPlay.games.map((item) => <li key={item.app_id}><strong>{item.name}</strong> — {formatPlaytime(item.playtime_minutes)} · {formatLastPlayed(item.last_played)}</li>)}</ul>}
+      <h3>Installed titles</h3>
       <button className="action-button" disabled={busy} onClick={() => run('Reading Steam library metadata…', async () => {
         setSteamScan(null);
         const next = await rowynSteamGamesScan(); setSteamScan(next);

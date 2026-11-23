@@ -81,6 +81,153 @@ fn malformed_library_file_is_visible_as_partial_not_a_clean_empty_scan() {
     assert!(result.warnings > 0);
 }
 
+const LOCAL_CONFIG_APPS: &str = r#""UserLocalConfigStore"
+{
+	"Software"
+	{
+		"Valve"
+		{
+			"Steam"
+			{
+				"apps"
+				{
+					"620"
+					{
+						"LastPlayed"		"1762300000"
+						"Playtime"		"1830"
+					}
+					"570"
+					{
+						"LastPlayed"		"1762400000"
+						"playtime_forever"	"120"
+					}
+					"440"
+					{
+						"LastPlayed"		"1762200000"
+					}
+					"400"
+					{
+						"LastPlayed"		"1762500000"
+					}
+					"0"
+					{
+						"LastPlayed"		"1762600000"
+					}
+					"not-an-id"
+					{
+						"LastPlayed"		"1762700000"
+					}
+				}
+			}
+		}
+	}
+}
+"#;
+
+fn write_profile(home: &Path, account: &str, content: &str) {
+    let config = home
+        .join(".local/share/Steam/userdata")
+        .join(account)
+        .join("config");
+    fs::create_dir_all(&config).unwrap();
+    fs::write(config.join("localconfig.vdf"), content).unwrap();
+}
+
+fn local_config(entries: &[(&str, u64, Option<u64>)]) -> String {
+    let mut out = String::from(
+        "\"UserLocalConfigStore\"\n{\n\t\"Software\"\n\t{\n\t\t\"Valve\"\n\t\t{\n\t\t\t\"Steam\"\n\t\t\t{\n\t\t\t\t\"apps\"\n\t\t\t\t{\n",
+    );
+    for (app_id, last_played, playtime) in entries {
+        out.push_str(&format!(
+            "\t\t\t\t\t\"{app_id}\"\n\t\t\t\t\t{{\n\t\t\t\t\t\t\"LastPlayed\"\t\t\"{last_played}\"\n"
+        ));
+        if let Some(minutes) = playtime {
+            out.push_str(&format!(
+                "\t\t\t\t\t\t\"Playtime\"\t\t\"{minutes}\"\n"
+            ));
+        }
+        out.push_str("\t\t\t\t\t}\n");
+    }
+    out.push_str("\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n}\n");
+    out
+}
+
+#[test]
+fn recent_play_reports_steam_values_newest_first_without_inventing_anything() {
+    let temporary = tempfile::tempdir().unwrap();
+    let home = temporary.path();
+    let steam = home.join(".local/share/Steam");
+    write_game(&steam, 570, "Dota 2", 4);
+    write_game(&steam, 620, "Portal 2", 4);
+    write_game(&steam, 440, "Team Fortress 2", 4);
+    write_profile(home, "12345678", LOCAL_CONFIG_APPS);
+
+    let result = scan_recent_play(home);
+    assert!(result.steam_detected);
+    assert!(result.profile_read);
+    assert_eq!(result.warnings, 0);
+    // 400 is played but not installed here, so Steam has no local name for it.
+    assert_eq!(result.unnamed, 1);
+    assert_eq!(
+        result
+            .games
+            .iter()
+            .map(|game| game.app_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["570", "620", "440"]
+    );
+    assert_eq!(result.games[0].name, "Dota 2");
+    assert_eq!(result.games[0].playtime_minutes, Some(120));
+    assert_eq!(result.games[0].last_played, 1_762_400_000);
+    assert_eq!(result.games[1].name, "Portal 2");
+    assert_eq!(result.games[1].playtime_minutes, Some(1830));
+    // A missing counter is reported as missing, never as zero minutes.
+    assert_eq!(result.games[2].playtime_minutes, None);
+    let json = serde_json::to_string(&result).unwrap();
+    assert!(!json.contains(&home.to_string_lossy().to_string()));
+    assert!(!json.contains("12345678"));
+}
+
+#[test]
+fn recent_play_merges_accounts_and_reports_a_missing_profile() {
+    let temporary = tempfile::tempdir().unwrap();
+    let home = temporary.path();
+    let steam = home.join(".local/share/Steam");
+    fs::create_dir_all(steam.join("steamapps")).unwrap();
+    write_game(&steam, 620, "Portal 2", 4);
+
+    // Steam found, but no account has run for this user yet.
+    let empty = scan_recent_play(home);
+    assert!(empty.steam_detected);
+    assert!(!empty.profile_read);
+    assert!(empty.games.is_empty());
+
+    write_profile(home, "111", &local_config(&[("620", 1_762_300_000, Some(10))]));
+    write_profile(home, "222", &local_config(&[("620", 1_762_400_000, Some(30))]));
+    let merged = scan_recent_play(home);
+    assert_eq!(merged.games.len(), 1);
+    assert_eq!(merged.games[0].last_played, 1_762_400_000);
+    assert_eq!(merged.games[0].playtime_minutes, Some(30));
+}
+
+#[test]
+fn recent_play_without_steam_is_not_detected_and_an_unreadable_profile_is_partial() {
+    let temporary = tempfile::tempdir().unwrap();
+    let home = temporary.path();
+    let missing = scan_recent_play(home);
+    assert!(!missing.steam_detected);
+    assert!(!missing.profile_read);
+
+    let steam = home.join(".local/share/Steam");
+    fs::create_dir_all(steam.join("steamapps")).unwrap();
+    write_profile(home, "123", "not a vdf {");
+    let partial = scan_recent_play(home);
+    assert!(partial.steam_detected);
+    assert!(!partial.profile_read);
+    assert!(partial.warnings > 0);
+    assert!(partial.games.is_empty());
+}
+
 #[test]
 fn parses_vdf_bom_and_comments() {
     let parsed = parse_vdf(concat!(

@@ -1,5 +1,7 @@
-//! Read-only Steam appmanifest scanner. It reads only Steam's own library
-//! metadata and never reports install paths, launches games, or rates titles.
+//! Read-only Steam metadata scanner: installed titles from Steam's app
+//! manifests, and play history from Steam's own per-account local profile.
+//! It reads only Steam's metadata and never reports install paths, launches
+//! games, measures frame or latency figures, or rates titles.
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::fs::{self, File};
@@ -12,6 +14,18 @@ const MAX_LIBRARIES: usize = 32;
 const MAX_MANIFESTS: usize = 2048;
 const MAX_DIRECTORY_ENTRIES: usize = 8192;
 const MAX_TOKENS: usize = 50_000;
+// localconfig.vdf is per account and carries friends, cloud and app state far
+// beyond the apps block, so it gets its own bounded budget rather than the
+// 256 KB manifest limit.
+const MAX_LOCAL_CONFIG_BYTES: u64 = 4 * 1024 * 1024;
+const MAX_LOCAL_CONFIG_TOKENS: usize = 500_000;
+const MAX_ACCOUNTS: usize = 8;
+const MAX_RECENT_APPS: usize = 4096;
+/// How many rows the page receives; the model behind them is unbounded.
+const RECENT_LIMIT: usize = 8;
+/// Plausibility bounds: junk stays out rather than becoming history.
+const MAX_PLAYTIME_MINUTES: u64 = 60 * 24 * 366 * 30;
+const MAX_LAST_PLAYED: u64 = 4_102_444_800; // 2100-01-01
 
 #[derive(Debug, Serialize)]
 pub(crate) struct SteamGame {
@@ -26,7 +40,7 @@ pub(crate) struct SteamScan {
     games: Vec<SteamGame>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Value {
     Text(String),
     Object(Vec<(String, Value)>),
@@ -39,7 +53,7 @@ enum Token {
     Close,
 }
 
-fn tokenize_vdf(input: &str) -> Result<Vec<Token>, String> {
+fn tokenize_vdf(input: &str, max_tokens: usize) -> Result<Vec<Token>, String> {
     let bytes = input.as_bytes();
     let mut tokens = Vec::new();
     let mut index = 0;
@@ -102,7 +116,7 @@ fn tokenize_vdf(input: &str) -> Result<Vec<Token>, String> {
                 ));
             }
         }
-        if tokens.len() > MAX_TOKENS {
+        if tokens.len() > max_tokens {
             return Err("VDF has too many entries".into());
         }
     }
@@ -149,11 +163,15 @@ fn parse_pairs(
     }
 }
 
-fn parse_vdf(input: &str) -> Result<Vec<(String, Value)>, String> {
+fn parse_vdf_bounded(input: &str, max_tokens: usize) -> Result<Vec<(String, Value)>, String> {
     let input = input.strip_prefix('\u{feff}').unwrap_or(input);
-    let tokens = tokenize_vdf(input)?;
+    let tokens = tokenize_vdf(input, max_tokens)?;
     let mut index = 0;
     parse_pairs(&tokens, &mut index, 0, false)
+}
+
+fn parse_vdf(input: &str) -> Result<Vec<(String, Value)>, String> {
+    parse_vdf_bounded(input, MAX_TOKENS)
 }
 
 fn text<'a>(object: &'a [(String, Value)], key: &str) -> Option<&'a str> {
@@ -325,7 +343,10 @@ fn parse_manifest(path: &Path, expected_id: &str, warnings: &mut usize) -> Optio
     })
 }
 
-fn scan_steam_libraries(home: &Path) -> SteamScan {
+/// The Steam install directories that exist on this machine, de-duplicated
+/// through their canonical paths. Shared by the manifest scan and the local
+/// profile read so both look where Steam actually is.
+fn steam_roots(home: &Path) -> Vec<PathBuf> {
     let mut candidates = vec![
         home.join(".local/share/Steam"),
         home.join(".steam/steam"),
@@ -348,6 +369,11 @@ fn scan_steam_libraries(home: &Path) -> SteamScan {
             roots.push(canonical);
         }
     }
+    roots
+}
+
+fn scan_steam_libraries(home: &Path) -> SteamScan {
+    let roots = steam_roots(home);
     if roots.is_empty() {
         return SteamScan {
             available: false,
@@ -432,6 +458,229 @@ pub(crate) async fn rowyn_steam_games_scan() -> Result<SteamScan, String> {
     tauri::async_runtime::spawn_blocking(move || scan_steam_libraries(&home))
         .await
         .map_err(|error| format!("Steam library scan did not complete: {error}"))
+}
+
+// --- Recently played ------------------------------------------------------
+// Steam keeps each account's own play history in
+// `userdata/<account id>/config/localconfig.vdf` (`LastPlayed` and
+// `Playtime` in minutes). This read reports those values as Steam wrote
+// them: no frame rate, no latency, no derived score. Steam names an app only
+// in its manifest, so a title that is not installed here is counted rather
+// than labelled with an invented name.
+
+#[derive(Debug, Serialize)]
+pub(crate) struct RecentGame {
+    app_id: String,
+    name: String,
+    last_played: u64,
+    playtime_minutes: Option<u64>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct RecentPlay {
+    /// A Steam install directory was found at all.
+    steam_detected: bool,
+    /// At least one account's local profile was read successfully.
+    profile_read: bool,
+    warnings: usize,
+    /// Recently played app ids with no local manifest, so no local title.
+    unnamed: usize,
+    games: Vec<RecentGame>,
+}
+
+fn local_config_apps(path: &Path, warnings: &mut usize) -> Option<Vec<(String, Value)>> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => metadata,
+        _ => {
+            *warnings += 1;
+            return None;
+        }
+    };
+    if metadata.len() > MAX_LOCAL_CONFIG_BYTES {
+        *warnings += 1;
+        return None;
+    }
+    let mut source = String::new();
+    if File::open(path)
+        .and_then(|file| {
+            file.take(MAX_LOCAL_CONFIG_BYTES + 1)
+                .read_to_string(&mut source)
+        })
+        .is_err()
+        || source.len() as u64 > MAX_LOCAL_CONFIG_BYTES
+    {
+        *warnings += 1;
+        return None;
+    }
+    let parsed = match parse_vdf_bounded(&source, MAX_LOCAL_CONFIG_TOKENS) {
+        Ok(parsed) => parsed,
+        Err(_) => {
+            *warnings += 1;
+            return None;
+        }
+    };
+    let Some(apps) = object(&parsed, "UserLocalConfigStore")
+        .and_then(|store| object(store, "Software"))
+        .and_then(|software| object(software, "Valve"))
+        .and_then(|valve| object(valve, "Steam"))
+        .and_then(|steam| object(steam, "apps"))
+    else {
+        *warnings += 1;
+        return None;
+    };
+    Some(apps.to_vec())
+}
+
+/// One app's `apps` entry as (normalized app id, last played, playtime).
+fn recent_entry(app_id: &str, fields: &[(String, Value)]) -> Option<(String, u64, Option<u64>)> {
+    if app_id.is_empty() || !app_id.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let id = app_id.parse::<u32>().ok().filter(|id| *id > 0)?;
+    let last_played = text(fields, "LastPlayed")?.parse::<u64>().ok()?;
+    if last_played == 0 || last_played > MAX_LAST_PLAYED {
+        return None;
+    }
+    // Steam's local profile writes minutes under "Playtime"; the Web API's
+    // "playtime_forever" spelling appears in some builds, so both are read
+    // rather than showing a played title with no playtime.
+    let playtime_minutes = text(fields, "Playtime")
+        .or_else(|| text(fields, "playtime_forever"))
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|minutes| *minutes <= MAX_PLAYTIME_MINUTES);
+    Some((id.to_string(), last_played, playtime_minutes))
+}
+
+fn scan_recent_play(home: &Path) -> RecentPlay {
+    let roots = steam_roots(home);
+    if roots.is_empty() {
+        return RecentPlay {
+            steam_detected: false,
+            profile_read: false,
+            warnings: 0,
+            unnamed: 0,
+            games: Vec::new(),
+        };
+    }
+    // Titles come from the manifests, not from a guess: reuse the same
+    // bounded scan the library card uses.
+    let names: BTreeMap<String, String> = scan_steam_libraries(home)
+        .games
+        .into_iter()
+        .map(|game| (game.app_id, game.name))
+        .collect();
+    let mut warnings = 0;
+    let mut profile_read = false;
+    let mut accounts = 0;
+    let mut merged: BTreeMap<String, (u64, Option<u64>)> = BTreeMap::new();
+    for root in roots {
+        let entries = match fs::read_dir(root.join("userdata")) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(_) => {
+                warnings += 1;
+                continue;
+            }
+        };
+        let mut directory_entries = 0;
+        for entry in entries {
+            directory_entries += 1;
+            if directory_entries > MAX_DIRECTORY_ENTRIES {
+                warnings += 1;
+                break;
+            }
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(_) => {
+                    warnings += 1;
+                    continue;
+                }
+            };
+            let account = entry.file_name();
+            let account = account.to_string_lossy();
+            if account.is_empty()
+                || account.len() > 32
+                || !account.bytes().all(|byte| byte.is_ascii_digit())
+            {
+                continue;
+            }
+            let path = entry.path().join("config/localconfig.vdf");
+            if !path.is_file() {
+                continue;
+            }
+            if accounts >= MAX_ACCOUNTS {
+                warnings += 1;
+                break;
+            }
+            accounts += 1;
+            let Some(apps) = local_config_apps(&path, &mut warnings) else {
+                continue;
+            };
+            profile_read = true;
+            for (index, (app_id, value)) in apps.iter().enumerate() {
+                if index >= MAX_RECENT_APPS {
+                    warnings += 1;
+                    break;
+                }
+                let Value::Object(fields) = value else {
+                    continue;
+                };
+                let Some((app_id, last_played, playtime)) = recent_entry(app_id, fields) else {
+                    continue;
+                };
+                merged
+                    .entry(app_id)
+                    .and_modify(|existing| {
+                        if last_played > existing.0 {
+                            existing.0 = last_played;
+                        }
+                        // `Option<u64>` orders `Some` above `None`, so this
+                        // keeps a measured playtime over a missing one.
+                        if playtime > existing.1 {
+                            existing.1 = playtime;
+                        }
+                    })
+                    .or_insert((last_played, playtime));
+            }
+        }
+    }
+    let mut unnamed = 0;
+    let mut games = Vec::new();
+    for (app_id, (last_played, playtime_minutes)) in merged {
+        let Some(name) = names.get(&app_id) else {
+            unnamed += 1;
+            continue;
+        };
+        games.push(RecentGame {
+            app_id,
+            name: name.clone(),
+            last_played,
+            playtime_minutes,
+        });
+    }
+    games.sort_by(|a, b| {
+        b.last_played
+            .cmp(&a.last_played)
+            .then_with(|| a.app_id.cmp(&b.app_id))
+    });
+    games.truncate(RECENT_LIMIT);
+    RecentPlay {
+        steam_detected: true,
+        profile_read,
+        warnings,
+        unnamed,
+        games,
+    }
+}
+
+#[tauri::command]
+pub(crate) async fn rowyn_steam_recent_play() -> Result<RecentPlay, String> {
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .ok_or_else(|| "Could not locate the current user's home directory.".to_string())?;
+    tauri::async_runtime::spawn_blocking(move || scan_recent_play(&home))
+        .await
+        .map_err(|error| format!("Steam play history read did not complete: {error}"))
 }
 
 // --- Steam Play default mapping -------------------------------------------
