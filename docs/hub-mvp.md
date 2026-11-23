@@ -54,6 +54,15 @@ installed here is counted rather than labelled, and a missing counter reads
 session-length figure, no network request and no timer. Game execution and
 per-game compatibility verdicts remain deferred.
 
+**Shader pre-caching** is a read of Steam's global `config/config.vdf` — the
+same file the Steam Play check parses — for the
+`ShaderCacheManager → DisableShaderCache` flag behind Steam's own
+Settings → Downloads → Shader Pre-Caching toggle. It is shown as Steam recorded
+it; an absent flag reads "not recorded" (Steam's default applies) rather than
+being guessed, and the read never edits the file or starts Steam. One line of
+guidance names pre-caching as the usual fix for stutter in a game's first
+minutes, while shaders compile.
+
 Controller rescan calls the same fixed read-only helper. Compatibility copy is
 dated 2026-10-31, sourced to Valve's Proton anti-cheat developer documentation
 and linked community reports; it is **not Rowyn game validation** or an online

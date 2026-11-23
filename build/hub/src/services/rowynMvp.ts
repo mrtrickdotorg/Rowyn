@@ -34,6 +34,11 @@ export async function rowynSteamRecentPlay(): Promise<RecentPlay> {
   nativeOnly();
   return invoke<RecentPlay>('rowyn_steam_recent_play');
 }
+export interface ShaderCacheStatus { steam_detected: boolean; config_read: boolean; pre_caching: boolean | null; warnings: number }
+export async function rowynSteamShaderCache(): Promise<ShaderCacheStatus> {
+  nativeOnly();
+  return invoke<ShaderCacheStatus>('rowyn_steam_shader_cache');
+}
 export interface SteamPlayStatus { steam_present: boolean; steam_running: boolean; mapping_present: boolean; detail: string }
 export async function rowynSteamPlayStatus(): Promise<SteamPlayStatus> {
   nativeOnly();

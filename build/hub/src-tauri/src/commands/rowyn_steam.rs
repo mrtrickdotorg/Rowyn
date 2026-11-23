@@ -488,7 +488,10 @@ pub(crate) struct RecentPlay {
     games: Vec<RecentGame>,
 }
 
-fn local_config_apps(path: &Path, warnings: &mut usize) -> Option<Vec<(String, Value)>> {
+/// Read at most `limit` bytes of a regular file, counting one warning on any
+/// symlinked, oversized or unreadable path so a partial read stays visible
+/// instead of looking like a clean empty result.
+fn read_bounded_text(path: &Path, limit: u64, warnings: &mut usize) -> Option<String> {
     let metadata = match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => metadata,
         _ => {
@@ -496,22 +499,24 @@ fn local_config_apps(path: &Path, warnings: &mut usize) -> Option<Vec<(String, V
             return None;
         }
     };
-    if metadata.len() > MAX_LOCAL_CONFIG_BYTES {
+    if metadata.len() > limit {
         *warnings += 1;
         return None;
     }
     let mut source = String::new();
     if File::open(path)
-        .and_then(|file| {
-            file.take(MAX_LOCAL_CONFIG_BYTES + 1)
-                .read_to_string(&mut source)
-        })
+        .and_then(|file| file.take(limit + 1).read_to_string(&mut source))
         .is_err()
-        || source.len() as u64 > MAX_LOCAL_CONFIG_BYTES
+        || source.len() as u64 > limit
     {
         *warnings += 1;
         return None;
     }
+    Some(source)
+}
+
+fn local_config_apps(path: &Path, warnings: &mut usize) -> Option<Vec<(String, Value)>> {
+    let source = read_bounded_text(path, MAX_LOCAL_CONFIG_BYTES, warnings)?;
     let parsed = match parse_vdf_bounded(&source, MAX_LOCAL_CONFIG_TOKENS) {
         Ok(parsed) => parsed,
         Err(_) => {
@@ -681,6 +686,107 @@ pub(crate) async fn rowyn_steam_recent_play() -> Result<RecentPlay, String> {
     tauri::async_runtime::spawn_blocking(move || scan_recent_play(&home))
         .await
         .map_err(|error| format!("Steam play history read did not complete: {error}"))
+}
+
+// --- Shader pre-caching ---------------------------------------------------
+// Steam's Settings → Downloads → "Enable Shader Pre-Caching" toggle is kept in
+// the global `config/config.vdf` — not the per-account profile — under
+// `InstallConfigStore → Software → Valve → Steam → ShaderCacheManager` as
+// `DisableShaderCache` ("0" enabled, "1" disabled). Steam writes that key only
+// for a changed setting, so an absent key means Steam's own default (on)
+// applies; it is reported as not recorded rather than guessed. This read never
+// edits the file, starts Steam or measures anything.
+
+#[derive(Debug, Serialize)]
+pub(crate) struct ShaderCacheStatus {
+    /// A Steam install directory was found at all.
+    steam_detected: bool,
+    /// A global config.vdf was read as Steam's own configuration.
+    config_read: bool,
+    /// None: Steam has not recorded the setting, so its default applies.
+    pre_caching: Option<bool>,
+    warnings: usize,
+}
+
+fn steam_config_section(config: &[(String, Value)]) -> Option<&[(String, Value)]> {
+    object(config, "InstallConfigStore")
+        .and_then(|store| object(store, "Software"))
+        .and_then(|software| object(software, "Valve"))
+        .and_then(|valve| object(valve, "Steam"))
+}
+
+/// Ok(None) when Steam wrote no ShaderCacheManager block; Err when the block
+/// exists but its flag is not a value Steam writes.
+fn pre_caching_flag(steam: &[(String, Value)]) -> Result<Option<bool>, ()> {
+    let Some(manager) = object(steam, "ShaderCacheManager") else {
+        return Ok(None);
+    };
+    match text(manager, "DisableShaderCache") {
+        None => Ok(None),
+        Some("0") => Ok(Some(true)),
+        Some("1") => Ok(Some(false)),
+        Some(_) => Err(()),
+    }
+}
+
+fn read_shader_cache(home: &Path) -> ShaderCacheStatus {
+    let roots = steam_roots(home);
+    if roots.is_empty() {
+        return ShaderCacheStatus {
+            steam_detected: false,
+            config_read: false,
+            pre_caching: None,
+            warnings: 0,
+        };
+    }
+    let mut warnings = 0;
+    let mut config_read = false;
+    let mut pre_caching = None;
+    for root in roots {
+        let path = root.join("config/config.vdf");
+        // A Steam location that never wrote a global configuration is not a
+        // failed read; only an unreadable existing file is counted.
+        if !path.is_file() {
+            continue;
+        }
+        let Some(source) = read_bounded_text(&path, MAX_VDF_BYTES, &mut warnings) else {
+            continue;
+        };
+        let parsed = match parse_vdf(&source) {
+            Ok(parsed) => parsed,
+            Err(_) => {
+                warnings += 1;
+                continue;
+            }
+        };
+        let Some(steam) = steam_config_section(&parsed) else {
+            warnings += 1;
+            continue;
+        };
+        config_read = true;
+        match pre_caching_flag(steam) {
+            Ok(Some(value)) => {
+                pre_caching = Some(value);
+                break;
+            }
+            Ok(None) => {}
+            Err(_) => warnings += 1,
+        }
+    }
+    ShaderCacheStatus {
+        steam_detected: true,
+        config_read,
+        pre_caching,
+        warnings,
+    }
+}
+
+#[tauri::command]
+pub(crate) async fn rowyn_steam_shader_cache() -> Result<ShaderCacheStatus, String> {
+    let home = home_dir()?;
+    tauri::async_runtime::spawn_blocking(move || read_shader_cache(&home))
+        .await
+        .map_err(|error| format!("Shader pre-caching read did not complete: {error}"))
 }
 
 // --- Steam Play default mapping -------------------------------------------

@@ -995,6 +995,7 @@ fn system_flatpak_install(app_id: &str, cancel: &AtomicBool) -> Result<(), Strin
         + "            commands::rowyn_steam::rowyn_steam_play_status,\n"
         + "            commands::rowyn_steam::rowyn_steam_play_apply,\n"
         + "            commands::rowyn_steam::rowyn_steam_recent_play,\n"
+        + "            commands::rowyn_steam::rowyn_steam_shader_cache,\n"
         + "            commands::rowyn_play::rowyn_display_modes_scan,\n"
         + "            commands::rowyn_play::rowyn_vulkan_layers_scan,\n"
         + "            commands::rowyn_play::rowyn_vulkan_layer_install,\n"

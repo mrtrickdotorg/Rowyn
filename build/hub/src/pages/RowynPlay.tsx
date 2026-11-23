@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { ExternalLink } from '../components/ExternalLink';
 import { cancelInstall, fetchInstalledFlatpaks, installFlatpak, uninstallFlatpak, waitInstallJob, invalidateSharedReads, getInFlightJob, type InstalledFlatpaksResult } from '../services/liveData';
-import { rowynControllerScan, openRowynLauncher, rowynSteamGamesScan, rowynSteamRecentPlay, rowynSteamPlayStatus, rowynSteamPlayApply, rowynDisplayModesScan, rowynVulkanLayersScan, rowynVulkanLayerInstall, rowynSunshineStatus, rowynSunshineFirewallOpen, rowynSunshineAutostartEnable, rowynGamescopeStatus, rowynGamemodeStatus, type SteamPlayStatus, type DisplayModes, type VulkanLayers, type SunshineStatus, type GamescopeStatus, type GamemodeStatus, type RecentPlay } from '../services/rowynMvp';
+import { rowynControllerScan, openRowynLauncher, rowynSteamGamesScan, rowynSteamRecentPlay, rowynSteamShaderCache, rowynSteamPlayStatus, rowynSteamPlayApply, rowynDisplayModesScan, rowynVulkanLayersScan, rowynVulkanLayerInstall, rowynSunshineStatus, rowynSunshineFirewallOpen, rowynSunshineAutostartEnable, rowynGamescopeStatus, rowynGamemodeStatus, type SteamPlayStatus, type DisplayModes, type VulkanLayers, type SunshineStatus, type GamescopeStatus, type GamemodeStatus, type RecentPlay, type ShaderCacheStatus } from '../services/rowynMvp';
 import { LAUNCHERS, launcherState, installLauncher, createPlayStatusOwner, launchOptions, steamCompatibilityLinks, compatVerdict, type Reading, type SteamScan } from '../services/rowynMvpModel';
 import { loadProfiles, saveProfiles, profileFor, isDefaultProfile, assembleProfileOptions, type GameProfile } from '../services/rowynPlayProfilesModel';
 import { openRowynSettings } from '../services/rowynSettings';
 import { playSetupSteps, SETUP_MARKERS } from '../services/rowynPlaySetupModel';
 import { formatPlaytime, formatLastPlayed, recentPlayStatus } from '../services/rowynPlayRecentModel';
+import { shaderPreCachingLabel, SHADER_PRE_CACHING_TIP } from '../services/rowynPlayShaderModel';
 import { copyText } from '../services/rowynClipboard';
 import { useSectionFollow, type SectionMap } from '../hooks/useSectionFollow';
 import '../styles/rowynMvp.css';
@@ -41,6 +42,8 @@ export function Play() {
   const [steamScan, setSteamScan] = useState<SteamScan | null>(null);
   const [recentPlay, setRecentPlay] = useState<RecentPlay | null>(null);
   const [recentFailed, setRecentFailed] = useState(false);
+  const [shaderCache, setShaderCache] = useState<ShaderCacheStatus | null>(null);
+  const [shaderFailed, setShaderFailed] = useState(false);
   const [controllers, setControllers] = useState<Reading[] | null>(null);
   const [status, setStatus] = useState('Reading installed launchers…');
   const [busy, setBusy] = useState(false);
@@ -136,6 +139,11 @@ export function Play() {
     rowynSteamRecentPlay()
       .then((next) => { if (!cancelled) setRecentPlay(next); })
       .catch(() => { if (!cancelled) setRecentFailed(true); });
+    // A6: the Shader Pre-Caching flag is a second bounded read of the same
+    // Steam configuration, so it opens with this machine's setting too.
+    rowynSteamShaderCache()
+      .then((next) => { if (!cancelled) setShaderCache(next); })
+      .catch(() => { if (!cancelled) setShaderFailed(true); });
     return () => { cancelled = true; };
   }, []);
   async function confirmPending() {
@@ -218,6 +226,14 @@ export function Play() {
     </section>
     <section className="glass dashboard-card" id="hub-section-steam-library"><h2>Steam library</h2>
       <p className="card-copy">Local metadata only, in the common native and Flatpak locations: recently played comes from Steam’s own local profile, installed titles from Steam’s app manifests when you ask for a scan. Neither reads game files, sends a network request, launches a title, or rates compatibility. ProtonDB links are community reports and do not mean Rowyn tested the game.</p>
+      <h3>Shader pre-caching</h3>
+      <p className="card-copy" role="status">{shaderFailed && !shaderCache ? 'The shader pre-caching read could not run.' : shaderPreCachingLabel(shaderCache)}</p>
+      <p className="card-copy">{SHADER_PRE_CACHING_TIP}</p>
+      <div className="home-actions"><button className="action-button" disabled={busy} onClick={() => run('Reading Steam’s shader pre-caching setting…', async () => {
+        setShaderFailed(false);
+        const next = await rowynSteamShaderCache(); setShaderCache(next);
+        return shaderPreCachingLabel(next);
+      })}>Check shader pre-caching</button></div>
       <h3>Recently played</h3>
       <p className="card-copy">Steam’s last-played time and playtime counter, shown as Steam recorded them — Rowyn measures nothing here. Titles that are not installed on this machine have no local name, so they are counted rather than labelled.</p>
       <div className="home-actions"><button className="action-button" disabled={busy} onClick={() => run('Reading Steam play history…', async () => {

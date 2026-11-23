@@ -235,6 +235,32 @@ class MvpSteamGames(unittest.TestCase):
         port = (ROOT / "build/ubuntu-hub-source.py").read_text()
         self.assertIn("commands::rowyn_steam::rowyn_steam_recent_play", port)
 
+    def test_shader_pre_caching_reads_steams_flag_without_editing_it(self):
+        page = (ROOT / "build/hub/src/pages/RowynPlay.tsx").read_text()
+        for needle in ('Shader pre-caching', 'rowynSteamShaderCache', 'shaderPreCachingLabel',
+                       'SHADER_PRE_CACHING_TIP'):
+            self.assertIn(needle, page)
+        service = (ROOT / "build/hub/src/services/rowynMvp.ts").read_text()
+        self.assertIn("'rowyn_steam_shader_cache'", service)
+        model = (ROOT / "build/hub/src/services/rowynPlayShaderModel.ts").read_text()
+        for needle in ('Shader Pre-Caching: on', 'Shader Pre-Caching: off',
+                       'not recorded', 'Settings → Downloads'):
+            self.assertIn(needle, model)
+        for forbidden in ('fetch(', 'setInterval', 'setTimeout'):
+            self.assertNotIn(forbidden, model)
+        rust = (ROOT / "build/hub/src-tauri/src/commands/rowyn_steam.rs").read_text()
+        for needle in ('config/config.vdf', 'ShaderCacheManager', 'DisableShaderCache',
+                       'pub(crate) async fn rowyn_steam_shader_cache', 'spawn_blocking'):
+            self.assertIn(needle, rust)
+        # The read reports the flag and never rewrites Steam's configuration:
+        # no write, rename, backup or launcher in the shader-code section.
+        body = rust.split('struct ShaderCacheStatus', 1)[1].split(
+            '// --- Steam Play default mapping', 1)[0]
+        for forbidden in ('fs::write', 'fs::rename', 'Command::new', 'reqwest'):
+            self.assertNotIn(forbidden, body)
+        port = (ROOT / "build/ubuntu-hub-source.py").read_text()
+        self.assertIn("commands::rowyn_steam::rowyn_steam_shader_cache", port)
+
 
 class MvpPlay(unittest.TestCase):
     def test_play_uses_curated_flatpak_jobs_and_honest_host_boundary(self):

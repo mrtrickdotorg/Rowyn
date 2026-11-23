@@ -229,6 +229,68 @@ fn recent_play_without_steam_is_not_detected_and_an_unreadable_profile_is_partia
 }
 
 #[test]
+fn shader_cache_reports_steams_flag_and_never_invents_one() {
+    let temporary = tempfile::tempdir().unwrap();
+    let home = temporary.path();
+    // No Steam at all: no configuration to read, and no claim about it.
+    let missing = read_shader_cache(home);
+    assert!(!missing.steam_detected);
+    assert!(!missing.config_read);
+    assert_eq!(missing.pre_caching, None);
+
+    fs::create_dir_all(home.join(".local/share/Steam/steamapps")).unwrap();
+    // Steam is installed but has not written its global configuration yet.
+    let empty = read_shader_cache(home);
+    assert!(empty.steam_detected);
+    assert!(!empty.config_read);
+    assert_eq!(empty.pre_caching, None);
+    assert_eq!(empty.warnings, 0);
+
+    write_global_config(home, &global_config(Some("0")));
+    let on = read_shader_cache(home);
+    assert!(on.config_read);
+    assert_eq!(on.pre_caching, Some(true));
+    assert_eq!(on.warnings, 0);
+
+    write_global_config(home, &global_config(Some("1")));
+    assert_eq!(read_shader_cache(home).pre_caching, Some(false));
+
+    // Steam writes the flag for a changed setting; an absent flag is reported
+    // as unrecorded (its default applies), never as on or off.
+    write_global_config(home, &global_config(None));
+    let unset = read_shader_cache(home);
+    assert!(unset.config_read);
+    assert_eq!(unset.pre_caching, None);
+    assert_eq!(unset.warnings, 0);
+}
+
+#[test]
+fn shader_cache_keeps_junk_and_unreadable_config_visible() {
+    let temporary = tempfile::tempdir().unwrap();
+    let home = temporary.path();
+    fs::create_dir_all(home.join(".local/share/Steam/steamapps")).unwrap();
+
+    // A value Steam never writes is not read as on or off.
+    write_global_config(home, &global_config(Some("2")));
+    let junk = read_shader_cache(home);
+    assert!(junk.config_read);
+    assert_eq!(junk.pre_caching, None);
+    assert!(junk.warnings > 0);
+
+    write_global_config(home, "not a vdf {");
+    let broken = read_shader_cache(home);
+    assert!(!broken.config_read);
+    assert_eq!(broken.pre_caching, None);
+    assert!(broken.warnings > 0);
+    // A read leaves the file byte-identical: no backup, temp file or rewrite.
+    assert_eq!(
+        fs::read_to_string(home.join(".local/share/Steam/config/config.vdf")).unwrap(),
+        "not a vdf {"
+    );
+    assert!(!home.join(".local/share/Steam/config/config.vdf.rowyn-backup").exists());
+}
+
+#[test]
 fn parses_vdf_bom_and_comments() {
     let parsed = parse_vdf(concat!(
         "\u{feff}",
@@ -242,6 +304,29 @@ fn parses_vdf_bom_and_comments() {
         _ => panic!("expected library object"),
     };
     assert_eq!(text(first, "path"), Some("/games/library"));
+}
+
+fn write_global_config(home: &Path, body: &str) {
+    let config = home.join(".local/share/Steam/config");
+    fs::create_dir_all(&config).unwrap();
+    fs::write(config.join("config.vdf"), body).unwrap();
+}
+
+/// A global config.vdf in Steam's shape. `Some("0")`/`Some("1")` writes the
+/// pre-caching flag; None leaves the ShaderCacheManager block without one,
+/// which is what Steam does while pre-caching stays at its default.
+fn global_config(flag: Option<&str>) -> String {
+    let manager = match flag {
+        Some(flag) => format!(
+            "\t\t\t\t\"ShaderCacheManager\"\n\t\t\t\t{{\n\t\t\t\t\t\"DisableShaderCache\"\t\t\"{flag}\"\n\t\t\t\t}}\n"
+        ),
+        None => String::from(
+            "\t\t\t\t\"ShaderCacheManager\"\n\t\t\t\t{\n\t\t\t\t\t\"HasCurrentBucket\"\t\t\"1\"\n\t\t\t\t}\n",
+        ),
+    };
+    format!(
+        "\"InstallConfigStore\"\n{{\n\t\"Software\"\n\t{{\n\t\t\"Valve\"\n\t\t{{\n\t\t\t\"Steam\"\n\t\t\t{{\n{manager}\t\t\t}}\n\t\t}}\n\t}}\n}}\n"
+    )
 }
 
 const CONFIG_WITHOUT_MAPPING: &str = "\"InstallConfigStore\"\n{\n\t\"Software\"\n\t{\n\t\t\"Valve\"\n\t\t{\n\t\t\t\"Steam\"\n\t\t\t{\n\t\t\t\t\"CDKeys\"\n\t\t\t\t{\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n}\n";
