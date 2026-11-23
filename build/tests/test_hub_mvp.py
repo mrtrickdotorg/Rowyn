@@ -248,6 +248,10 @@ class MvpSteamGames(unittest.TestCase):
         model = (ROOT / "build/hub/src/services/rowynSteamLibraryModel.ts").read_text()
         for needle in ('sortSteamGames', 'coverInitials', 'steamLibraryCoverNote', 'steamStateChip'):
             self.assertIn(needle, model)
+        # One verdict lookup per card: the chip projects the verdict the
+        # disclosure already computed instead of resolving it again.
+        self.assertNotIn('compatVerdict(', model)
+        self.assertIn('steamStateChip(verdict)', page)
         for forbidden in ('fetch(', 'https://', 'setInterval', 'setTimeout'):
             self.assertNotIn(forbidden, model)
         rust = (ROOT / "build/hub/src-tauri/src/commands/rowyn_steam.rs").read_text()

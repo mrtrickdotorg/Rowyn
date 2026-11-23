@@ -4,7 +4,7 @@
 // many covers the local read actually returned. Nothing here measures, fetches
 // or infers a verdict.
 
-import { compatVerdict, type SteamGame } from './rowynMvpModel';
+import type { CompatVerdict, SteamGame } from './rowynMvpModel';
 
 export interface SteamStateChip {
   label: string;
@@ -18,9 +18,10 @@ const CHIPS: Record<string, string> = {
   blocked: 'Blocked',
 };
 
-/** One word for the curated state, or nothing when there is no verdict. */
-export function steamStateChip(appId: string, name: string): SteamStateChip | null {
-  const verdict = compatVerdict(appId, name);
+/** One word for the curated state, from the verdict the card already has.
+ * The card resolves `compatVerdict` once and feeds both the chip and the
+ * disclosure; this projection never looks it up a second time. */
+export function steamStateChip(verdict: CompatVerdict | null): SteamStateChip | null {
   if (!verdict) return null;
   const label = CHIPS[verdict.status];
   return label ? { label, tone: `is-${verdict.status}` } : null;

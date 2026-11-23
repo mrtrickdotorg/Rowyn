@@ -32,9 +32,13 @@ test('titles are sorted for reading, without mutating the scan result', () => {
   assert.deepEqual(tied.map((item) => item.app_id), ['3', '20']);
 });
 
-test('curated states become one word, and no verdict stays no chip', () => {
-  assert.deepEqual(m.steamStateChip('730', 'Counter-Strike 2'), { label: 'Native', tone: 'is-native' });
-  assert.equal(m.steamStateChip('999999', 'Definitely Not A Curated Game'), null);
+test('curated states become one word from the verdict the card already has', () => {
+  const base = { label: 'Works natively on Linux', note: 'Native Linux client.', anticheat: 'VAC', checked: '2026-05-18' };
+  assert.deepEqual(m.steamStateChip({ ...base, status: 'native' }), { label: 'Native', tone: 'is-native' });
+  assert.deepEqual(m.steamStateChip({ ...base, status: 'blocked' }), { label: 'Blocked', tone: 'is-blocked' });
+  // No verdict stays no chip; a status the page has no word for is not guessed.
+  assert.equal(m.steamStateChip(null), null);
+  assert.equal(m.steamStateChip({ ...base, status: 'unreviewed' }), null);
 });
 
 test('a title without cached artwork gets a letter tile, not a blank', () => {

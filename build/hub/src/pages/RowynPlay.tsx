@@ -262,7 +262,7 @@ export function Play() {
       {!!steamScan?.games.length && <div className="rowyn-library">{sortSteamGames(steamScan.games).map((item) => {
         const links = steamCompatibilityLinks(item.app_id);
         const verdict = compatVerdict(item.app_id, item.name);
-        const chip = steamStateChip(item.app_id, item.name);
+        const chip = steamStateChip(verdict);
         const profile = profileFor(profiles, item.app_id);
         // gamescope is a host-side wrapper, never a Flatpak layer step: the
         // option is offered only on the host boundary, and only when this
