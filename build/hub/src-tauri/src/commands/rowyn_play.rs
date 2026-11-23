@@ -84,8 +84,9 @@ pub(crate) async fn rowyn_launcher_open(
 }
 // --- Display HDR/VRR status -------------------------------------------------
 // Read-only: parse the same kscreen-doctor output the Diagnostics page
-// probes, surface the per-output Hdr:/Vrr: fields verbatim, and report the
-// KWin VRR policy from kwinrc. Capability words come from the display stack
+// probes and surface the per-output Hdr:/Vrr: fields verbatim. Plasma 6 keeps
+// the adaptive-sync policy per output (KScreen), so there is no page-level
+// policy to report beside them. Capability words come from the display stack
 // itself; anything absent is reported as not reported, never guessed.
 
 #[derive(Debug, serde::Serialize)]
@@ -99,7 +100,6 @@ pub(crate) struct DisplayMode {
 #[derive(Debug, serde::Serialize)]
 pub(crate) struct DisplayModes {
     outputs: Vec<DisplayMode>,
-    vrr_policy: Option<String>,
     detail: String,
 }
 
@@ -126,28 +126,6 @@ fn parse_display_modes(raw: &str) -> Vec<DisplayMode> {
     outputs
 }
 
-fn kwin_vrr_policy(kwinrc: &str) -> Option<String> {
-    let mut in_wayland = false;
-    for line in kwinrc.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with('[') {
-            in_wayland = trimmed == "[Wayland]";
-            continue;
-        }
-        if in_wayland {
-            if let Some(value) = trimmed.strip_prefix("VrrPolicy=") {
-                return Some(match value.trim() {
-                    "0" => "Never".to_string(),
-                    "1" => "Automatic (fullscreen applications)".to_string(),
-                    "2" => "Always".to_string(),
-                    other => format!("Unrecognized value {other}"),
-                });
-            }
-        }
-    }
-    None
-}
-
 #[tauri::command]
 pub(crate) async fn rowyn_display_modes_scan() -> Result<DisplayModes, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -162,19 +140,16 @@ pub(crate) async fn rowyn_display_modes_scan() -> Result<DisplayModes, String> {
         if outputs.is_empty() {
             return Err("No display outputs were reported.".into());
         }
-        let kwinrc = std::env::var_os("HOME")
-            .map(std::path::PathBuf::from)
-            .map(|home| home.join(".config/kwinrc"))
-            .and_then(|path| std::fs::read_to_string(path).ok())
-            .unwrap_or_default();
-        let vrr_policy = kwin_vrr_policy(&kwinrc);
+        // Plasma 6 keeps the adaptive-sync policy per output (KScreen's own
+        // Output setting), not in kwinrc's [Wayland] section, so that key is
+        // not read here: the per-output value below is what the display stack
+        // itself reports, and it is the only one that can be trusted.
         let connected = outputs.iter().filter(|output| output.connected).count();
         Ok(DisplayModes {
             detail: format!(
-                "{connected} connected output(s). HDR and VRR values are reported by the display stack (kscreen); “incapable” means the display or connection does not offer the feature."
+                "{connected} connected output(s). HDR and VRR values are reported per output by the display stack (kscreen); “incapable” means the display or connection does not offer the feature."
             ),
             outputs,
-            vrr_policy,
         })
     })
     .await

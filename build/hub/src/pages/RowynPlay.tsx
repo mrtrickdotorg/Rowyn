@@ -4,6 +4,7 @@ import { cancelInstall, fetchInstalledFlatpaks, installFlatpak, uninstallFlatpak
 import { rowynControllerScan, openRowynLauncher, rowynSteamGamesScan, rowynSteamPlayStatus, rowynSteamPlayApply, rowynDisplayModesScan, rowynVulkanLayersScan, rowynVulkanLayerInstall, rowynSunshineStatus, rowynSunshineFirewallOpen, rowynSunshineAutostartEnable, rowynGamescopeStatus, rowynGamemodeStatus, type SteamPlayStatus, type DisplayModes, type VulkanLayers, type SunshineStatus, type GamescopeStatus, type GamemodeStatus } from '../services/rowynMvp';
 import { LAUNCHERS, launcherState, installLauncher, createPlayStatusOwner, launchOptions, steamCompatibilityLinks, compatVerdict, type Reading, type SteamScan } from '../services/rowynMvpModel';
 import { loadProfiles, saveProfiles, profileFor, isDefaultProfile, assembleProfileOptions, type GameProfile } from '../services/rowynPlayProfilesModel';
+import { openRowynSettings } from '../services/rowynSettings';
 import { playSetupSteps, SETUP_MARKERS } from '../services/rowynPlaySetupModel';
 import { copyText } from '../services/rowynClipboard';
 import { useSectionFollow, type SectionMap } from '../hooks/useSectionFollow';
@@ -304,9 +305,10 @@ export function Play() {
       <div className="home-actions"><button className="action-button" disabled={busy} onClick={() => run('Reading display capabilities…', async () => {
         const next = await rowynDisplayModesScan(); setDisplays(next);
         return next.detail;
-      })}>Check displays</button></div>
+      })}>Check displays</button>
+      <button className="action-button" disabled={busy} onClick={() => run('Opening Display settings…', () => openRowynSettings('displays'))}>Open Display settings</button></div>
       {!displays && <p className="card-copy">{checkFailure.displays ? 'The display scan could not run; use Check displays to retry.' : 'Reading display capabilities…'}</p>}
-      {displays && <p className="card-copy">{displays.detail} KWin variable-refresh policy: {displays.vrr_policy ?? 'not set (KWin default)'}.</p>}
+      {displays && <p className="card-copy">{displays.detail}</p>}
       {displays?.outputs.map((output) => <p className="card-copy" key={output.name}>{output.name} — {output.connected ? 'connected' : 'disconnected'} · HDR: {output.hdr ?? 'not reported'} · VRR: {output.vrr ?? 'not reported'}</p>)}
       <p>{game || 'Selected game'} — paste into that game’s launch options:</p><pre aria-label="Launch options">{options}</pre>
       <button className="action-button" disabled={busy} onClick={() => run('Copying launch options…', async () => {

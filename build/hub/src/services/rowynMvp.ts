@@ -38,7 +38,7 @@ export async function rowynSteamPlayApply(): Promise<SteamPlayStatus> {
   return invoke<SteamPlayStatus>('rowyn_steam_play_apply');
 }
 export interface DisplayMode { name: string; connected: boolean; hdr: string | null; vrr: string | null }
-export interface DisplayModes { outputs: DisplayMode[]; vrr_policy: string | null; detail: string }
+export interface DisplayModes { outputs: DisplayMode[]; detail: string }
 export async function rowynDisplayModesScan(): Promise<DisplayModes> {
   nativeOnly();
   return invoke<DisplayModes>('rowyn_display_modes_scan');

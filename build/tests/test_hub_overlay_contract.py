@@ -231,3 +231,29 @@ class HubTestJob(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PlayDisplayReadings(unittest.TestCase):
+    """Play reports the display stack's own per-output adaptive-sync value.
+
+    The page parsed kwinrc's [Wayland] VrrPolicy, a key Plasma 6 no longer
+    writes — the policy moved per output into KScreen — so the reading said
+    "not set (KWin default)" on machines where VRR was on, and offered no
+    route to change it.
+    """
+
+    def test_bridge_reads_per_output_vrr_and_not_kwinrc(self):
+        rust = (HUB / "src-tauri/src/commands/rowyn_play.rs").read_text(encoding="utf-8")
+        # The key Plasma 6 stopped writing, and the file it lived in.
+        self.assertNotIn("VrrPolicy", rust, "Plasma 6 keeps the VRR policy per output")
+        self.assertNotIn(".config/kwinrc", rust)
+        self.assertNotIn("kwin_vrr_policy", rust)
+        self.assertIn('strip_prefix("Vrr:")', rust)
+
+    def test_page_offers_display_settings_beside_the_readings(self):
+        page = (HUB / "src/pages/RowynPlay.tsx").read_text(encoding="utf-8")
+        settings = (HUB / "src/services/rowynSettings.ts").read_text(encoding="utf-8")
+        self.assertIn("openRowynSettings('displays')", page)
+        self.assertIn("Open Display settings", page)
+        # The target the page opens must stay on the bridge's allowlist.
+        self.assertIn("displays: 'kcm_kscreen'", settings)

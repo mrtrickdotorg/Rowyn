@@ -138,11 +138,14 @@ fn display_modes_parse_hdr_and_vrr_per_output() {
 }
 
 #[test]
-fn kwin_vrr_policy_reads_only_the_wayland_section() {
-    let kwinrc = "[Compositing]\nVrrPolicy=2\n[Wayland]\nVrrPolicy=1\n";
-    assert_eq!(kwin_vrr_policy(kwinrc).as_deref(), Some("Automatic (fullscreen applications)"));
-    assert_eq!(kwin_vrr_policy("[Wayland]\nVrrPolicy=0\n").as_deref(), Some("Never"));
-    assert_eq!(kwin_vrr_policy("").as_deref(), None);
+fn display_vrr_is_taken_from_the_output_that_reports_it() {
+    // Plasma 6 stores adaptive sync per output; two outputs can disagree, and
+    // each value is reported as the display stack gives it — never merged into
+    // one page-level policy.
+    let raw = "Output: 1 DP-1 enabled connected\n\tVrr: Automatic\nOutput: 2 HDMI-A-1 enabled connected\n\tVrr: Never\n";
+    let outputs = parse_display_modes(raw);
+    assert_eq!(outputs[0].vrr.as_deref(), Some("Automatic"));
+    assert_eq!(outputs[1].vrr.as_deref(), Some("Never"));
 }
 
 #[test]
