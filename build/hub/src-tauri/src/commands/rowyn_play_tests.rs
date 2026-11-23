@@ -59,6 +59,17 @@ fn installed_scope_is_explicit_and_missing_scope_is_not_false_success() {
 }
 
 #[test]
+fn gamescope_is_offered_only_when_the_binary_resolves() {
+    let found = gamescope_status_from(Some(std::path::PathBuf::from("/usr/bin/gamescope")));
+    assert!(found.available);
+    assert!(!found.detail.contains("not in this session's PATH"));
+    let missing = gamescope_status_from(None);
+    assert!(!missing.available);
+    assert!(missing.detail.contains("not in this session's PATH"));
+    assert!(missing.detail.contains("Distrobox"));
+}
+
+#[test]
 fn display_modes_parse_hdr_and_vrr_per_output() {
     let raw = "Output: 1 eDP-1 enabled connected primary laptop panel\n\tModes: 1:1920x1080@60.00*\n\tVrr: incapable\n\tHdr: incapable\nOutput: 2 HDMI-A-1 enabled connected\n\tModes: 1:3840x2160@60.00*\n\tVrr: Automatic\n\tHdr: enabled\nOutput: 3 DP-1 disabled disconnected\n";
     let outputs = parse_display_modes(raw);

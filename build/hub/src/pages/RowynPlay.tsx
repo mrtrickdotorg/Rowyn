@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ExternalLink } from '../components/ExternalLink';
 import { cancelInstall, fetchInstalledFlatpaks, installFlatpak, uninstallFlatpak, waitInstallJob, invalidateSharedReads, getInFlightJob, type InstalledFlatpaksResult } from '../services/liveData';
-import { rowynControllerScan, openRowynLauncher, rowynSteamGamesScan, rowynSteamPlayStatus, rowynSteamPlayApply, rowynDisplayModesScan, rowynVulkanLayersScan, rowynVulkanLayerInstall, rowynSunshineStatus, rowynSunshineFirewallOpen, rowynSunshineAutostartEnable, type SteamPlayStatus, type DisplayModes, type VulkanLayers, type SunshineStatus } from '../services/rowynMvp';
+import { rowynControllerScan, openRowynLauncher, rowynSteamGamesScan, rowynSteamPlayStatus, rowynSteamPlayApply, rowynDisplayModesScan, rowynVulkanLayersScan, rowynVulkanLayerInstall, rowynSunshineStatus, rowynSunshineFirewallOpen, rowynSunshineAutostartEnable, rowynGamescopeStatus, type SteamPlayStatus, type DisplayModes, type VulkanLayers, type SunshineStatus, type GamescopeStatus } from '../services/rowynMvp';
 import { LAUNCHERS, launcherState, installLauncher, createPlayStatusOwner, launchOptions, steamCompatibilityLinks, compatVerdict, type Reading, type SteamScan } from '../services/rowynMvpModel';
 import { loadProfiles, saveProfiles, profileFor, isDefaultProfile, assembleProfileOptions, type GameProfile } from '../services/rowynPlayProfilesModel';
 import { copyText } from '../services/rowynClipboard';
@@ -53,6 +53,8 @@ export function Play() {
   const [profiles, setProfiles] = useState<Record<string, GameProfile>>(() => loadProfiles());
   const [profileWarning, setProfileWarning] = useState<string | null>(null);
   const [sunshine, setSunshine] = useState<SunshineStatus | null>(null);
+  const [gamescope, setGamescope] = useState<GamescopeStatus | null>(null);
+  const [gamescopeFailed, setGamescopeFailed] = useState(false);
 
   function updateProfile(appId: string, patch: Partial<GameProfile>) {
     setProfiles((current) => {
@@ -82,6 +84,15 @@ export function Play() {
     // One read when the page opens so the four cards show this account's real
     // state instead of "unavailable" until someone presses refresh. No timers.
     void run('Reading installed launchers…', refreshLaunchers);
+  }, []);
+  useEffect(() => {
+    // Host gamescope availability gates the per-game option, so it is read
+    // once when the page opens. A PATH lookup, not a command run: no timers.
+    let cancelled = false;
+    rowynGamescopeStatus()
+      .then((next) => { if (!cancelled) setGamescope(next); })
+      .catch(() => { if (!cancelled) setGamescopeFailed(true); });
+    return () => { cancelled = true; };
   }, []);
   async function confirmPending() {
     const action = pending;
@@ -159,7 +170,12 @@ export function Play() {
         const links = steamCompatibilityLinks(item.app_id);
         const verdict = compatVerdict(item.app_id, item.name);
         const profile = profileFor(profiles, item.app_id);
-        const assembled = assembleProfileOptions(boundary, profile);
+        // gamescope is a host-side wrapper, never a Flatpak layer step: the
+        // option is offered only on the host boundary, and only when this
+        // session resolves the binary. A saved flag is masked rather than
+        // emitted as a prefix that would fail at launch.
+        const gamescopeUsable = boundary === 'host' && gamescope?.available === true;
+        const assembled = assembleProfileOptions(boundary, gamescopeUsable ? profile : { ...profile, gamescope: false });
         return <article className="rowyn-launcher" key={item.app_id}><h3>{item.name}</h3>
           <p className="card-copy">Steam App ID {item.app_id} · detected from local metadata; compatibility not tested by Rowyn.</p>
           {verdict && <p className="card-copy"><span className="rowyn-state">{verdict.label}</span> — {verdict.note} Anti-cheat: {verdict.anticheat}. Curated verdict checked {verdict.checked}; game updates can change it.</p>}
@@ -167,7 +183,8 @@ export function Play() {
           <p className="card-copy">Remembered per title on this machine and rebuilt below using the boundary chosen in Compatibility (currently: {boundary === 'flatpak' ? 'Flatpak Steam' : 'host-native'}). Paste the result into Steam → Properties → Launch Options for this game; the builder above remains the unsaved default profile.</p>
           <label><input type="checkbox" checked={profile.mangohud} onChange={(event) => updateProfile(item.app_id, { mangohud: event.target.checked })} /> MangoHud overlay</label>
           <label><input type="checkbox" checked={profile.vkbasalt} onChange={(event) => updateProfile(item.app_id, { vkbasalt: event.target.checked })} /> vkBasalt post-processing</label>
-          <label><input type="checkbox" checked={profile.gamescope} onChange={(event) => updateProfile(item.app_id, { gamescope: event.target.checked })} /> gamescope (Flatpak: the layer from the Compatibility section carries it; host: prefixes the gamescope wrapper)</label>
+          {gamescopeUsable && <label><input type="checkbox" checked={profile.gamescope} onChange={(event) => updateProfile(item.app_id, { gamescope: event.target.checked })} /> gamescope (host: wraps this command in the gamescope compositor)</label>}
+          {boundary === 'host' && !gamescopeUsable && <p className="card-copy">{gamescopeFailed ? 'gamescope availability could not be read, so the option is not offered.' : gamescope ? gamescope.detail : 'Checking for gamescope…'}</p>}
           <label><input type="checkbox" checked={profile.gaming} disabled={boundary === 'flatpak'} onChange={(event) => updateProfile(item.app_id, { gaming: event.target.checked })} /> Rowyn gaming slice / GameMode wrapper (host only)</label>
           <label><input type="checkbox" checked={profile.mimalloc} disabled={boundary === 'flatpak'} onChange={(event) => updateProfile(item.app_id, { mimalloc: event.target.checked })} /> mimalloc allocator wrapper (host only, experimental)</label>
           <label>Extra launch options (kept verbatim)<input value={profile.extra} maxLength={200} onChange={(event) => updateProfile(item.app_id, { extra: event.target.value })} placeholder="e.g. -high or PROTON_LOG=1" /></label>

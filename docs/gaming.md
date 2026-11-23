@@ -61,7 +61,15 @@ Flathub:
 The Play page checks which of these are installed for the runtime
 branch Steam actually uses, installs the missing ones, and its
 launch-options builder — including the per-game profiles — composes
-the MangoHud and vkBasalt switches. GOverlay and MangoJuice (Apps →
+the MangoHud and vkBasalt switches.
+
+gamescope's per-game option is host-only, and honest about it: it
+prefixes a native command with the `gamescope` binary, so the Play page
+offers it only on the host boundary and only when `gamescope` resolves
+in the session's PATH. On the Flatpak boundary the option is not
+offered at all — the Vulkan layer above is what reaches a sandboxed
+launcher that drives gamescope itself, and a layer cannot start a
+compositor. GOverlay and MangoJuice (Apps →
 Gaming) edit the overlays' settings graphically, and LACT, OpenRGB,
 Piper and Solaar live in the Tuning & Peripherals pack. Native
 (host) games can use the distribution's tools inside Distrobox.

@@ -48,6 +48,11 @@ export async function rowynVulkanLayersScan(): Promise<VulkanLayers> {
   nativeOnly();
   return invoke<VulkanLayers>('rowyn_vulkan_layers_scan');
 }
+export interface GamescopeStatus { available: boolean; detail: string }
+export async function rowynGamescopeStatus(): Promise<GamescopeStatus> {
+  nativeOnly();
+  return invoke<GamescopeStatus>('rowyn_gamescope_status');
+}
 export interface SunshineStatus { installed: boolean; autostart: boolean; firewall_open: boolean; detail: string }
 export async function rowynSunshineStatus(): Promise<SunshineStatus> {
   nativeOnly();

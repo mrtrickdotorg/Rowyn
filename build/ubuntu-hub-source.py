@@ -997,7 +997,8 @@ fn system_flatpak_install(app_id: &str, cancel: &AtomicBool) -> Result<(), Strin
         + "            commands::rowyn_steam::rowyn_steam_play_apply,\n"
         + "            commands::rowyn_play::rowyn_display_modes_scan,\n"
         + "            commands::rowyn_play::rowyn_vulkan_layers_scan,\n"
-        + "            commands::rowyn_play::rowyn_vulkan_layer_install,\n",
+        + "            commands::rowyn_play::rowyn_vulkan_layer_install,\n"
+        + "            commands::rowyn_play::rowyn_gamescope_status,\n",
         1,
     )
     main_rs.write_text(text)

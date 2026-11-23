@@ -82,7 +82,8 @@ test('gamescope prefixes the host boundary after the env switches only', () => {
   assert.equal(
     m.assembleProfileOptions('host', { ...m.EMPTY_PROFILE, gamescope: true, mangohud: true, gaming: true }),
     'MANGOHUD=1 gamescope -- /usr/bin/rowyn-game-launch %command%');
-  // Flatpak: the layer carries gamescope; the option string is unchanged.
+  // Flatpak: gamescope is a host-side wrapper, not a layer step, so the page
+  // does not offer the option there and the string stays unchanged.
   assert.equal(
     m.assembleProfileOptions('flatpak', { ...m.EMPTY_PROFILE, gamescope: true, mangohud: true }),
     'MANGOHUD=1 %command%');

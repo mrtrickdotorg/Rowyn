@@ -292,6 +292,43 @@ pub(crate) async fn rowyn_vulkan_layer_install(layer: String) -> Result<VulkanLa
     .map_err(|_| "Vulkan layer install worker failed".to_string())?
 }
 
+// --- Host gamescope availability -------------------------------------------
+// The per-game gamescope option is a host-side wrapper: it prefixes the
+// command with `gamescope`. The image deliberately installs no gamescope
+// (docs/gaming.md), so the Play page offers that option only when this
+// session can actually resolve the binary. A PATH miss is reported as
+// unavailable, never assumed.
+
+#[derive(Debug, serde::Serialize)]
+pub(crate) struct GamescopeStatus {
+    available: bool,
+    detail: String,
+}
+
+fn gamescope_status_from(found: Option<std::path::PathBuf>) -> GamescopeStatus {
+    match found {
+        Some(_) => GamescopeStatus {
+            available: true,
+            detail: "gamescope is available to this session; the option wraps the game's command in it."
+                .into(),
+        },
+        None => GamescopeStatus {
+            available: false,
+            detail: "gamescope is not in this session's PATH, so a gamescope launch option would fail. Rowyn does not install it: install gamescope on the host, or run the game inside a Distrobox container that provides it."
+                .into(),
+        },
+    }
+}
+
+#[tauri::command]
+pub(crate) async fn rowyn_gamescope_status() -> Result<GamescopeStatus, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        gamescope_status_from(rowyn_shared::system::process::find_executable("gamescope"))
+    })
+    .await
+    .map_err(|_| "gamescope check worker failed".to_string())
+}
+
 #[cfg(test)]
 #[path = "rowyn_play_tests.rs"]
 mod tests;
