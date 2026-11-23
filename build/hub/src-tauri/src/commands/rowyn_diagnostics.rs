@@ -311,35 +311,73 @@ pub(crate) struct ControllerReport {
     hints: Vec<ControllerHint>,
 }
 
-/// Family names only: the helper's `usb` entries carry ids and labels that the
-/// page never needs, so nothing but the family key leaves this function.
+/// The family a controller-like input device name belongs to. The name is read
+/// only to choose advice: no device name, path or id leaves this function, so a
+/// Bluetooth pad with no USB row still gets the curated line for its family.
+fn controller_family(name: &str) -> Option<&'static str> {
+    let name = name.to_ascii_lowercase();
+    if name.contains("8bitdo") {
+        return Some("8bitdo");
+    }
+    if name.contains("dualsense") || name.contains("dualshock") || name.contains("playstation") {
+        return Some("playstation");
+    }
+    if name.contains("xbox") || name.contains("x-box") {
+        return Some("xbox");
+    }
+    if name.contains("joy-con")
+        || name.contains("joycon")
+        || name.contains("switch")
+        || name.contains("pro controller")
+    {
+        return Some("nintendo");
+    }
+    if name.contains("steam") {
+        return Some("steam");
+    }
+    None
+}
+
+/// Curated hints for the families this scan saw, in the table's order. Families
+/// come from the helper's USB rows and from controller-like input device names,
+/// so a wired and a Bluetooth pad of the same family share one line.
 fn controller_hints(data: &serde_json::Value) -> Vec<ControllerHint> {
-    let mut hints = Vec::new();
-    let mut seen: Vec<&str> = Vec::new();
-    let Some(usb) = data["usb"].as_array() else {
-        return hints;
-    };
-    for entry in usb.iter().take(64) {
-        let Some(family) = entry["family"].as_str() else {
-            continue;
-        };
-        if seen.contains(&family) {
-            continue;
+    let mut detected: Vec<&'static str> = Vec::new();
+    if let Some(usb) = data["usb"].as_array() {
+        for entry in usb.iter().take(64) {
+            let Some(family) = entry["family"].as_str() else {
+                continue;
+            };
+            if let Some((key, _, _)) = CONTROLLER_FAMILY_HINTS
+                .iter()
+                .find(|(key, _, _)| *key == family)
+            {
+                detected.push(key);
+            }
         }
-        let Some((key, label, hint)) = CONTROLLER_FAMILY_HINTS
-            .iter()
-            .find(|(key, _, _)| *key == family)
-        else {
-            continue;
-        };
-        seen.push(family);
-        hints.push(ControllerHint {
+    }
+    if let Some(devices) = data["devices"].as_array() {
+        for entry in devices.iter().take(128) {
+            if entry["gamepad_like"].as_bool() != Some(true) {
+                continue;
+            }
+            let Some(name) = entry["name"].as_str() else {
+                continue;
+            };
+            if let Some(family) = controller_family(name) {
+                detected.push(family);
+            }
+        }
+    }
+    CONTROLLER_FAMILY_HINTS
+        .iter()
+        .filter(|(key, _, _)| detected.contains(key))
+        .map(|(key, label, hint)| ControllerHint {
             family: (*key).to_string(),
             label: (*label).to_string(),
             hint: (*hint).to_string(),
-        });
-    }
-    hints
+        })
+        .collect()
 }
 
 fn parse_controller(raw: &str) -> Result<ControllerReport, String> {

@@ -79,8 +79,10 @@ kernel driver is reported, and this session can write `/dev/uinput` for Steam
 Input and remappers — with the helper's technical rows folded into a details
 toggle. Advice is a fixed per-family table in Rust (PlayStation, Xbox, Switch,
 8BitDo, the Microsoft wireless adapter) built only from the families the scan
-saw; the helper's own hint text, device list and USB ids are still dropped,
-and the table names no command or file to change. It is a readiness read, not
+saw — from the helper's USB rows or from the name of a controller-like input
+device, so a Bluetooth pad gets the same advice as a wired one — and emitted in
+the table's order. The helper's own hint text, device list and USB ids are
+still dropped, and the table names no command or file to change. It is a readiness read, not
 input testing: no button, stick, trigger or rumble test runs. Compatibility copy is
 dated 2026-10-31, sourced to Valve's Proton anti-cheat developer documentation
 and linked community reports; it is **not Rowyn game validation** or an online

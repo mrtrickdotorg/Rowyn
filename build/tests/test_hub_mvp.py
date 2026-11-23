@@ -252,7 +252,8 @@ class MvpSteamGames(unittest.TestCase):
             self.assertNotIn(forbidden, model)
         rust = (ROOT / "build/hub/src-tauri/src/commands/rowyn_diagnostics.rs").read_text()
         for needle in ('CONTROLLER_FAMILY_HINTS', 'ControllerHint', 'ControllerReport',
-                       'fn controller_hints', '"xbox-dongle"', '"8bitdo"'):
+                       'fn controller_hints', 'fn controller_family', 'gamepad_like',
+                       '"xbox-dongle"', '"8bitdo"'):
             self.assertIn(needle, rust)
         # The curated table carries advice, never the helper's commands or
         # mutation path, and it never forwards the helper's own hint text.

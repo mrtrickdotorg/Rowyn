@@ -130,6 +130,39 @@ fn controller_hints_are_curated_per_detected_family_and_drop_helper_text() {
 }
 
 #[test]
+fn bluetooth_pads_get_advice_from_their_names_in_table_order() {
+    // No `usb` rows at all: every pad here is paired over Bluetooth, and the
+    // devices are listed in the reverse of the table's order.
+    let raw = r#"{
+        "findings":[{"name":"Input devices","status":"ok","detail":"3 controller-like device(s)","hint":"sudo modprobe xpad"}],
+        "devices":[
+            {"id":"input14","name":"Pro Controller — bedroom","joystick":false,"gamepad_like":true,"nodes":["event14"]},
+            {"id":"input13","name":"Xbox Wireless Controller","joystick":false,"gamepad_like":true,"nodes":["event13"]},
+            {"id":"input12","name":"DualSense Wireless Controller","joystick":false,"gamepad_like":true,"nodes":["event12"]},
+            {"id":"input3","name":"AT Translated Set 2 keyboard","joystick":false,"gamepad_like":false,"nodes":["event3"]}
+        ],
+        "usb":[]
+    }"#;
+    let report = parse_controller(raw).unwrap();
+    assert_eq!(
+        report
+            .hints
+            .iter()
+            .map(|hint| hint.family.as_str())
+            .collect::<Vec<_>>(),
+        vec!["playstation", "xbox", "nintendo"]
+    );
+    let text = serde_json::to_string(&report).unwrap();
+    // Names only choose the advice; the names, nodes and helper hint stay out.
+    assert!(!text.contains("bedroom"));
+    assert!(!text.contains("event1"));
+    assert!(!text.contains("AT Translated"));
+    assert!(!text.contains("modprobe"));
+    // A non-gamepad input device contributes no family.
+    assert!(!text.contains("8bitdo"));
+}
+
+#[test]
 fn curated_controller_hints_name_no_command_or_file_to_change() {
     for (family, _, hint) in CONTROLLER_FAMILY_HINTS {
         assert!(!family.is_empty());
