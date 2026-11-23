@@ -67,11 +67,12 @@ fn live_read_only_snapshot_has_all_sections_and_controller_helper_result() {
             reading.detail.chars().count()
         );
     }
-    let findings = controllers().expect("shipped controller helper must return parseable JSON");
-    assert!(!findings.is_empty());
+    let report = controllers().expect("shipped controller helper must return parseable JSON");
+    assert!(!report.findings.is_empty());
     println!(
-        "Controller helper returned {} scrubbed findings",
-        findings.len()
+        "Controller helper returned {} scrubbed findings and {} curated hint(s)",
+        report.findings.len(),
+        report.hints.len()
     );
 }
 
@@ -79,8 +80,10 @@ fn live_read_only_snapshot_has_all_sections_and_controller_helper_result() {
 fn controller_parser_projects_only_bounded_read_only_findings() {
     let raw = r#"{"findings":[{"name":"Input devices","status":"warn","detail":"none","hint":"privileged advice"}],"devices":[{"name":"private device"}]}"#;
     let parsed = parse_controller(raw).unwrap();
-    assert_eq!(parsed.len(), 1);
-    assert_eq!(parsed[0].state, "warn");
+    assert_eq!(parsed.findings.len(), 1);
+    assert_eq!(parsed.findings[0].state, "warn");
+    // No `usb` block: no family is claimed and no hint is invented.
+    assert!(parsed.hints.is_empty());
     let text = serde_json::to_string(&parsed).unwrap();
     assert!(!text.contains("privileged advice"));
     assert!(!text.contains("private device"));
@@ -95,6 +98,49 @@ fn controller_parser_projects_only_bounded_read_only_findings() {
 }
 
 #[test]
+fn controller_hints_are_curated_per_detected_family_and_drop_helper_text() {
+    let raw = r#"{
+        "findings":[{"name":"Input devices","status":"ok","detail":"1 controller-like device(s): DualSense","hint":"run sudo modprobe hid_playstation"}],
+        "usb":[
+            {"id":"054c:0ce6","label":"DualSense","family":"playstation"},
+            {"id":"054c:0ce6","label":"DualSense","family":"playstation"},
+            {"id":"045e:02fe","label":"Xbox wireless adapter","family":"xbox-dongle"},
+            {"id":"1234:5678","label":"unknown pad","family":"unlisted"}
+        ]
+    }"#;
+    let report = parse_controller(raw).unwrap();
+    assert_eq!(
+        report
+            .hints
+            .iter()
+            .map(|hint| hint.family.as_str())
+            .collect::<Vec<_>>(),
+        vec!["playstation", "xbox-dongle"]
+    );
+    assert_eq!(report.hints[0].label, "PlayStation pads");
+    assert_eq!(report.hints[1].label, "Xbox wireless adapter");
+    let text = serde_json::to_string(&report).unwrap();
+    // The helper's own advice, its device list and its USB ids stay out.
+    assert!(!text.contains("modprobe"));
+    assert!(!text.contains("sudo"));
+    assert!(!text.contains("054c"));
+    // The curated table speaks about the family that was actually detected.
+    assert!(text.contains("xone"));
+    assert!(!text.contains("hid_nintendo"));
+}
+
+#[test]
+fn curated_controller_hints_name_no_command_or_file_to_change() {
+    for (family, _, hint) in CONTROLLER_FAMILY_HINTS {
+        assert!(!family.is_empty());
+        let lower = hint.to_lowercase();
+        for forbidden in ["sudo", "modprobe", "systemctl", "rm ", "chmod", "chown", "/etc/"] {
+            assert!(!lower.contains(forbidden), "{family}: {forbidden}");
+        }
+    }
+}
+
+#[test]
 fn output_is_scrubbed_before_it_reaches_any_view_or_report() {
     let output = safe_text("password=hunter2 192.0.2.8 /home/alice/file\u{1b}[31m");
     for sensitive in ["hunter2", "192.0.2.8", "/home/alice", "\u{1b}"] {
@@ -104,11 +150,14 @@ fn output_is_scrubbed_before_it_reaches_any_view_or_report() {
 
 #[test]
 fn controller_warnings_are_not_reported_as_an_ok_summary() {
-    let result = controller_section(Ok(vec![Reading {
-        name: "uinput".into(),
-        state: "warn".into(),
-        detail: "missing".into(),
-    }]));
+    let result = controller_section(Ok(ControllerReport {
+        findings: vec![Reading {
+            name: "uinput".into(),
+            state: "warn".into(),
+            detail: "missing".into(),
+        }],
+        hints: Vec::new(),
+    }));
     assert_eq!(result.state, "attention");
     let missing = controller_section(Err("unavailable: helper missing".into()));
     assert_eq!(missing.state, "unavailable");

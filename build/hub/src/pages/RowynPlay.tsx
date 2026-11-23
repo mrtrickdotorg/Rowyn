@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { ExternalLink } from '../components/ExternalLink';
 import { cancelInstall, fetchInstalledFlatpaks, installFlatpak, uninstallFlatpak, waitInstallJob, invalidateSharedReads, getInFlightJob, type InstalledFlatpaksResult } from '../services/liveData';
-import { rowynControllerScan, openRowynLauncher, rowynSteamGamesScan, rowynSteamRecentPlay, rowynSteamShaderCache, rowynSteamPlayStatus, rowynSteamPlayApply, rowynDisplayModesScan, rowynVulkanLayersScan, rowynVulkanLayerInstall, rowynSunshineStatus, rowynSunshineFirewallOpen, rowynSunshineAutostartEnable, rowynGamescopeStatus, rowynGamemodeStatus, type SteamPlayStatus, type DisplayModes, type VulkanLayers, type SunshineStatus, type GamescopeStatus, type GamemodeStatus, type RecentPlay, type ShaderCacheStatus } from '../services/rowynMvp';
-import { LAUNCHERS, launcherState, installLauncher, createPlayStatusOwner, launchOptions, steamCompatibilityLinks, compatVerdict, type Reading, type SteamScan } from '../services/rowynMvpModel';
+import { rowynControllerScan, openRowynLauncher, rowynSteamGamesScan, rowynSteamRecentPlay, rowynSteamShaderCache, rowynSteamPlayStatus, rowynSteamPlayApply, rowynDisplayModesScan, rowynVulkanLayersScan, rowynVulkanLayerInstall, rowynSunshineStatus, rowynSunshineFirewallOpen, rowynSunshineAutostartEnable, rowynGamescopeStatus, rowynGamemodeStatus, type SteamPlayStatus, type DisplayModes, type VulkanLayers, type SunshineStatus, type GamescopeStatus, type GamemodeStatus, type RecentPlay, type ShaderCacheStatus, type ControllerReport } from '../services/rowynMvp';
+import { LAUNCHERS, launcherState, installLauncher, createPlayStatusOwner, launchOptions, steamCompatibilityLinks, compatVerdict, type SteamScan } from '../services/rowynMvpModel';
 import { loadProfiles, saveProfiles, profileFor, isDefaultProfile, assembleProfileOptions, type GameProfile } from '../services/rowynPlayProfilesModel';
 import { openRowynSettings } from '../services/rowynSettings';
 import { playSetupSteps, SETUP_MARKERS } from '../services/rowynPlaySetupModel';
 import { formatPlaytime, formatLastPlayed, recentPlayStatus } from '../services/rowynPlayRecentModel';
 import { shaderPreCachingLabel, SHADER_PRE_CACHING_TIP } from '../services/rowynPlayShaderModel';
 import { coverInitials, sortSteamGames, steamLibraryCoverNote, steamStateChip } from '../services/rowynSteamLibraryModel';
+import { CONTROLLER_READ_NOTE, controllerAdvice, controllerSummary } from '../services/rowynControllerModel';
 import { copyText } from '../services/rowynClipboard';
 import { useSectionFollow, type SectionMap } from '../hooks/useSectionFollow';
 import '../styles/rowynMvp.css';
@@ -45,7 +46,7 @@ export function Play() {
   const [recentFailed, setRecentFailed] = useState(false);
   const [shaderCache, setShaderCache] = useState<ShaderCacheStatus | null>(null);
   const [shaderFailed, setShaderFailed] = useState(false);
-  const [controllers, setControllers] = useState<Reading[] | null>(null);
+  const [controllers, setControllers] = useState<ControllerReport | null>(null);
   const [status, setStatus] = useState('Reading installed launchers…');
   const [busy, setBusy] = useState(false);
   const [activeInstall, setActiveInstall] = useState<string | null>(null);
@@ -174,7 +175,7 @@ export function Play() {
     steamPlayFailed: checkFailure.steamPlay === true,
     layers,
     layersFailed: checkFailure.layers === true,
-    controllers,
+    controllers: controllers?.findings ?? null,
     controllersFailed: checkFailure.controllers === true,
   });
   return <div className="page-content rowyn-mvp">
@@ -401,7 +402,10 @@ export function Play() {
         setControllers(null); const next = await rowynControllerScan(); setControllers(next); return 'Controller scan finished. Review findings below.';
       })}>Rescan controllers</button>
       {!controllers && <p className="card-copy">{checkFailure.controllers ? 'The controller check could not run; use Rescan controllers to retry.' : 'Reading input devices…'}</p>}
-      {controllers?.map((item) => <div key={item.name}><h3>{item.name} <span className="rowyn-state">{item.state}</span></h3><pre>{item.detail}</pre></div>)}
+      {controllers && <ul className="rowyn-controller-summary" aria-label="Controller readiness summary">{controllerSummary(controllers.findings).map((line) => <li key={line.key} className={`is-${line.state}`}><span className={`rowyn-state is-${line.state}`}>{line.label}</span><span>{line.detail}</span></li>)}</ul>}
+      {controllers && <p className="card-copy">{CONTROLLER_READ_NOTE}</p>}
+      {!!controllerAdvice(controllers).length && <><h3>If a pad is not recognised</h3>{controllerAdvice(controllers).map((hint) => <p className="card-copy" key={hint.family}><strong>{hint.label}</strong> — {hint.hint}</p>)}</>}
+      {controllers && <details className="rowyn-disclosure"><summary>Technical findings ({controllers.findings.length})</summary><div className="rowyn-disclosure-body">{controllers.findings.map((item) => <div key={item.name}><h4>{item.name} <span className="rowyn-state">{item.state}</span></h4><pre>{item.detail}</pre></div>)}</div></details>}
     </section>
   </div>;
 }

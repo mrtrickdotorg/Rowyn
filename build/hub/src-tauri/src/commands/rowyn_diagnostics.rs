@@ -266,14 +266,90 @@ fn parse_bootc(raw: &str) -> Result<String, String> {
     let digest = booted["imageDigest"].as_str().unwrap_or("unavailable");
     Ok(format!("Booted image: {image}\nDigest: {digest}"))
 }
-fn parse_controller(raw: &str) -> Result<Vec<Reading>, String> {
+/// One curated line per controller family this scan actually saw. The helper's
+/// own `hint` text is dropped with its devices and USB id strings; this table is
+/// the only advice the page shows, and it names no command, file or mutation.
+const CONTROLLER_FAMILY_HINTS: [(&str, &str, &str); 5] = [
+    (
+        "playstation",
+        "PlayStation pads",
+        "DualSense and DualShock 4 pads are handled by the in-kernel hid_playstation driver; Rowyn ships nothing extra for them. Pair them in System Settings → Bluetooth, or connect by USB.",
+    ),
+    (
+        "xbox",
+        "Xbox pads",
+        "Xbox pads use the in-kernel xpad driver. Bluetooth models have to be paired in System Settings → Bluetooth first; a wired pad is the quickest way to tell a pairing problem from a driver problem.",
+    ),
+    (
+        "nintendo",
+        "Switch pads",
+        "Switch Pro Controllers use the in-kernel hid_nintendo driver. Without joycond, which Rowyn does not ship, a Joy-Con pair appears as two separate controllers.",
+    ),
+    (
+        "8bitdo",
+        "8BitDo pads",
+        "If an 8BitDo pad is not recognised, switch it to its Xbox or Switch mode (see the pad's manual); the generic and Xbox drivers then pick it up.",
+    ),
+    (
+        "xbox-dongle",
+        "Xbox wireless adapter",
+        "The Microsoft wireless adapter needs the out-of-tree xone driver, which Rowyn does not ship. Wired Xbox pads and Bluetooth work without it.",
+    ),
+];
+
+#[derive(Serialize)]
+pub(crate) struct ControllerHint {
+    family: String,
+    label: String,
+    hint: String,
+}
+
+#[derive(Serialize)]
+pub(crate) struct ControllerReport {
+    findings: Vec<Reading>,
+    /// Curated advice for the families this scan saw, in table order.
+    hints: Vec<ControllerHint>,
+}
+
+/// Family names only: the helper's `usb` entries carry ids and labels that the
+/// page never needs, so nothing but the family key leaves this function.
+fn controller_hints(data: &serde_json::Value) -> Vec<ControllerHint> {
+    let mut hints = Vec::new();
+    let mut seen: Vec<&str> = Vec::new();
+    let Some(usb) = data["usb"].as_array() else {
+        return hints;
+    };
+    for entry in usb.iter().take(64) {
+        let Some(family) = entry["family"].as_str() else {
+            continue;
+        };
+        if seen.contains(&family) {
+            continue;
+        }
+        let Some((key, label, hint)) = CONTROLLER_FAMILY_HINTS
+            .iter()
+            .find(|(key, _, _)| *key == family)
+        else {
+            continue;
+        };
+        seen.push(family);
+        hints.push(ControllerHint {
+            family: (*key).to_string(),
+            label: (*label).to_string(),
+            hint: (*hint).to_string(),
+        });
+    }
+    hints
+}
+
+fn parse_controller(raw: &str) -> Result<ControllerReport, String> {
     let data: serde_json::Value =
         serde_json::from_str(raw).map_err(|_| "error: invalid controller JSON")?;
     let findings = data["findings"]
         .as_array()
         .filter(|f| !f.is_empty() && f.len() <= 64)
         .ok_or("error: invalid controller findings")?;
-    findings
+    let findings = findings
         .iter()
         .map(|finding| {
             let name = finding["name"]
@@ -293,7 +369,11 @@ fn parse_controller(raw: &str) -> Result<Vec<Reading>, String> {
                 detail: safe_text(detail),
             })
         })
-        .collect()
+        .collect::<Result<Vec<_>, String>>()?;
+    Ok(ControllerReport {
+        findings,
+        hints: controller_hints(&data),
+    })
 }
 /// Format an epoch second as "YYYY-MM-DD HH:MM UTC" (civil-from-days,
 /// no date crate). Only used for display; tests pin known vectors.
@@ -525,32 +605,35 @@ fn update_cycle_reading(raw: Result<String, String>, now: u64) -> Reading {
     perf_reading(name, state, lines.join("\n"))
 }
 
-fn controllers() -> Result<Vec<Reading>, String> {
+fn controllers() -> Result<ControllerReport, String> {
     let _guard = ReadGuard::take(&CONTROLLER_RUNNING)?;
     parse_controller(&probe(Probe::Controller)?)
 }
-fn controller_section(result: Result<Vec<Reading>, String>) -> Reading {
+fn controller_section(result: Result<ControllerReport, String>) -> Reading {
     match result {
         Err(error) => section("Controller readiness", Err(error)),
-        Ok(items) => Reading {
-            name: "Controller readiness".into(),
-            state: if items
+        Ok(report) => {
+            let items = report.findings;
+            let state = if items
                 .iter()
                 .any(|item| ["warn", "fail"].contains(&item.state.as_str()))
             {
                 "attention"
             } else {
                 "ok"
+            };
+            Reading {
+                name: "Controller readiness".into(),
+                state: state.into(),
+                detail: safe_text(
+                    &items
+                        .iter()
+                        .map(|item| format!("{} [{}]: {}", item.name, item.state, item.detail))
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                ),
             }
-            .into(),
-            detail: safe_text(
-                &items
-                    .iter()
-                    .map(|item| format!("{} [{}]: {}", item.name, item.state, item.detail))
-                    .collect::<Vec<_>>()
-                    .join("\n"),
-            ),
-        },
+        }
     }
 }
 fn collect() -> Result<Snapshot, String> {
@@ -677,7 +760,7 @@ pub(crate) async fn rowyn_diagnostics_snapshot() -> Result<Snapshot, String> {
         .map_err(|_| "Diagnostics worker failed".to_string())?
 }
 #[tauri::command]
-pub(crate) async fn rowyn_controller_scan() -> Result<Vec<Reading>, String> {
+pub(crate) async fn rowyn_controller_scan() -> Result<ControllerReport, String> {
     tauri::async_runtime::spawn_blocking(controllers)
         .await
         .map_err(|_| "Controller worker failed".to_string())?

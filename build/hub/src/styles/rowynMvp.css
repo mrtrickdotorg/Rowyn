@@ -212,6 +212,17 @@
 .rowyn-setup-body strong { font-size: .92rem; }
 .rowyn-setup-hint { font-size: .82rem; line-height: 1.5; color: var(--text-muted, #a7adb9); }
 
+/* Play → Controllers: three player lines over the helper's findings. The
+   technical rows stay folded; the summary is what a player needs to read. */
+.rowyn-controller-summary { display: grid; gap: 10px; margin: 14px 0 0; padding: 0; list-style: none; }
+.rowyn-controller-summary li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 11px 13px; border: 1px solid var(--hairline, rgba(255,255,255,.12)); border-radius: 12px; background: rgba(255,255,255,.02); }
+.rowyn-controller-summary li > span:last-child { flex: 1 1 240px; min-width: 0; color: var(--text-muted, #a7adb9); font-size: .82rem; line-height: 1.5; overflow-wrap: anywhere; }
+.rowyn-controller-summary li.is-warn { border-color: rgba(228, 205, 120, .3); }
+.rowyn-controller-summary .rowyn-state.is-ok { border-color: rgba(120, 210, 155, .45); color: #9be6b8; }
+.rowyn-controller-summary .rowyn-state.is-warn { border-color: rgba(228, 205, 120, .4); color: #e7d79e; }
+.rowyn-controller-summary .rowyn-state.is-unknown { color: var(--text-muted, #a7adb9); }
+.rowyn-disclosure-body pre { margin: 4px 0 10px; }
+
 /* Play → Steam library: the list leads with cached cover art, and each title's
    settings fold into one disclosure so the section reads as a library rather
    than a configuration screen. */

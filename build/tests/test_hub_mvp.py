@@ -235,6 +235,31 @@ class MvpSteamGames(unittest.TestCase):
         port = (ROOT / "build/ubuntu-hub-source.py").read_text()
         self.assertIn("commands::rowyn_steam::rowyn_steam_recent_play", port)
 
+    def test_controller_summary_and_curated_hints_stay_read_only(self):
+        page = (ROOT / "build/hub/src/pages/RowynPlay.tsx").read_text()
+        for needle in ('rowyn-controller-summary', 'controllerSummary',
+                       'Technical findings', 'If a pad is not recognised',
+                       'CONTROLLER_READ_NOTE'):
+            self.assertIn(needle, page)
+        service = (ROOT / "build/hub/src/services/rowynMvp.ts").read_text()
+        for needle in ('rowyn_controller_scan', 'ControllerReport', 'ControllerHint'):
+            self.assertIn(needle, service)
+        model = (ROOT / "build/hub/src/services/rowynControllerModel.ts").read_text()
+        for needle in ('controllerSummary', 'controllerAdvice', 'CONTROLLER_READ_NOTE',
+                       'No button, stick, trigger or rumble test runs'):
+            self.assertIn(needle, model)
+        for forbidden in ('fetch(', 'https://', 'setInterval', 'setTimeout'):
+            self.assertNotIn(forbidden, model)
+        rust = (ROOT / "build/hub/src-tauri/src/commands/rowyn_diagnostics.rs").read_text()
+        for needle in ('CONTROLLER_FAMILY_HINTS', 'ControllerHint', 'ControllerReport',
+                       'fn controller_hints', '"xbox-dongle"', '"8bitdo"'):
+            self.assertIn(needle, rust)
+        # The curated table carries advice, never the helper's commands or
+        # mutation path, and it never forwards the helper's own hint text.
+        table = rust.split('const CONTROLLER_FAMILY_HINTS', 1)[1].split('#[derive', 1)[0]
+        for forbidden in ('sudo', 'modprobe', 'chmod', 'chown', 'systemctl'):
+            self.assertNotIn(forbidden, table)
+
     def test_steam_library_leads_with_covers_and_one_disclosure(self):
         page = (ROOT / "build/hub/src/pages/RowynPlay.tsx").read_text()
         for needle in ('rowyn-library', 'rowyn-library-cover', 'coverInitials',

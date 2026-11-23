@@ -12,9 +12,11 @@ export async function rowynDiagnosticsSnapshot(): Promise<DiagnosticsSnapshot> {
   nativeOnly();
   return invoke<DiagnosticsSnapshot>('rowyn_diagnostics_snapshot');
 }
-export async function rowynControllerScan(): Promise<Reading[]> {
+export interface ControllerHint { family: string; label: string; hint: string }
+export interface ControllerReport { findings: Reading[]; hints: ControllerHint[] }
+export async function rowynControllerScan(): Promise<ControllerReport> {
   nativeOnly();
-  return invoke<Reading[]>('rowyn_controller_scan');
+  return invoke<ControllerReport>('rowyn_controller_scan');
 }
 export async function exportRowynReport(report: string): Promise<string> {
   nativeOnly();

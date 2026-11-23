@@ -73,7 +73,15 @@ being guessed, and the read never edits the file or starts Steam. One line of
 guidance names pre-caching as the usual fix for stutter in a game's first
 minutes, while shaders compile.
 
-Controller rescan calls the same fixed read-only helper. Compatibility copy is
+Controller rescan calls the same fixed read-only helper, but the section now
+opens with three player lines — a controller-like device is present, its
+kernel driver is reported, and this session can write `/dev/uinput` for Steam
+Input and remappers — with the helper's technical rows folded into a details
+toggle. Advice is a fixed per-family table in Rust (PlayStation, Xbox, Switch,
+8BitDo, the Microsoft wireless adapter) built only from the families the scan
+saw; the helper's own hint text, device list and USB ids are still dropped,
+and the table names no command or file to change. It is a readiness read, not
+input testing: no button, stick, trigger or rumble test runs. Compatibility copy is
 dated 2026-10-31, sourced to Valve's Proton anti-cheat developer documentation
 and linked community reports; it is **not Rowyn game validation** or an online
 lookup. Links use the Hub's system-browser bridge.
