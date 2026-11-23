@@ -571,6 +571,7 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
 COPY --from=hub-builder /rowyn-hub-shell /usr/bin/rowyn-hub-shell
 COPY --from=hub-builder /rowyn-probe /usr/bin/rowyn-probe
 COPY shared/com.rowyn.hub.desktop /usr/share/applications/com.rowyn.hub.desktop
+COPY shared/com.rowyn.play.desktop /usr/share/applications/com.rowyn.play.desktop
 COPY build/hub/src-tauri/data/kde/servicemenus/rowyn-development-here.desktop /usr/share/kio/servicemenus/rowyn-development-here.desktop
 COPY docs/assets/rowyn-logo.png /usr/share/icons/hicolor/512x512/apps/com.rowyn.hub.png
 

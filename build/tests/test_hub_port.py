@@ -228,6 +228,28 @@ class HubPortContractTests(unittest.TestCase):
                      "Categories=System;"):
             self.assertIn(line, entry)
 
+    def test_play_has_an_app_menu_entry_point(self):
+        """B7: Play was reachable only after opening the Hub and navigating."""
+        entry = (ROOT / "shared/com.rowyn.play.desktop").read_text()
+        for line in ("Name=Rowyn Play", "Exec=/usr/bin/rowyn-hub-shell --page Play",
+                     "Icon=com.rowyn.hub", "StartupWMClass=com.rowyn.hub",
+                     "Categories=Game;", "Type=Application"):
+            self.assertIn(line, entry)
+        # The entry passes an argument to the fixed binary; it does not go
+        # through a shell, and it does not replace the general Hub entry.
+        self.assertNotIn("sh -c", entry)
+        hub = (ROOT / "shared/com.rowyn.hub.desktop").read_text()
+        self.assertNotIn("--page", hub)
+        self.assertIn(
+            "COPY shared/com.rowyn.play.desktop "
+            "/usr/share/applications/com.rowyn.play.desktop",
+            (ROOT / "Containerfile").read_text(),
+        )
+        self.assertIn(
+            "test -s /usr/share/applications/com.rowyn.play.desktop",
+            (ROOT / ".github/workflows/build.yml").read_text(),
+        )
+
     def test_build_workflow_fetches_and_ports_pinned_hub(self):
         workflow = (ROOT / ".github/workflows/build.yml").read_text()
         # The fetch step is part of build.yml itself (a push-trigger path),

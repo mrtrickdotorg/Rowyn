@@ -1,5 +1,13 @@
 # Gaming on Rowyn: graphics stack, 32-bit stance, controller notes
 
+## Opening Play
+
+The image installs a **Rowyn Play** application entry alongside **Rowyn Hub**.
+It runs `/usr/bin/rowyn-hub-shell --page Play`, so the app menu opens the Hub
+directly on its Play page — launchers, the Steam library, compatibility and
+controller checks — instead of the dashboard. Both entries use the same
+binary and window class; the Hub entry still opens the dashboard.
+
 ## Vulkan on the host
 
 The host Vulkan stack is *named in the image*, not inherited by package

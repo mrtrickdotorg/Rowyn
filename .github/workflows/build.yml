@@ -552,6 +552,7 @@ jobs:
               exit 1
             fi
             test -s /usr/share/applications/com.rowyn.hub.desktop
+            test -s /usr/share/applications/com.rowyn.play.desktop
             test -s /usr/share/icons/hicolor/512x512/apps/com.rowyn.hub.png
             test -x /usr/bin/openconnect
             test -s /etc/vpnc/vpnc-script

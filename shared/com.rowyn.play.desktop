@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=Rowyn Play
+GenericName=Game Library
+Comment=Launchers, Steam library, compatibility and controllers at a glance
+Exec=/usr/bin/rowyn-hub-shell --page Play
+Icon=com.rowyn.hub
+Terminal=false
+Type=Application
+Categories=Game;System;
+Keywords=games;steam;proton;launcher;controller;
+StartupNotify=true
+StartupWMClass=com.rowyn.hub

@@ -24,6 +24,12 @@ no caller-selected filesystem path. No files are created by collecting checks.
 
 ## Play (`/play`)
 
+The page has its own app-menu entry, **Rowyn Play**
+(`com.rowyn.play.desktop`), which starts `/usr/bin/rowyn-hub-shell --page Play`
+so the launchers, Steam library and setup strip open directly instead of
+landing on the dashboard first. The general **Rowyn Hub** entry is unchanged
+and still opens the dashboard; both share the same window class.
+
 Steam, Heroic, Lutris and Bottles use the existing typed personal-Flatpak
 install/status/cancel job layer. Explicit scans distinguish installed, not
 installed and unknown/partial scopes. Opening accepts only the four curated
