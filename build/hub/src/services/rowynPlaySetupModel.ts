@@ -6,6 +6,7 @@
 // only ever "done" because a reading says so.
 
 import type { MangohudConfig, RecentPlay, ShaderCacheStatus, SteamPlayStatus, VulkanLayers } from './rowynMvp';
+import { mangohudConfigState, type MangohudBoundary } from './rowynPlayMangohudModel';
 import type { Reading } from './rowynMvpModel';
 
 export type SetupState = 'done' | 'todo' | 'pending' | 'unknown';
@@ -40,6 +41,8 @@ export interface PlaySetupInput {
   recentFailed: boolean;
   mangohudConfig: MangohudConfig | null;
   mangohudFailed: boolean;
+  /** The launcher boundary the MangoHud section is set to. */
+  mangohudBoundary: MangohudBoundary;
 }
 
 const LAYERS = [
@@ -269,26 +272,27 @@ function mangohudStep(input: PlaySetupInput): SetupStep {
       state: 'unknown',
     };
   }
-  if (mangohudConfig.exists && mangohudConfig.readable) {
+  const state = mangohudConfigState(mangohudConfig, input.mangohudBoundary);
+  if (state.exists && state.readable) {
     return {
       key: 'mangohud',
       label: 'MangoHud settings read',
-      hint: `${mangohudConfig.settings} setting(s) in ~/${mangohudConfig.path}; the overlay still needs MANGOHUD=1 in the launch options.`,
+      hint: `${state.settings} setting(s) in ${state.path}; the overlay still needs MANGOHUD=1 in the launch options.`,
       state: 'done',
     };
   }
-  if (mangohudConfig.exists) {
+  if (state.exists) {
     return {
       key: 'mangohud',
       label: 'Check MangoHud settings',
-      hint: `~/${mangohudConfig.path} exists but could not be read; use Check MangoHud settings.`,
+      hint: `${state.path} exists but could not be read; use Check MangoHud settings.`,
       state: 'unknown',
     };
   }
   return {
     key: 'mangohud',
     label: 'Set up MangoHud (optional)',
-    hint: `No config yet at ~/${mangohudConfig.path}; MangoHud uses its defaults. Copy the recommended config under Compatibility if you want the overlay.`,
+    hint: `No config yet at ${state.path}; MangoHud uses its defaults. Copy the recommended config under Compatibility if you want the overlay.`,
     state: 'todo',
   };
 }

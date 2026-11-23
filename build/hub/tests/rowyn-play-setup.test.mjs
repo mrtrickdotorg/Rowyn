@@ -47,9 +47,11 @@ const READY = {
     steam_detected: true, flatpak_steam: true,
     path: '.var/app/com.valvesoftware.Steam/config/MangoHud/MangoHud.conf',
     exists: true, readable: true, settings: 4,
-    native_path: '.config/MangoHud/MangoHud.conf', native_exists: false, warnings: 0,
+    native_path: '.config/MangoHud/MangoHud.conf', native_exists: false,
+    native_readable: false, native_settings: 0, warnings: 0,
   },
   mangohudFailed: false,
+  mangohudBoundary: 'flatpak',
 };
 
 const states = (steps) => steps.map((step) => step.state);
@@ -71,7 +73,7 @@ test('nothing is claimed before the reads land', () => {
     controllers: null, controllersFailed: false,
     shaderCache: null, shaderFailed: false,
     recentPlay: null, recentFailed: false,
-    mangohudConfig: null, mangohudFailed: false,
+    mangohudConfig: null, mangohudFailed: false, mangohudBoundary: 'flatpak',
   });
   assert.deepEqual(states(steps), Array(7).fill('pending'));
   for (const step of steps) assert.doesNotMatch(step.hint, /could not/, step.key);
@@ -85,7 +87,7 @@ test('a failed read is unknown, never done and never a task', () => {
     controllers: null, controllersFailed: true,
     shaderCache: null, shaderFailed: true,
     recentPlay: null, recentFailed: true,
-    mangohudConfig: null, mangohudFailed: true,
+    mangohudConfig: null, mangohudFailed: true, mangohudBoundary: 'flatpak',
   });
   assert.deepEqual(states(steps), Array(7).fill('unknown'));
   // Unknown states say how to retry instead of inventing a fix.
@@ -152,6 +154,21 @@ test('recent play is done only when Steam’s profile was actually read', () => 
   const missing = m.playSetupSteps({ ...READY, recentPlay: { ...READY.recentPlay, steam_detected: false } })[4];
   assert.equal(missing.state, 'unknown');
   assert.match(missing.hint, /Steam was not detected/);
+});
+
+test('the MangoHud step follows the launcher boundary', () => {
+  const host = m.playSetupSteps({
+    ...READY,
+    mangohudBoundary: 'host',
+    mangohudConfig: {
+      ...READY.mangohudConfig,
+      native_exists: true, native_readable: true, native_settings: 2,
+    },
+  })[5];
+  assert.equal(host.state, 'done');
+  assert.match(host.hint, /2 setting\(s\)/);
+  assert.match(host.hint, /~\/\.config\/MangoHud\/MangoHud\.conf/);
+  assert.doesNotMatch(host.hint, /\.var\/app/);
 });
 
 test('MangoHud names its path; a missing config is optional, not a fault', () => {

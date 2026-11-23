@@ -29,17 +29,64 @@ const base = {
   settings: 3,
   native_path: '.config/MangoHud/MangoHud.conf',
   native_exists: false,
+  native_readable: false,
+  native_settings: 0,
   warnings: 0,
 };
 
-test('the sandbox path is the one named, home-relative', () => {
+test('the path follows the launcher boundary and stays home-relative', () => {
   assert.equal(
     m.mangohudConfigPath(base),
     '~/.var/app/com.valvesoftware.Steam/config/MangoHud/MangoHud.conf',
   );
+  assert.equal(m.mangohudConfigPath(base, 'flatpak'), m.mangohudConfigPath(base));
+  assert.equal(m.mangohudConfigPath(base, 'host'), '~/.config/MangoHud/MangoHud.conf');
   // No absolute home directory is ever printed.
   assert.doesNotMatch(m.mangohudConfigLabel(base), /\/(home|users)\//);
   assert.match(m.mangohudConfigLabel(base), /3 setting\(s\)/);
+});
+
+test('the host boundary reads the host file, not the sandbox file', () => {
+  const both = {
+    ...base,
+    native_exists: true,
+    native_readable: true,
+    native_settings: 5,
+  };
+  assert.equal(m.mangohudConfigState(both, 'host').settings, 5);
+  assert.equal(m.mangohudConfigState(both, 'host').path, '~/.config/MangoHud/MangoHud.conf');
+  const label = m.mangohudConfigLabel(both, 'host');
+  assert.match(label, /host-native MangoHud/);
+  assert.match(label, /5 setting\(s\)/);
+  assert.match(label, /~\/\.config\/MangoHud\/MangoHud\.conf/);
+  assert.doesNotMatch(label, /3 setting/);
+  // Flatpak wording still names the sandbox file for the same reading.
+  assert.match(m.mangohudConfigLabel(both, 'flatpak'), /3 setting\(s\)/);
+});
+
+test('each boundary names the other file rather than treating it as a fallback', () => {
+  const hostOnly = { ...base, exists: false, readable: false, settings: 0, native_exists: true };
+  assert.match(m.mangohudConfigLabel(hostOnly, 'flatpak'), /ignored by Flathub Steam/);
+  assert.match(m.mangohudConfigLabel(hostOnly, 'flatpak'), /~\/\.config\/MangoHud\/MangoHud\.conf/);
+
+  const flatpakOnly = { ...base, native_exists: false };
+  const hostLabel = m.mangohudConfigLabel(flatpakOnly, 'host');
+  assert.match(hostLabel, /no config yet/);
+  assert.match(hostLabel, /not read by host-native MangoHud/);
+  assert.match(hostLabel, /~\/\.var\/app\/com\.valvesoftware\.Steam/);
+});
+
+test('host-native MangoHud does not need Steam to be detected', () => {
+  const hostConfig = {
+    ...base,
+    steam_detected: false,
+    native_exists: true,
+    native_readable: true,
+    native_settings: 2,
+  };
+  assert.match(m.mangohudConfigLabel(hostConfig, 'host'), /2 setting\(s\)/);
+  assert.doesNotMatch(m.mangohudConfigLabel(hostConfig, 'host'), /not detected/);
+  assert.match(m.mangohudConfigLabel(hostConfig, 'flatpak'), /not detected/);
 });
 
 test('missing, unreadable and unread stay distinct', () => {
@@ -54,11 +101,6 @@ test('missing, unreadable and unread stay distinct', () => {
   assert.match(absent, /no config yet/);
   assert.match(absent, /defaults/);
   assert.match(absent, /MangoHud\.conf/);
-
-  // A host-path config is named as ignored rather than counted as present.
-  const hostOnly = m.mangohudConfigLabel({ ...base, exists: false, readable: false, settings: 0, native_exists: true });
-  assert.match(hostOnly, /ignored by Flathub Steam/);
-  assert.match(hostOnly, /~\/\.config\/MangoHud\/MangoHud\.conf/);
 
   // Skipped reads stay visible.
   assert.match(m.mangohudConfigLabel({ ...base, warnings: 2 }), /2 item\(s\)/);

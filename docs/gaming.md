@@ -64,12 +64,15 @@ launch-options builder — including the per-game profiles — composes
 the MangoHud and vkBasalt switches.
 
 MangoHud's settings live inside the Flathub sandbox at
-`~/.var/app/com.valvesoftware.Steam/config/MangoHud/MangoHud.conf`. The
-`~/.config/MangoHud/MangoHud.conf` path most guides name is never read
-for a Flatpak game. The Play page shows the sandbox path, reports whether
-a config exists there, and offers a small starting config to copy — it
-never writes the file; `MANGOHUD=1` in the launch options is still what
-turns the overlay on.
+`~/.var/app/com.valvesoftware.Steam/config/MangoHud/MangoHud.conf`, and a
+host-native MangoHud reads `~/.config/MangoHud/MangoHud.conf`. Neither path
+is a fallback for the other: a Flatpak game never reads the host file, and a
+host-native game never reads the sandbox one. The Play page follows the
+launcher boundary selected above — sandbox path for Flatpak Steam, host path
+for host-native — reports whether that config exists and how many settings it
+holds (and names the other boundary's file), and offers a small starting
+config to copy. It never writes either file; `MANGOHUD=1` in the launch
+options is still what turns the overlay on.
 
 ## Opt-in helpers: `rowyn-tune`, `rowyn-game-launch`, `rowyn-mimalloc-run`
 

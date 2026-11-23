@@ -374,6 +374,9 @@ fn mangohud_config_reads_the_flatpak_path_without_writing() {
     assert!(!missing.flatpak_steam);
     assert!(!missing.exists);
     assert_eq!(missing.settings, 0);
+    assert!(!missing.native_exists);
+    assert!(!missing.native_readable);
+    assert_eq!(missing.native_settings, 0);
     assert!(missing
         .path
         .ends_with(".var/app/com.valvesoftware.Steam/config/MangoHud/MangoHud.conf"));
@@ -408,13 +411,16 @@ fn mangohud_config_keeps_the_ignored_host_path_and_unreadable_files_visible() {
     let home = temporary.path();
     fs::create_dir_all(home.join(".local/share/Steam")).unwrap();
     fs::create_dir_all(home.join(".config/MangoHud")).unwrap();
-    fs::write(home.join(MANGOHUD_NATIVE_PATH), "gpu_stats\n").unwrap();
-    // The host path exists, but Flathub Steam does not read it.
+    fs::write(home.join(MANGOHUD_NATIVE_PATH), "gpu_stats\nfps_limit=0\n").unwrap();
+    // The host path exists and is read for the host boundary, but Flathub
+    // Steam still does not read it.
     let native_only = read_mangohud_config(home);
     assert!(native_only.steam_detected);
     assert!(!native_only.flatpak_steam);
     assert!(!native_only.exists);
     assert!(native_only.native_exists);
+    assert!(native_only.native_readable);
+    assert_eq!(native_only.native_settings, 2);
 
     // A symlinked config is present but deliberately not followed.
     let target = home.join("elsewhere.conf");

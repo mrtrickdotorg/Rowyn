@@ -87,11 +87,13 @@ being guessed, and the read never edits the file or starts Steam. One line of
 guidance names pre-caching as the usual fix for stutter in a game's first
 minutes, while shaders compile.
 
-**MangoHud settings** names the file Flathub Steam actually reads,
-`~/.var/app/com.valvesoftware.Steam/config/MangoHud/MangoHud.conf` — not the
-`~/.config/MangoHud` path many guides give, which Flathub Steam ignores — and
-reports whether it exists, how many settings it holds, and when a
-host-path file is being ignored. The read never creates, edits or backs up
+**MangoHud settings** follows the launcher boundary selected above. Flathub
+Steam reads `~/.var/app/com.valvesoftware.Steam/config/MangoHud/MangoHud.conf`;
+a host-native MangoHud reads `~/.config/MangoHud/MangoHud.conf`. The read
+reports both paths and the state of the one in use — exists, readable, how many
+settings — and names the other boundary's file so a guide-follower can see why
+their settings do nothing, rather than treating either file as a fallback. The
+read never creates, edits or backs up
 the file and starts nothing; a small recommended starting config is offered
 as copyable text only, and `MANGOHUD=1 %command%` remains the switch that
 turns the overlay on.

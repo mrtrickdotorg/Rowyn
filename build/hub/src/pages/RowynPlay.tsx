@@ -191,7 +191,7 @@ export function Play() {
     controllersFailed: checkFailure.controllers === true,
     shaderCache, shaderFailed,
     recentPlay, recentFailed,
-    mangohudConfig, mangohudFailed,
+    mangohudConfig, mangohudFailed, mangohudBoundary: boundary,
   });
   // The card list is built once per scan: one app-id verdict lookup per title,
   // then search, curated-state filter and the cover budget run over it.
@@ -409,15 +409,15 @@ export function Play() {
       {!layers && <p className="card-copy">{checkFailure.layers ? 'The layer list could not be read; use Check Vulkan layers to retry.' : 'Reading installed Flatpak layers…'}</p>}
       {layers && <p className="card-copy">{layers.detail} MangoHud branches installed: {layers.mangohud_branches.join(', ') || 'none'}. gamescope branches installed: {layers.gamescope_branches.join(', ') || 'none'}. vkBasalt branches installed: {layers.vkbasalt_branches.join(', ') || 'none'}.</p>}
       <h3>MangoHud settings</h3>
-      <p className="card-copy">MangoHud reads one configuration file. Flathub Steam reads it inside its sandbox at the path below; guides that point at ~/.config/MangoHud do nothing for Flathub Steam. Rowyn reads the path and the file, and never writes either.</p>
+      <p className="card-copy">MangoHud reads one configuration file, and which one depends on how the game was launched. Flathub Steam reads it inside its sandbox at ~/.var/app/com.valvesoftware.Steam/config/MangoHud/MangoHud.conf; a host-native MangoHud reads ~/.config/MangoHud/MangoHud.conf. The path below follows the launcher boundary selected above. Rowyn reads both paths and never writes either.</p>
       <div className="home-actions"><button className="action-button" disabled={busy} onClick={() => run('Reading MangoHud’s config path…', async () => {
         setMangohudFailed(false);
         const next = await rowynMangohudConfig(); setMangohudConfig(next);
-        return mangohudConfigLabel(next);
+        return mangohudConfigLabel(next, boundary);
       })}>Check MangoHud settings</button></div>
       {!mangohudConfig && <p className="card-copy" role="status">{mangohudFailed ? 'The MangoHud settings read could not run; use Check MangoHud settings to retry.' : 'Not read yet.'}</p>}
-      {mangohudConfig && <><p className="card-copy" role="status">{mangohudConfigLabel(mangohudConfig)}</p>
-        <p className="card-copy">Config path: <code>{mangohudConfigPath(mangohudConfig)}</code></p>
+      {mangohudConfig && <><p className="card-copy" role="status">{mangohudConfigLabel(mangohudConfig, boundary)}</p>
+        <p className="card-copy">Config path for {boundary === 'host' ? 'host-native MangoHud' : 'Flathub Steam'}: <code>{mangohudConfigPath(mangohudConfig, boundary)}</code></p>
         <details className="rowyn-disclosure"><summary>Recommended starting config (not written by Rowyn)</summary><div className="rowyn-disclosure-body"><p className="card-copy">{MANGOHUD_READ_NOTE}</p><pre>{MANGOHUD_RECOMMENDED}</pre><div className="home-actions"><button className="action-button" disabled={busy} onClick={() => run('Copying the recommended MangoHud config…', async () => {
           const result = await copyText(MANGOHUD_RECOMMENDED);
           return result.ok ? 'Recommended MangoHud config copied. Nothing was written.' : result.reason;

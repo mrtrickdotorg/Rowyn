@@ -358,6 +358,7 @@ class MvpSteamGames(unittest.TestCase):
     def test_mangohud_config_path_is_read_only_and_surfaced_on_play(self):
         page = (ROOT / "build/hub/src/pages/RowynPlay.tsx").read_text()
         for needle in ('MangoHud settings', 'rowynMangohudConfig', 'mangohudConfigLabel',
+                       'mangohudConfigPath(mangohudConfig, boundary)',
                        'Check MangoHud settings', 'Recommended starting config',
                        'not written by Rowyn'):
             self.assertIn(needle, page)
@@ -367,13 +368,15 @@ class MvpSteamGames(unittest.TestCase):
         model = (ROOT / "build/hub/src/services/rowynPlayMangohudModel.ts").read_text()
         for needle in ('.var/app/com.valvesoftware.Steam/config/MangoHud/MangoHud.conf',
                        '.config/MangoHud', 'ignored by Flathub Steam',
-                       'never creates, edits or backs up', 'MANGOHUD=1'):
+                       'not read by host-native MangoHud', 'mangohudConfigState',
+                       'native_settings', 'never creates, edits or backs up', 'MANGOHUD=1'):
             self.assertIn(needle, model)
         for forbidden in ('fetch(', 'setInterval', 'setTimeout'):
             self.assertNotIn(forbidden, model)
         rust = (ROOT / "build/hub/src-tauri/src/commands/rowyn_steam.rs").read_text()
         for needle in ('MANGOHUD_FLATPAK_PATH', 'MANGOHUD_NATIVE_PATH', 'read_mangohud_config',
                        'pub(crate) async fn rowyn_mangohud_config', 'spawn_blocking',
+                       'native_readable', 'native_settings',
                        '.var/app/com.valvesoftware.Steam/config/MangoHud/MangoHud.conf'):
             self.assertIn(needle, rust)
         # The section names both paths and never creates, edits or backs up the

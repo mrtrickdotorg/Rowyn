@@ -947,9 +947,11 @@ pub(crate) struct MangohudConfig {
     readable: bool,
     /// Non-empty, non-comment lines in the existing config.
     settings: usize,
-    /// The host path most guides name; Flathub Steam does not read it.
+    /// The host path MangoHud reads outside Flathub Steam.
     native_path: &'static str,
     native_exists: bool,
+    native_readable: bool,
+    native_settings: usize,
     warnings: usize,
 }
 
@@ -979,9 +981,8 @@ fn mangohud_file(home: &Path, relative: &str, warnings: &mut usize) -> (bool, bo
 fn read_mangohud_config(home: &Path) -> MangohudConfig {
     let mut warnings = 0;
     let (exists, readable, settings) = mangohud_file(home, MANGOHUD_FLATPAK_PATH, &mut warnings);
-    let native_exists = fs::symlink_metadata(home.join(MANGOHUD_NATIVE_PATH))
-        .map(|metadata| metadata.file_type().is_file())
-        .unwrap_or(false);
+    let (native_exists, native_readable, native_settings) =
+        mangohud_file(home, MANGOHUD_NATIVE_PATH, &mut warnings);
     MangohudConfig {
         steam_detected: !steam_roots(home).is_empty(),
         flatpak_steam: home.join(".var/app/com.valvesoftware.Steam").is_dir(),
@@ -991,6 +992,8 @@ fn read_mangohud_config(home: &Path) -> MangohudConfig {
         settings,
         native_path: MANGOHUD_NATIVE_PATH,
         native_exists,
+        native_readable,
+        native_settings,
         warnings,
     }
 }

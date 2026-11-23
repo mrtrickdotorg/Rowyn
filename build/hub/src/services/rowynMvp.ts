@@ -41,7 +41,7 @@ export async function rowynSteamShaderCache(): Promise<ShaderCacheStatus> {
   nativeOnly();
   return invoke<ShaderCacheStatus>('rowyn_steam_shader_cache');
 }
-export interface MangohudConfig { steam_detected: boolean; flatpak_steam: boolean; path: string; exists: boolean; readable: boolean; settings: number; native_path: string; native_exists: boolean; warnings: number }
+export interface MangohudConfig { steam_detected: boolean; flatpak_steam: boolean; path: string; exists: boolean; readable: boolean; settings: number; native_path: string; native_exists: boolean; native_readable: boolean; native_settings: number; warnings: number }
 export async function rowynMangohudConfig(): Promise<MangohudConfig> {
   nativeOnly();
   return invoke<MangohudConfig>('rowyn_mangohud_config');
