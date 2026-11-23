@@ -89,6 +89,15 @@ export async function rowynSunshineAutostartEnable(): Promise<SunshineStatus> {
   nativeOnly();
   return invoke<SunshineStatus>('rowyn_sunshine_autostart_enable');
 }
+export interface GamingHelpers { tune: 'gaming' | 'default'; installed: boolean; detail: string }
+export async function rowynGamingHelpersStatus(): Promise<GamingHelpers> {
+  nativeOnly();
+  return invoke<GamingHelpers>('rowyn_gaming_helpers_status');
+}
+export async function rowynGamingTuneApply(enabled: boolean): Promise<GamingHelpers> {
+  nativeOnly();
+  return invoke<GamingHelpers>('rowyn_gaming_tune_apply', { enabled });
+}
 export async function rowynVulkanLayerInstall(layer: 'mangohud' | 'gamescope' | 'vkbasalt'): Promise<VulkanLayers> {
   nativeOnly();
   return invoke<VulkanLayers>('rowyn_vulkan_layer_install', { layer });

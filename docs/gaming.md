@@ -71,6 +71,33 @@ a config exists there, and offers a small starting config to copy — it
 never writes the file; `MANGOHUD=1` in the launch options is still what
 turns the overlay on.
 
+## Opt-in helpers: `rowyn-tune`, `rowyn-game-launch`, `rowyn-mimalloc-run`
+
+The image installs three small gaming helpers. The Play page has a **Rowyn
+gaming helpers** block that reports whether they are present and what
+`rowyn-tune` is set to, with an enable/disable button and copyable examples:
+
+- `rowyn-game-launch` (`/usr/bin/rowyn-game-launch`) runs a command in the
+  `rowyn-gaming.slice` user slice, through `gamemoderun` when GameMode is
+  installed, and falls back to a plain run if the user systemd manager cannot
+  be reached. In Steam it is a launch option: `rowyn-game-launch %command%`.
+- `rowyn-mimalloc-run` (`/usr/bin/rowyn-mimalloc-run`) preloads the mimalloc
+  allocator for one command only (`MIMALLOC_LARGE_OS_PAGES=1`); it is never
+  preloaded globally, and 32-bit games may log a harmless preload warning.
+  Steam launch option: `rowyn-mimalloc-run %command%`.
+- `rowyn-tune` (`/usr/bin/rowyn-tune`) switches Rowyn's opt-in latency
+  profile with `rowyn-tune status|on|off`. `on` writes
+  `/etc/sysctl.d/90-rowyn-gaming.conf` (smaller dirty-page limits, no
+  proactive compaction, busy polling) and applies it now and at boot; `off`
+  removes the drop-in, and the running kernel keeps the tuned values until
+  the next boot. It trades sustained disk-write throughput for latency.
+
+Both wrappers are host-side files, so they are not reachable from inside
+Flatpak Steam; the examples are for a host-native launcher only. The Play
+button switches `rowyn-tune` through the same `sudo -A` askpass helper the
+VPN and Sunshine firewall actions use, and only ever runs the fixed helper
+with `on` or `off`.
+
 ## GameMode for Flatpak Steam games
 
 GameMode is installed in the image, and `/etc/gamemode.ini` hooks Rowyn's

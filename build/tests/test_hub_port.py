@@ -445,6 +445,8 @@ class PinnedHubSourceTests(unittest.TestCase):
                 "commands::rowyn_play::rowyn_display_modes_scan",
                 "commands::rowyn_play::rowyn_vulkan_layers_scan",
                 "commands::rowyn_play::rowyn_vulkan_layer_install",
+                "commands::rowyn_gaming_helpers::rowyn_gaming_helpers_status",
+                "commands::rowyn_gaming_helpers::rowyn_gaming_tune_apply",
                 "commands::rowyn_migrate::rowyn_migrate_scan",
                 "commands::rowyn_migrate::rowyn_migrate_mount",
                 "commands::rowyn_migrate::rowyn_migrate_import",

@@ -397,6 +397,49 @@ class MvpPlay(unittest.TestCase):
         for forbidden in ('sudo', 'pkexec', 'bash', 'Command::new(program)', 'gaming::'):
             self.assertNotIn(forbidden, text)
 
+    def test_gaming_helpers_are_discoverable_with_one_fixed_tuning_path(self):
+        """B6: the shipped helpers were invisible and the tune switch had no
+        surface. The block names all three, reports status, and switches the
+        profile only through the fixed helper under the askpass discipline."""
+        page = (ROOT / "build/hub/src/pages/RowynPlay.tsx").read_text()
+        for needle in ('Rowyn gaming helpers', 'rowynGamingHelpersStatus',
+                       'rowynGamingTuneApply', 'Check helper status',
+                       'Enable gaming profile', 'Disable gaming profile',
+                       'Copy wrapper example', 'HELPER_EXAMPLES',
+                       'TUNE_ADMIN_NOTE', 'gamingTuneLabel'):
+            self.assertIn(needle, page)
+        service = (ROOT / "build/hub/src/services/rowynMvp.ts").read_text()
+        for needle in ("'rowyn_gaming_helpers_status'", "'rowyn_gaming_tune_apply'",
+                       'GamingHelpers', 'GamingTuneApply', '{ enabled }'):
+            self.assertIn(needle, service)
+        model = (ROOT / "build/hub/src/services/rowynPlayHelpersModel.ts").read_text()
+        for needle in ('rowyn-game-launch', 'rowyn-mimalloc-run', 'rowyn-tune',
+                       '/usr/bin/rowyn-game-launch %command%',
+                       '/usr/bin/rowyn-mimalloc-run %command%',
+                       '/etc/sysctl.d/90-rowyn-gaming.conf',
+                       'administrator password', 'Flatpak Steam'):
+            self.assertIn(needle, model)
+        for forbidden in ('fetch(', 'setInterval', 'setTimeout'):
+            self.assertNotIn(forbidden, model)
+        rust = (ROOT / "build/hub/src-tauri/src/commands/rowyn_gaming_helpers.rs").read_text()
+        for needle in ('TUNE_CONF', 'TUNE_BIN', 'GAME_LAUNCH_BIN', 'MIMALLOC_BIN',
+                       'GAMING_SLICE', 'tune_action', 'prepare_sudo_command',
+                       '"-A"', '.arg(TUNE_BIN)', '.arg(tune_action(enabled))',
+                       'pub(crate) async fn rowyn_gaming_helpers_status',
+                       'pub(crate) async fn rowyn_gaming_tune_apply'):
+            self.assertIn(needle, rust)
+        self.assertNotIn('.arg(enabled)', rust)
+        self.assertNotIn('reqwest', rust)
+        docs = (ROOT / "docs/gaming.md").read_text()
+        for needle in ('rowyn-game-launch', 'rowyn-mimalloc-run', 'rowyn-tune',
+                       'status|on|off', 'askpass'):
+            self.assertIn(needle, docs)
+        port = (ROOT / "build/ubuntu-hub-source.py").read_text()
+        for needle in ('pub(crate) mod rowyn_gaming_helpers;',
+                       'commands::rowyn_gaming_helpers::rowyn_gaming_helpers_status',
+                       'commands::rowyn_gaming_helpers::rowyn_gaming_tune_apply'):
+            self.assertIn(needle, port)
+
 
 class MvpWork(unittest.TestCase):
     """Work is its own destination: printing, office and focus, with a bridge."""

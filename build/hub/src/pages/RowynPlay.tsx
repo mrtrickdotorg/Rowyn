@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ExternalLink } from '../components/ExternalLink';
 import { cancelInstall, fetchInstalledFlatpaks, installFlatpak, uninstallFlatpak, waitInstallJob, invalidateSharedReads, getInFlightJob, type InstalledFlatpaksResult } from '../services/liveData';
-import { rowynControllerScan, openRowynLauncher, rowynSteamGamesScan, rowynSteamRecentPlay, rowynSteamShaderCache, rowynSteamPlayStatus, rowynSteamPlayApply, rowynDisplayModesScan, rowynVulkanLayersScan, rowynVulkanLayerInstall, rowynMangohudConfig, rowynSunshineStatus, rowynSunshineFirewallOpen, rowynSunshineAutostartEnable, rowynGamescopeStatus, rowynGamemodeStatus, type SteamPlayStatus, type DisplayModes, type VulkanLayers, type MangohudConfig, type SunshineStatus, type GamescopeStatus, type GamemodeStatus, type RecentPlay, type ShaderCacheStatus, type ControllerReport } from '../services/rowynMvp';
+import { rowynControllerScan, openRowynLauncher, rowynSteamGamesScan, rowynSteamRecentPlay, rowynSteamShaderCache, rowynSteamPlayStatus, rowynSteamPlayApply, rowynDisplayModesScan, rowynVulkanLayersScan, rowynVulkanLayerInstall, rowynMangohudConfig, rowynSunshineStatus, rowynSunshineFirewallOpen, rowynSunshineAutostartEnable, rowynGamescopeStatus, rowynGamemodeStatus, rowynGamingHelpersStatus, rowynGamingTuneApply, type SteamPlayStatus, type DisplayModes, type VulkanLayers, type MangohudConfig, type SunshineStatus, type GamescopeStatus, type GamemodeStatus, type RecentPlay, type ShaderCacheStatus, type ControllerReport, type GamingHelpers } from '../services/rowynMvp';
 import { LAUNCHERS, launcherState, installLauncher, createPlayStatusOwner, launchOptions, steamCompatibilityLinks, compatVerdict, compatReviewedOn, compatVerdictCount, type SteamScan } from '../services/rowynMvpModel';
 import { loadProfiles, saveProfiles, profileFor, isDefaultProfile, assembleProfileOptions, type GameProfile } from '../services/rowynPlayProfilesModel';
 import { openRowynSettings } from '../services/rowynSettings';
@@ -11,6 +11,7 @@ import { shaderPreCachingLabel, SHADER_PRE_CACHING_TIP } from '../services/rowyn
 import { mangohudConfigLabel, mangohudConfigPath, MANGOHUD_READ_NOTE, MANGOHUD_RECOMMENDED } from '../services/rowynPlayMangohudModel';
 import { coverInitials, sortSteamGames, steamLibraryCoverNote, steamLibraryProvenance, steamStateChip } from '../services/rowynSteamLibraryModel';
 import { CONTROLLER_READ_NOTE, controllerAdvice, controllerSummary } from '../services/rowynControllerModel';
+import { HELPER_EXAMPLES, GAMING_HELPERS_NOTE, TUNE_ADMIN_NOTE, TUNE_OFF_NOTE, HOST_ONLY_NOTE, gamingTuneLabel, tuneIsOn } from '../services/rowynPlayHelpersModel';
 import { copyText } from '../services/rowynClipboard';
 import { useSectionFollow, type SectionMap } from '../hooks/useSectionFollow';
 import '../styles/rowynMvp.css';
@@ -68,6 +69,7 @@ export function Play() {
   const [profiles, setProfiles] = useState<Record<string, GameProfile>>(() => loadProfiles());
   const [profileWarning, setProfileWarning] = useState<string | null>(null);
   const [sunshine, setSunshine] = useState<SunshineStatus | null>(null);
+  const [helpers, setHelpers] = useState<GamingHelpers | null>(null);
   const [gamescope, setGamescope] = useState<GamescopeStatus | null>(null);
   const [gamescopeFailed, setGamescopeFailed] = useState(false);
   const [gamemodeStatus, setGamemodeStatus] = useState<GamemodeStatus | null>(null);
@@ -216,6 +218,31 @@ export function Play() {
           <button className="action-button" disabled={busy || !!pending || state !== 'installed' || !!tracked} onClick={() => setPending({ kind: 'remove', id: launcher.id, name: launcher.name })}>Remove {launcher.name}</button></div>
         </article>;
       })}</div>
+      <h3>Rowyn gaming helpers</h3>
+      <p className="card-copy">{GAMING_HELPERS_NOTE}</p>
+      <div className="home-actions"><button className="action-button" disabled={busy} onClick={() => run('Reading Rowyn gaming helper state…', async () => {
+        const next = await rowynGamingHelpersStatus(); setHelpers(next);
+        return gamingTuneLabel(next);
+      })}>Check helper status</button>
+      {helpers && (tuneIsOn(helpers)
+        ? <button className="action-button" disabled={busy || !helpers.installed} onClick={() => run('Asking for administrator access…', async () => {
+          const next = await rowynGamingTuneApply(false); setHelpers(next);
+          return `Gaming profile disabled. ${TUNE_OFF_NOTE}`;
+        })}>Disable gaming profile</button>
+        : <button className="action-button" disabled={busy || !helpers.installed} onClick={() => run('Asking for administrator access…', async () => {
+          const next = await rowynGamingTuneApply(true); setHelpers(next);
+          return `${gamingTuneLabel(next)} It applies now and at boot, and trades sustained disk-write throughput for latency.`;
+        })}>Enable gaming profile</button>)}</div>
+      <p className="card-copy" role="status">{gamingTuneLabel(helpers)}</p>
+      {helpers && <p className="card-copy">{helpers.detail} {TUNE_ADMIN_NOTE}</p>}
+      <p className="card-copy">{HOST_ONLY_NOTE}</p>
+      {HELPER_EXAMPLES.map((example) => <div key={example.key}>
+        <p className="card-copy">{example.label}</p><pre>{example.command}</pre>
+        <button className="action-button" disabled={busy} onClick={() => run('Copying the wrapper example…', async () => {
+          const result = await copyText(example.command);
+          return result.ok ? 'Wrapper example copied. No launch options were changed.' : result.reason;
+        })}>Copy wrapper example</button>
+      </div>)}
       {pending && <section className="glass dashboard-card" role="alertdialog" aria-labelledby="rowyn-play-confirm">
         <h2 id="rowyn-play-confirm">{pending.kind === 'install' ? `Install ${pending.name}?` : `Remove ${pending.name}?`}</h2>
         <p className="card-copy">{pending.kind === 'install'

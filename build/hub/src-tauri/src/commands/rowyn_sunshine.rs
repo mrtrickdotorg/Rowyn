@@ -137,7 +137,7 @@ pub(crate) async fn rowyn_sunshine_status() -> Result<SunshineStatus, String> {
 /// Same askpass discipline as the VPN module: scrub the environment to
 /// the desktop policy set, then pin the fixed helper; fail closed when
 /// the helper is missing so sudo never dies without a prompt.
-fn prepare_sudo_command(command: &mut Command) -> Result<(), String> {
+pub(crate) fn prepare_sudo_command(command: &mut Command) -> Result<(), String> {
     let inherited = std::env::vars().collect::<std::collections::BTreeMap<_, _>>();
     let desktop = rowyn_shared::commands::environment_for(
         rowyn_shared::commands::EnvironmentPolicy::Desktop,

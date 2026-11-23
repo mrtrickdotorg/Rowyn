@@ -693,7 +693,7 @@ def apply_rowyn_mvp(root):
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source, target)
     commands_mod = web / "src-tauri/src/commands/mod.rs"
-    commands_mod.write_text(commands_mod.read_text() + '\npub(crate) mod rowyn_diagnostics;\npub(crate) mod rowyn_play;\npub(crate) mod rowyn_steam;\npub(crate) mod rowyn_development;\npub(crate) mod rowyn_boot_health;\npub(crate) mod rowyn_boot_health_actions;\n')
+    commands_mod.write_text(commands_mod.read_text() + '\npub(crate) mod rowyn_diagnostics;\npub(crate) mod rowyn_play;\npub(crate) mod rowyn_gaming_helpers;\npub(crate) mod rowyn_steam;\npub(crate) mod rowyn_development;\npub(crate) mod rowyn_boot_health;\npub(crate) mod rowyn_boot_health_actions;\n')
     main = web / "src-tauri/src/main.rs"
     main.write_text(replace_once(main.read_text(), 'tauri::generate_handler![',
         'tauri::generate_handler![\n'
@@ -1001,7 +1001,9 @@ fn system_flatpak_install(app_id: &str, cancel: &AtomicBool) -> Result<(), Strin
         + "            commands::rowyn_play::rowyn_vulkan_layers_scan,\n"
         + "            commands::rowyn_play::rowyn_vulkan_layer_install,\n"
         + "            commands::rowyn_play::rowyn_gamescope_status,\n"
-        + "            commands::rowyn_play::rowyn_gamemode_status,\n",
+        + "            commands::rowyn_play::rowyn_gamemode_status,\n"
+        + "            commands::rowyn_gaming_helpers::rowyn_gaming_helpers_status,\n"
+        + "            commands::rowyn_gaming_helpers::rowyn_gaming_tune_apply,\n",
         1,
     )
     main_rs.write_text(text)
