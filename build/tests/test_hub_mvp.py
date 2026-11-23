@@ -298,7 +298,8 @@ class MvpSteamGames(unittest.TestCase):
         self.assertNotIn('game updates can change it', page)
         self.assertEqual(page.count('reviewed 2026-10-31'), 1)
         for needle in ('steamLibraryProvenance(compatReviewedOn(), compatVerdictCount())',
-                       'verdict && <p className="card-copy"', 'Provenance — reviewed'):
+                       'verdict && <p className="card-copy"', 'Provenance — reviewed',
+                       'card-copy rowyn-provenance'):
             self.assertIn(needle, page)
         model = (ROOT / "build/hub/src/services/rowynSteamLibraryModel.ts").read_text()
         for needle in ('steamLibraryProvenance', 'last checked',

@@ -230,7 +230,7 @@ export function Play() {
       </section>}
     </section>
     <section className="glass dashboard-card" id="hub-section-steam-library"><h2>Steam library</h2>
-      <p className="card-copy">{steamLibraryProvenance(compatReviewedOn(), compatVerdictCount())}</p>
+      <p className="card-copy rowyn-provenance">{steamLibraryProvenance(compatReviewedOn(), compatVerdictCount())}</p>
       <h3>Shader pre-caching</h3>
       <p className="card-copy" role="status">{shaderFailed && !shaderCache ? 'The shader pre-caching read could not run.' : shaderPreCachingLabel(shaderCache)}</p>
       <p className="card-copy">{SHADER_PRE_CACHING_TIP}</p>
@@ -316,7 +316,7 @@ export function Play() {
     </section>
     <section className="glass dashboard-card" id="hub-section-compatibility"><h2>Compatibility &amp; anti-cheat</h2>
       <p className="card-copy">Kernel-level Windows anti-cheat generally cannot run under Proton. Easy Anti-Cheat and BattlEye support requires the game developer to enable Linux/Proton support; the middleware name alone proves nothing. Check the exact title and multiplayer mode before buying or installing.</p>
-      <p className="card-copy">Provenance — reviewed 2026-10-31: local guidance, not Rowyn-validated game results, and Linux/Proton support changes with game, launcher and anti-cheat updates. Sources: <ExternalLink href="https://partner.steamgames.com/doc/steamdeck/proton">Valve’s Proton / anti-cheat documentation</ExternalLink> (developer guidance), <ExternalLink href="https://www.protondb.com/">ProtonDB</ExternalLink> and <ExternalLink href="https://areweanticheatyet.com/">Are We Anti-Cheat Yet?</ExternalLink> (community reports, not guarantees). Links require a web browser; no compatibility lookup or network probe runs in this page.</p>
+      <p className="card-copy rowyn-provenance">Provenance — reviewed 2026-10-31: local guidance, not Rowyn-validated game results, and Linux/Proton support changes with game, launcher and anti-cheat updates. Sources: <ExternalLink href="https://partner.steamgames.com/doc/steamdeck/proton">Valve’s Proton / anti-cheat documentation</ExternalLink> (developer guidance), <ExternalLink href="https://www.protondb.com/">ProtonDB</ExternalLink> and <ExternalLink href="https://areweanticheatyet.com/">Are We Anti-Cheat Yet?</ExternalLink> (community reports, not guarantees). Links require a web browser; no compatibility lookup or network probe runs in this page.</p>
       <label>Game label (local only; never executed)<input value={game} maxLength={80} onChange={(event) => setGame(event.target.value)} placeholder="Your game" /></label>
       <label>Where does this game run?<select value={boundary} onChange={(event) => setBoundary(event.target.value as 'flatpak' | 'host')}><option value="flatpak">Flatpak Steam / sandboxed launcher</option><option value="host">Host-native Steam / host command</option></select></label>
       <label><input type="checkbox" checked={gaming} disabled={boundary === 'flatpak'} onChange={(event) => setGaming(event.target.checked)} /> Use Rowyn gaming slice / GameMode when available</label>
