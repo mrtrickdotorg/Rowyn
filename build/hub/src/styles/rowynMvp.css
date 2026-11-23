@@ -214,14 +214,26 @@
 
 /* Play → Controllers: three player lines over the helper's findings. The
    technical rows stay folded; the summary is what a player needs to read. */
-.rowyn-controller-summary { display: grid; gap: 10px; margin: 14px 0 0; padding: 0; list-style: none; }
-.rowyn-controller-summary li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 11px 13px; border: 1px solid var(--hairline, rgba(255,255,255,.12)); border-radius: 12px; background: rgba(255,255,255,.02); }
-.rowyn-controller-summary li > span:last-child { flex: 1 1 240px; min-width: 0; color: var(--text-muted, #a7adb9); font-size: .82rem; line-height: 1.5; overflow-wrap: anywhere; }
+.rowyn-controller-summary { display: grid; gap: 8px; margin: 14px 0 0; padding: 0; list-style: none; }
+.rowyn-controller-summary li { display: grid; grid-template-columns: minmax(9rem, max-content) minmax(0, 1fr); align-items: baseline; gap: 2px 12px; padding: 10px 13px; border: 1px solid var(--hairline, rgba(255,255,255,.12)); border-radius: 12px; background: rgba(255,255,255,.02); }
+.rowyn-controller-summary li > span:last-child { min-width: 0; color: var(--text-muted, #a7adb9); font-size: .82rem; line-height: 1.5; overflow-wrap: anywhere; }
 .rowyn-controller-summary li.is-warn { border-color: rgba(228, 205, 120, .3); }
+.rowyn-controller-summary .rowyn-state { justify-self: start; }
 .rowyn-controller-summary .rowyn-state.is-ok { border-color: rgba(120, 210, 155, .45); color: #9be6b8; }
 .rowyn-controller-summary .rowyn-state.is-warn { border-color: rgba(228, 205, 120, .4); color: #e7d79e; }
 .rowyn-controller-summary .rowyn-state.is-unknown { color: var(--text-muted, #a7adb9); }
-.rowyn-disclosure-body pre { margin: 4px 0 10px; }
+
+/* Play → Controllers: the folded rows read as a quiet list of what was read,
+   not a stack of code blocks, and each state chip stays with its own name. */
+.rowyn-controller-findings { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--hairline, rgba(255,255,255,.1)); }
+.rowyn-controller-findings .rowyn-disclosure-body { gap: 0; }
+.rowyn-controller-findings .rowyn-disclosure-body h4 { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 14px 0 0; font-size: .82rem; }
+.rowyn-controller-findings .rowyn-disclosure-body > div:first-child > h4 { margin-top: 0; }
+.rowyn-controller-findings .rowyn-disclosure-body pre { margin: 3px 0 0; padding: 0; border: 0; border-radius: 0; background: none; color: var(--text-muted, #a7adb9); font-size: .78rem; line-height: 1.5; }
+
+@media (max-width: 720px) {
+  .rowyn-controller-summary li { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+}
 
 /* Play → Steam library: the list leads with cached cover art, and each title's
    settings fold into one disclosure so the section reads as a library rather
