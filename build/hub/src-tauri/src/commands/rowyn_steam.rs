@@ -922,6 +922,87 @@ pub(crate) async fn rowyn_steam_shader_cache() -> Result<ShaderCacheStatus, Stri
         .map_err(|error| format!("Shader pre-caching read did not complete: {error}"))
 }
 
+// --- MangoHud config path -------------------------------------------------
+// Flathub Steam reads MangoHud's settings inside its sandbox from
+// `~/.var/app/com.valvesoftware.Steam/config/MangoHud/MangoHud.conf`, not the
+// `~/.config/MangoHud/MangoHud.conf` most guides name. This read reports both
+// paths home-relative, whether the sandboxed config exists, and how many
+// settings it holds. It never creates, edits or backs up the file: a missing
+// config is reported as missing, and the page only offers text to copy.
+
+const MANGOHUD_FLATPAK_PATH: &str =
+    ".var/app/com.valvesoftware.Steam/config/MangoHud/MangoHud.conf";
+const MANGOHUD_NATIVE_PATH: &str = ".config/MangoHud/MangoHud.conf";
+const MAX_MANGOHUD_BYTES: u64 = 64 * 1024;
+
+#[derive(Debug, Serialize)]
+pub(crate) struct MangohudConfig {
+    /// A Steam install was found in a common native or Flatpak location.
+    steam_detected: bool,
+    /// Flathub Steam's own root exists, which is the boundary this path serves.
+    flatpak_steam: bool,
+    /// Home-relative, so no absolute home path reaches the page.
+    path: &'static str,
+    exists: bool,
+    readable: bool,
+    /// Non-empty, non-comment lines in the existing config.
+    settings: usize,
+    /// The host path most guides name; Flathub Steam does not read it.
+    native_path: &'static str,
+    native_exists: bool,
+    warnings: usize,
+}
+
+fn count_mangohud_settings(text: &str) -> usize {
+    text.lines()
+        .filter(|line| {
+            let line = line.trim();
+            !line.is_empty() && !line.starts_with('#')
+        })
+        .count()
+}
+
+/// (exists, readable, settings) for one home-relative config path. A symlinked
+/// or non-regular file counts as present but unread, and a warning keeps that
+/// visible instead of reading as an empty config.
+fn mangohud_file(home: &Path, relative: &str, warnings: &mut usize) -> (bool, bool, usize) {
+    let path = home.join(relative);
+    if fs::symlink_metadata(&path).is_err() {
+        return (false, false, 0);
+    }
+    match read_bounded_text(&path, MAX_MANGOHUD_BYTES, warnings) {
+        Some(text) => (true, true, count_mangohud_settings(&text)),
+        None => (true, false, 0),
+    }
+}
+
+fn read_mangohud_config(home: &Path) -> MangohudConfig {
+    let mut warnings = 0;
+    let (exists, readable, settings) = mangohud_file(home, MANGOHUD_FLATPAK_PATH, &mut warnings);
+    let native_exists = fs::symlink_metadata(home.join(MANGOHUD_NATIVE_PATH))
+        .map(|metadata| metadata.file_type().is_file())
+        .unwrap_or(false);
+    MangohudConfig {
+        steam_detected: !steam_roots(home).is_empty(),
+        flatpak_steam: home.join(".var/app/com.valvesoftware.Steam").is_dir(),
+        path: MANGOHUD_FLATPAK_PATH,
+        exists,
+        readable,
+        settings,
+        native_path: MANGOHUD_NATIVE_PATH,
+        native_exists,
+        warnings,
+    }
+}
+
+#[tauri::command]
+pub(crate) async fn rowyn_mangohud_config() -> Result<MangohudConfig, String> {
+    let home = home_dir()?;
+    tauri::async_runtime::spawn_blocking(move || read_mangohud_config(&home))
+        .await
+        .map_err(|error| format!("MangoHud config read did not complete: {error}"))
+}
+
 // --- Steam Play default mapping -------------------------------------------
 // The shared reader (system::gaming_compat) deliberately never writes VDF:
 // editing config.vdf while Steam runs corrupts it, because Steam rewrites

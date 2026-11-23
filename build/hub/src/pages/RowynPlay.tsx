@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { ExternalLink } from '../components/ExternalLink';
 import { cancelInstall, fetchInstalledFlatpaks, installFlatpak, uninstallFlatpak, waitInstallJob, invalidateSharedReads, getInFlightJob, type InstalledFlatpaksResult } from '../services/liveData';
-import { rowynControllerScan, openRowynLauncher, rowynSteamGamesScan, rowynSteamRecentPlay, rowynSteamShaderCache, rowynSteamPlayStatus, rowynSteamPlayApply, rowynDisplayModesScan, rowynVulkanLayersScan, rowynVulkanLayerInstall, rowynSunshineStatus, rowynSunshineFirewallOpen, rowynSunshineAutostartEnable, rowynGamescopeStatus, rowynGamemodeStatus, type SteamPlayStatus, type DisplayModes, type VulkanLayers, type SunshineStatus, type GamescopeStatus, type GamemodeStatus, type RecentPlay, type ShaderCacheStatus, type ControllerReport } from '../services/rowynMvp';
+import { rowynControllerScan, openRowynLauncher, rowynSteamGamesScan, rowynSteamRecentPlay, rowynSteamShaderCache, rowynSteamPlayStatus, rowynSteamPlayApply, rowynDisplayModesScan, rowynVulkanLayersScan, rowynVulkanLayerInstall, rowynMangohudConfig, rowynSunshineStatus, rowynSunshineFirewallOpen, rowynSunshineAutostartEnable, rowynGamescopeStatus, rowynGamemodeStatus, type SteamPlayStatus, type DisplayModes, type VulkanLayers, type MangohudConfig, type SunshineStatus, type GamescopeStatus, type GamemodeStatus, type RecentPlay, type ShaderCacheStatus, type ControllerReport } from '../services/rowynMvp';
 import { LAUNCHERS, launcherState, installLauncher, createPlayStatusOwner, launchOptions, steamCompatibilityLinks, compatVerdict, type SteamScan } from '../services/rowynMvpModel';
 import { loadProfiles, saveProfiles, profileFor, isDefaultProfile, assembleProfileOptions, type GameProfile } from '../services/rowynPlayProfilesModel';
 import { openRowynSettings } from '../services/rowynSettings';
 import { playSetupSteps, SETUP_MARKERS } from '../services/rowynPlaySetupModel';
 import { formatPlaytime, formatLastPlayed, recentPlayStatus } from '../services/rowynPlayRecentModel';
 import { shaderPreCachingLabel, SHADER_PRE_CACHING_TIP } from '../services/rowynPlayShaderModel';
+import { mangohudConfigLabel, mangohudConfigPath, MANGOHUD_READ_NOTE, MANGOHUD_RECOMMENDED } from '../services/rowynPlayMangohudModel';
 import { coverInitials, sortSteamGames, steamLibraryCoverNote, steamStateChip } from '../services/rowynSteamLibraryModel';
 import { CONTROLLER_READ_NOTE, controllerAdvice, controllerSummary } from '../services/rowynControllerModel';
 import { copyText } from '../services/rowynClipboard';
@@ -46,6 +47,8 @@ export function Play() {
   const [recentFailed, setRecentFailed] = useState(false);
   const [shaderCache, setShaderCache] = useState<ShaderCacheStatus | null>(null);
   const [shaderFailed, setShaderFailed] = useState(false);
+  const [mangohudConfig, setMangohudConfig] = useState<MangohudConfig | null>(null);
+  const [mangohudFailed, setMangohudFailed] = useState(false);
   const [controllers, setControllers] = useState<ControllerReport | null>(null);
   const [status, setStatus] = useState('Reading installed launchers…');
   const [busy, setBusy] = useState(false);
@@ -357,6 +360,20 @@ export function Play() {
       })}>Install vkBasalt layer</button>}</div>
       {!layers && <p className="card-copy">{checkFailure.layers ? 'The layer list could not be read; use Check Vulkan layers to retry.' : 'Reading installed Flatpak layers…'}</p>}
       {layers && <p className="card-copy">{layers.detail} MangoHud branches installed: {layers.mangohud_branches.join(', ') || 'none'}. gamescope branches installed: {layers.gamescope_branches.join(', ') || 'none'}. vkBasalt branches installed: {layers.vkbasalt_branches.join(', ') || 'none'}.</p>}
+      <h3>MangoHud settings</h3>
+      <p className="card-copy">MangoHud reads one configuration file. Flathub Steam reads it inside its sandbox at the path below; guides that point at ~/.config/MangoHud do nothing for Flathub Steam. Rowyn reads the path and the file, and never writes either.</p>
+      <div className="home-actions"><button className="action-button" disabled={busy} onClick={() => run('Reading MangoHud’s config path…', async () => {
+        setMangohudFailed(false);
+        const next = await rowynMangohudConfig(); setMangohudConfig(next);
+        return mangohudConfigLabel(next);
+      })}>Check MangoHud settings</button></div>
+      {!mangohudConfig && <p className="card-copy" role="status">{mangohudFailed ? 'The MangoHud settings read could not run; use Check MangoHud settings to retry.' : 'Not read yet.'}</p>}
+      {mangohudConfig && <><p className="card-copy" role="status">{mangohudConfigLabel(mangohudConfig)}</p>
+        <p className="card-copy">Config path: <code>{mangohudConfigPath(mangohudConfig)}</code></p>
+        <details className="rowyn-disclosure"><summary>Recommended starting config (not written by Rowyn)</summary><div className="rowyn-disclosure-body"><p className="card-copy">{MANGOHUD_READ_NOTE}</p><pre>{MANGOHUD_RECOMMENDED}</pre><div className="home-actions"><button className="action-button" disabled={busy} onClick={() => run('Copying the recommended MangoHud config…', async () => {
+          const result = await copyText(MANGOHUD_RECOMMENDED);
+          return result.ok ? 'Recommended MangoHud config copied. Nothing was written.' : result.reason;
+        })}>Copy recommended config</button></div></div></details></>}
       <h3>Displays: HDR and variable refresh</h3>
       <p className="card-copy">What the display stack reports for each output. “Incapable” means the display or its connection does not offer the feature — no setting changes that. Enable HDR per display and variable refresh in System Settings → Display &amp; Monitor; KWin’s variable-refresh policy applies to fullscreen games.</p>
       <div className="home-actions"><button className="action-button" disabled={busy} onClick={() => run('Reading display capabilities…', async () => {

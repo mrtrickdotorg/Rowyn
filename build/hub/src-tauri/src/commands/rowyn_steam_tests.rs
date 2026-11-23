@@ -366,6 +366,70 @@ fn shader_cache_keeps_junk_and_unreadable_config_visible() {
 }
 
 #[test]
+fn mangohud_config_reads_the_flatpak_path_without_writing() {
+    let temporary = tempfile::tempdir().unwrap();
+    let home = temporary.path();
+    let missing = read_mangohud_config(home);
+    assert!(!missing.steam_detected);
+    assert!(!missing.flatpak_steam);
+    assert!(!missing.exists);
+    assert_eq!(missing.settings, 0);
+    assert!(missing
+        .path
+        .ends_with(".var/app/com.valvesoftware.Steam/config/MangoHud/MangoHud.conf"));
+
+    fs::create_dir_all(home.join(".var/app/com.valvesoftware.Steam/.local/share/Steam")).unwrap();
+    let empty = read_mangohud_config(home);
+    assert!(empty.steam_detected);
+    assert!(empty.flatpak_steam);
+    assert!(!empty.exists);
+
+    let path = home.join(MANGOHUD_FLATPAK_PATH);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let contents = "# the overlay\nfps_limit=0\ngpu_stats\n\n   \ncpu_stats\n";
+    fs::write(&path, contents).unwrap();
+    let read = read_mangohud_config(home);
+    assert!(read.exists);
+    assert!(read.readable);
+    assert_eq!(read.settings, 3);
+    // A read leaves the file byte-identical and creates no backup beside it.
+    assert_eq!(fs::read_to_string(&path).unwrap(), contents);
+    assert!(!home
+        .join(format!("{MANGOHUD_FLATPAK_PATH}.rowyn-backup"))
+        .exists());
+    let json = serde_json::to_string(&read).unwrap();
+    assert!(!json.contains(&home.to_string_lossy().to_string()));
+    assert!(json.contains(".var/app/com.valvesoftware.Steam/config/MangoHud/MangoHud.conf"));
+}
+
+#[test]
+fn mangohud_config_keeps_the_ignored_host_path_and_unreadable_files_visible() {
+    let temporary = tempfile::tempdir().unwrap();
+    let home = temporary.path();
+    fs::create_dir_all(home.join(".local/share/Steam")).unwrap();
+    fs::create_dir_all(home.join(".config/MangoHud")).unwrap();
+    fs::write(home.join(MANGOHUD_NATIVE_PATH), "gpu_stats\n").unwrap();
+    // The host path exists, but Flathub Steam does not read it.
+    let native_only = read_mangohud_config(home);
+    assert!(native_only.steam_detected);
+    assert!(!native_only.flatpak_steam);
+    assert!(!native_only.exists);
+    assert!(native_only.native_exists);
+
+    // A symlinked config is present but deliberately not followed.
+    let target = home.join("elsewhere.conf");
+    fs::write(&target, "gpu_stats\n").unwrap();
+    let conf = home.join(MANGOHUD_FLATPAK_PATH);
+    fs::create_dir_all(conf.parent().unwrap()).unwrap();
+    std::os::unix::fs::symlink(&target, &conf).unwrap();
+    let linked = read_mangohud_config(home);
+    assert!(linked.exists);
+    assert!(!linked.readable);
+    assert!(linked.warnings > 0);
+    assert_eq!(fs::read_to_string(&target).unwrap(), "gpu_stats\n");
+}
+
+#[test]
 fn parses_vdf_bom_and_comments() {
     let parsed = parse_vdf(concat!(
         "\u{feff}",

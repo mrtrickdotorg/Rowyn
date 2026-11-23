@@ -63,6 +63,14 @@ branch Steam actually uses, installs the missing ones, and its
 launch-options builder — including the per-game profiles — composes
 the MangoHud and vkBasalt switches.
 
+MangoHud's settings live inside the Flathub sandbox at
+`~/.var/app/com.valvesoftware.Steam/config/MangoHud/MangoHud.conf`. The
+`~/.config/MangoHud/MangoHud.conf` path most guides name is never read
+for a Flatpak game. The Play page shows the sandbox path, reports whether
+a config exists there, and offers a small starting config to copy — it
+never writes the file; `MANGOHUD=1` in the launch options is still what
+turns the overlay on.
+
 ## GameMode for Flatpak Steam games
 
 GameMode is installed in the image, and `/etc/gamemode.ini` hooks Rowyn's

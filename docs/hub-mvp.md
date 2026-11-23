@@ -73,6 +73,15 @@ being guessed, and the read never edits the file or starts Steam. One line of
 guidance names pre-caching as the usual fix for stutter in a game's first
 minutes, while shaders compile.
 
+**MangoHud settings** names the file Flathub Steam actually reads,
+`~/.var/app/com.valvesoftware.Steam/config/MangoHud/MangoHud.conf` — not the
+`~/.config/MangoHud` path many guides give, which Flathub Steam ignores — and
+reports whether it exists, how many settings it holds, and when a
+host-path file is being ignored. The read never creates, edits or backs up
+the file and starts nothing; a small recommended starting config is offered
+as copyable text only, and `MANGOHUD=1 %command%` remains the switch that
+turns the overlay on.
+
 Controller rescan calls the same fixed read-only helper, but the section now
 opens with three player lines — a controller-like device is present, its
 kernel driver is reported, and this session can write `/dev/uinput` for Steam

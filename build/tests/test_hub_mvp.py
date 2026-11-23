@@ -315,6 +315,37 @@ class MvpSteamGames(unittest.TestCase):
         port = (ROOT / "build/ubuntu-hub-source.py").read_text()
         self.assertIn("commands::rowyn_steam::rowyn_steam_shader_cache", port)
 
+    def test_mangohud_config_path_is_read_only_and_surfaced_on_play(self):
+        page = (ROOT / "build/hub/src/pages/RowynPlay.tsx").read_text()
+        for needle in ('MangoHud settings', 'rowynMangohudConfig', 'mangohudConfigLabel',
+                       'Check MangoHud settings', 'Recommended starting config',
+                       'not written by Rowyn'):
+            self.assertIn(needle, page)
+        service = (ROOT / "build/hub/src/services/rowynMvp.ts").read_text()
+        for needle in ("'rowyn_mangohud_config'", 'MangohudConfig'):
+            self.assertIn(needle, service)
+        model = (ROOT / "build/hub/src/services/rowynPlayMangohudModel.ts").read_text()
+        for needle in ('.var/app/com.valvesoftware.Steam/config/MangoHud/MangoHud.conf',
+                       '.config/MangoHud', 'ignored by Flathub Steam',
+                       'never creates, edits or backs up', 'MANGOHUD=1'):
+            self.assertIn(needle, model)
+        for forbidden in ('fetch(', 'setInterval', 'setTimeout'):
+            self.assertNotIn(forbidden, model)
+        rust = (ROOT / "build/hub/src-tauri/src/commands/rowyn_steam.rs").read_text()
+        for needle in ('MANGOHUD_FLATPAK_PATH', 'MANGOHUD_NATIVE_PATH', 'read_mangohud_config',
+                       'pub(crate) async fn rowyn_mangohud_config', 'spawn_blocking',
+                       '.var/app/com.valvesoftware.Steam/config/MangoHud/MangoHud.conf'):
+            self.assertIn(needle, rust)
+        # The section names both paths and never creates, edits or backs up the
+        # file, and it launches nothing.
+        body = rust.split('// --- MangoHud config path', 1)[1].split(
+            '// --- Steam Play default mapping', 1)[0]
+        for forbidden in ('fs::write', 'fs::rename', 'OpenOptions', 'create_dir',
+                          'set_permissions', 'Command::new', 'reqwest'):
+            self.assertNotIn(forbidden, body)
+        port = (ROOT / "build/ubuntu-hub-source.py").read_text()
+        self.assertIn("commands::rowyn_steam::rowyn_mangohud_config", port)
+
 
 class MvpPlay(unittest.TestCase):
     def test_play_uses_curated_flatpak_jobs_and_honest_host_boundary(self):
