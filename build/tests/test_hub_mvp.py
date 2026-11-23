@@ -278,6 +278,14 @@ class MvpSteamGames(unittest.TestCase):
         # disclosure already computed instead of resolving it again.
         self.assertNotIn('compatVerdict(', model)
         self.assertIn('steamStateChip(verdict)', page)
+        # Verdicts are attributed by app id only. No title map survives in the
+        # model, and the card never passes a title into the lookup.
+        self.assertIn('compatVerdict(item.app_id)', page)
+        self.assertNotIn('item.app_id, item.name', page)
+        verdict_source = (ROOT / "build/hub/src/services/rowynMvpModel.ts").read_text()
+        for gone in ('compatByName', 'normalizeTitle'):
+            self.assertNotIn(gone, verdict_source)
+        self.assertIn('never by title', verdict_source)
         for forbidden in ('fetch(', 'https://', 'setInterval', 'setTimeout'):
             self.assertNotIn(forbidden, model)
         rust = (ROOT / "build/hub/src-tauri/src/commands/rowyn_steam.rs").read_text()

@@ -19,8 +19,8 @@ const CHIPS: Record<string, string> = {
 };
 
 /** One word for the curated state, from the verdict the card already has.
- * The card resolves `compatVerdict` once and feeds both the chip and the
- * disclosure; this projection never looks it up a second time. */
+ * The card resolves the app-id verdict once and feeds both the chip and the
+ * disclosure; this projection never looks a verdict up a second time. */
 export function steamStateChip(verdict: CompatVerdict | null): SteamStateChip | null {
   if (!verdict) return null;
   const label = CHIPS[verdict.status];

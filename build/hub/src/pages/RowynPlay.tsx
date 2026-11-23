@@ -265,7 +265,9 @@ export function Play() {
       {!!steamScan?.games.length && <p className="card-copy" role="status">{steamLibraryCoverNote(steamScan.games)}</p>}
       {!!steamScan?.games.length && <div className="rowyn-library">{sortSteamGames(steamScan.games).map((item) => {
         const links = steamCompatibilityLinks(item.app_id);
-        const verdict = compatVerdict(item.app_id, item.name);
+        // Attributed by app id only: a scanned title is never used to borrow a
+        // curated note from a same-named remake or re-release.
+        const verdict = compatVerdict(item.app_id);
         const chip = steamStateChip(verdict);
         const profile = profileFor(profiles, item.app_id);
         // gamescope is a host-side wrapper, never a Flatpak layer step: the

@@ -42,10 +42,11 @@ export interface SteamScan { available: boolean; warnings: number; games: SteamG
 
 /**
  * Curated compatibility verdicts from the shipped compat_games.json
- * dataset (kept from the port for this surface). Matching is by Steam
- * app id where the entry's source URL carries one, else by normalized
- * title. An unmatched title gets no verdict — the page keeps showing
- * the ProtonDB link instead of guessing.
+ * dataset (kept from the port for this surface). A verdict is attributed
+ * by Steam app id only — never by title — so a remake, demo or re-release
+ * that shares a curated title cannot borrow another release's note. An
+ * entry with no app id and an uncurated app id both get no verdict; the
+ * page keeps showing the ProtonDB link instead of guessing.
  */
 import compatData from '../data/compat_games.json';
 
@@ -60,17 +61,11 @@ const COMPAT_LABELS: Record<string, string> = {
 
 interface CompatEntry { name: string; status: string; note: string; anticheat: string; checked: string; source_url?: string }
 
-function normalizeTitle(name: string): string {
-  return name.toLowerCase().replace(/[™®©]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
-}
-
 const compatEntries = compatData.games as CompatEntry[];
 const compatByAppId = new Map<string, CompatEntry>();
-const compatByName = new Map<string, CompatEntry>();
 for (const game of compatEntries) {
-  const match = (game.source_url ?? '').match(/\/app\/(\d+)\//);
+  const match = (game.source_url ?? '').match(/\/app\/(\d+)/);
   if (match) compatByAppId.set(match[1], game);
-  compatByName.set(normalizeTitle(game.name), game);
 }
 
 /**
@@ -85,10 +80,12 @@ export function compatReviewedOn(): string | null {
   return dates.length ? dates[dates.length - 1] : null;
 }
 export function compatVerdictCount(): number {
-  return compatEntries.length;
+  // Only entries with an app id can be attributed to a scanned title; the
+  // section note states the coverage the page can actually show.
+  return compatByAppId.size;
 }
-export function compatVerdict(appId: string, name: string): CompatVerdict | null {
-  const game = compatByAppId.get(appId) ?? compatByName.get(normalizeTitle(name));
+export function compatVerdict(appId: string): CompatVerdict | null {
+  const game = compatByAppId.get(appId);
   if (!game) return null;
   return {
     label: COMPAT_LABELS[game.status] ?? `Curated status: ${game.status}`,

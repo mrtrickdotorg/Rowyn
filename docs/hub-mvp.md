@@ -51,9 +51,12 @@ capsule where it exists, else the header or capsule — embedded as a bounded
 data URL (768 KB per file, 8 MB per scan). A title with no cached artwork gets
 a letter tile, and the page states how many titles actually had a cover; no
 artwork is downloaded and no game files are read. Each title shows a one-word
-curated state (Native, Proton, Tweaks or Blocked, or nothing when there is no
-verdict), and its profile editor, provenance and community links live inside a
-single closed "Launch options" disclosure instead of expanding on the page.
+curated state (Native, Proton, Tweaks or Blocked) only when the shipped curated
+entry carries that title's Steam app ID — never by title alone, so a remake,
+demo or re-release cannot borrow a same-named game's note. A title with no
+entry, or an entry the dataset records by name only, shows no verdict. Its
+profile editor, provenance and community links live inside a single closed
+"Launch options" disclosure instead of expanding on the page.
 
 **Recently played** is a separate read of Steam's own per-account local profile
 (`userdata/<account>/config/localconfig.vdf`): Steam's `LastPlayed` timestamp
@@ -99,7 +102,8 @@ Compatibility section carries a single provenance note (reviewed 2026-10-31,
 sourced to Valve's Proton anti-cheat developer documentation and linked
 community reports; it is **not Rowyn game validation** or an online lookup),
 and the Steam library section states the curated dataset's own date and size
-once — last checked 2026-05-18, covering 40 titles. A verdict appears only on
+once — last checked 2026-05-18, counting only the entries whose Steam app ID
+is known. A verdict appears only on
 a title that has one; no card repeats a date or a "not tested" label. The
 dataset is re-checked before any release that ships a change to those notes,
 and its date is shown in the library section rather than repeated on each

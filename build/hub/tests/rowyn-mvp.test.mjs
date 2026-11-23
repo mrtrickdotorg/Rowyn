@@ -136,16 +136,22 @@ test('GameMode wraps the Flatpak command and never duplicates the host wrapper',
   assert.equal(m.launchOptions('host', false, false, false, false, true), '%command%');
 });
 
-test('curated compat verdicts resolve by app id, then by title, else null', () => {
-  const cs2 = m.compatVerdict('730', 'Counter-Strike 2');
+test('curated compat verdicts are attributed by app id only, never by title', () => {
+  const cs2 = m.compatVerdict('730');
   assert.ok(cs2);
   assert.match(cs2.label, /natively/);
-  // A title match survives edition punctuation differences.
-  const byName = m.compatVerdict('999999', 'Counter-Strike 2');
-  assert.ok(byName);
-  assert.equal(byName.label, cs2.label);
-  // Unknown titles get no invented verdict.
-  assert.equal(m.compatVerdict('999999', 'Definitely Not A Curated Game'), null);
+  // Title collision: a remake, demo or re-release that happens to share a
+  // curated title but has a different app id gets no note at all.
+  assert.equal(m.compatVerdict('999999', 'Counter-Strike 2'), null);
+  assert.equal(m.compatVerdict('1', 'Counter-Strike 2'), null);
+  // ProtonDB-style source URLs carry the id without a trailing slash, so the
+  // id-only rule still reaches those entries.
+  assert.ok(m.compatVerdict('1245620', 'Elden Ring'));
+  // An entry recorded only by name (no numeric app id anywhere) cannot be
+  // attributed to a scan, so even its real id resolves to nothing.
+  assert.equal(m.compatVerdict('1085660', 'Destiny 2'), null);
+  // Unknown ids get no invented verdict.
+  assert.equal(m.compatVerdict('999999'), null);
 });
 
 test('Steam compatibility links accept only numeric app IDs and clearly point to community data', () => {
