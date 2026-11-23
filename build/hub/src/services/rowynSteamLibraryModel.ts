@@ -80,12 +80,112 @@ export function steamLibraryProvenance(
   return `Local reads only: shader pre-caching, play history, installed titles and cover art come from Steam’s own files, with no network request, no launch and no game-file access. ${verdicts} ProtonDB links are community reports, not guarantees.`;
 }
 
-/** What the cover read established, and what it did not. */
-export function steamLibraryCoverNote(games: SteamGame[]): string {
-  if (!games.length) return '';
-  const covered = games.filter((game) => Boolean(game.cover)).length;
-  if (!covered) {
-    return 'Steam has no cached cover art for these titles on this machine, so each shows a letter tile instead. No network request was made.';
-  }
-  return `${covered} of ${games.length} title(s) have Steam’s cached cover art; the rest show a letter tile. Covers come from Steam’s local appcache/librarycache and make no network request.`;
+export type SteamStateFilter = 'all' | 'native' | 'proton' | 'tweaks' | 'blocked' | 'unreviewed';
+
+export interface SteamLibraryEntry {
+  game: SteamGame;
+  /** Resolved once, so the chip, the filter and the disclosure agree. */
+  verdict: CompatVerdict | null;
+}
+
+/** Sort once for reading, then attach the app-id verdict each card shows. The
+ * resolver takes the app id only: a scanned title can never borrow a note. */
+export function steamLibraryEntries(
+  games: SteamGame[],
+  verdictFor: (appId: string) => CompatVerdict | null,
+): SteamLibraryEntry[] {
+  return sortSteamGames(games).map((game) => ({ game, verdict: verdictFor(game.app_id) }));
+}
+
+/** Case- and accent-folded, with punctuation read as a space, so "pokemon"
+ * finds "Pokémon" and "half life" finds "Half-Life". */
+function fold(value: string): string {
+  return value
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim();
+}
+
+/** A title match on the name, or a prefix match on the app id. Local text
+ * only; nothing is sent anywhere to answer it. */
+export function steamLibraryMatches(entry: SteamLibraryEntry, query: string): boolean {
+  const needle = fold(query.trim());
+  if (!needle) return true;
+  return fold(entry.game.name).includes(needle) || entry.game.app_id.startsWith(needle);
+}
+
+/** Search and curated-state filter, preserving the library's order. */
+export function filterSteamLibrary(
+  entries: SteamLibraryEntry[],
+  query: string,
+  state: SteamStateFilter,
+): SteamLibraryEntry[] {
+  return entries.filter((entry) => {
+    if (!steamLibraryMatches(entry, query)) return false;
+    if (state === 'all') return true;
+    if (state === 'unreviewed') return entry.verdict === null;
+    return entry.verdict?.status === state;
+  });
+}
+
+/** How many of the scanned titles the page can actually show something for. */
+export interface SteamLibraryCoverage {
+  total: number;
+  withVerdict: number;
+  covered: number;
+}
+
+export function steamLibraryCoverage(entries: SteamLibraryEntry[]): SteamLibraryCoverage {
+  return {
+    total: entries.length,
+    withVerdict: entries.filter((entry) => entry.verdict !== null).length,
+    covered: entries.filter((entry) => Boolean(entry.game.cover)).length,
+  };
+}
+
+/** A large library would otherwise put every base64 cover in the DOM at once.
+ * The first covers in reading order render; the rest fall back to the letter
+ * tile they already have, and a search or filter brings a cover back in. */
+export const STEAM_COVER_BUDGET = 60;
+
+export interface SteamCoverPlan {
+  entries: SteamLibraryEntry[];
+  budgeted: number;
+  covers: number;
+}
+
+export function steamLibraryCoverPlan(
+  entries: SteamLibraryEntry[],
+  limit: number = STEAM_COVER_BUDGET,
+): SteamCoverPlan {
+  let covers = 0;
+  let budgeted = 0;
+  const planned = entries.map((entry) => {
+    if (!entry.game.cover) return entry;
+    if (covers < limit) {
+      covers += 1;
+      return entry;
+    }
+    budgeted += 1;
+    return { ...entry, game: { ...entry.game, cover: null } };
+  });
+  return { entries: planned, budgeted, covers };
+}
+
+/** One line for the whole library: what the reads cover, how many are on
+ * screen, and what the cover budget left as a letter tile. */
+export function steamLibraryCoverageNote(
+  coverage: SteamLibraryCoverage,
+  shown: number,
+  budgeted: number,
+): string {
+  if (!coverage.total) return '';
+  const counts = `${coverage.total} installed title(s): ${coverage.withVerdict} carry a curated note, ${coverage.covered} have Steam’s cached cover art.`;
+  const filtered = shown === coverage.total ? '' : ` Showing ${shown} under this search and filter.`;
+  const budget = budgeted
+    ? ` ${budgeted} more cover(s) stay a letter tile under the ${STEAM_COVER_BUDGET}-cover budget; search or filter to bring one in.`
+    : '';
+  return `${counts}${filtered}${budget} Covers come from Steam’s local appcache/librarycache; no network request was made.`;
 }

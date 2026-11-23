@@ -264,7 +264,10 @@ class MvpSteamGames(unittest.TestCase):
     def test_steam_library_leads_with_covers_and_one_disclosure(self):
         page = (ROOT / "build/hub/src/pages/RowynPlay.tsx").read_text()
         for needle in ('rowyn-library', 'rowyn-library-cover', 'coverInitials',
-                       'steamStateChip', 'sortSteamGames', '<summary>Launch options</summary>',
+                       'steamStateChip', 'steamLibraryEntries', 'filterSteamLibrary',
+                       'steamLibraryCoverPlan', 'steamLibraryCoverageNote',
+                       'Search installed titles', 'No installed title matches',
+                       '<summary>Launch options</summary>',
                        'letter tile', 'cached cover art'):
             self.assertIn(needle, page)
         # The per-title editor moved into the disclosure; it did not disappear.
@@ -272,15 +275,17 @@ class MvpSteamGames(unittest.TestCase):
                        'Copy launch options', 'ProtonDB community reports'):
             self.assertIn(needle, page)
         model = (ROOT / "build/hub/src/services/rowynSteamLibraryModel.ts").read_text()
-        for needle in ('sortSteamGames', 'coverInitials', 'steamLibraryCoverNote', 'steamStateChip'):
+        for needle in ('sortSteamGames', 'coverInitials', 'steamLibraryCoverageNote',
+                       'steamLibraryEntries', 'filterSteamLibrary', 'steamLibraryCoverPlan',
+                       'STEAM_COVER_BUDGET', 'steamStateChip'):
             self.assertIn(needle, model)
         # One verdict lookup per card: the chip projects the verdict the
         # disclosure already computed instead of resolving it again.
         self.assertNotIn('compatVerdict(', model)
         self.assertIn('steamStateChip(verdict)', page)
         # Verdicts are attributed by app id only. No title map survives in the
-        # model, and the card never passes a title into the lookup.
-        self.assertIn('compatVerdict(item.app_id)', page)
+        # model, and the entries are built from the app id alone.
+        self.assertIn('steamLibraryEntries(steamScan.games, compatVerdict)', page)
         self.assertNotIn('item.app_id, item.name', page)
         verdict_source = (ROOT / "build/hub/src/services/rowynMvpModel.ts").read_text()
         for gone in ('compatByName', 'normalizeTitle'):

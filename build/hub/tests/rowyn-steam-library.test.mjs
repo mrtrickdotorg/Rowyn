@@ -55,18 +55,87 @@ test('a title without cached artwork gets a letter tile, not a blank', () => {
   assert.equal(m.coverInitials('  '), '?');
 });
 
-test('the cover note counts what was read and says it stayed local', () => {
-  const games = [game('620', 'Portal 2', 'data:image/jpeg;base64,AAAA'), game('570', 'Dota 2')];
-  const note = m.steamLibraryCoverNote(games);
-  assert.match(note, /1 of 2 title/);
-  assert.match(note, /letter tile/);
-  assert.match(note, /no network request/i);
+const state = (status) => ({ label: status, note: '', anticheat: '', checked: '2026-05-18', status });
+const entry = (app_id, name, cover = null, verdict = null) => ({ game: game(app_id, name, cover), verdict });
+
+const LIBRARY = [
+  entry('620', 'Portal 2', null, state('native')),
+  entry('999', 'Pokémon Violet', 'data:image/jpeg;base64,AAAA', state('proton')),
+  entry('220', 'Half-Life 2', null, state('tweaks')),
+  entry('570', 'Dota 2', null, null),
+  entry('730', 'Counter-Strike 2', null, state('blocked')),
+];
+
+const names = (entries) => entries.map((item) => item.game.name);
+
+test('entries are sorted once and resolve each verdict from the app id alone', () => {
+  const asked = [];
+  const entries = m.steamLibraryEntries(
+    [game('620', 'portal 2'), game('570', 'Dota 2')],
+    (appId) => { asked.push(appId); return state('proton'); },
+  );
+  assert.deepEqual(names(entries), ['Dota 2', 'portal 2']);
+  assert.deepEqual(asked, ['570', '620']);
+  assert.equal(entries[0].verdict.status, 'proton');
+});
+
+test('search folds case and accents, reads punctuation as spaces, and matches app ids', () => {
+  assert.deepEqual(names(m.filterSteamLibrary(LIBRARY, 'POKÉMON', 'all')), ['Pokémon Violet']);
+  assert.deepEqual(names(m.filterSteamLibrary(LIBRARY, 'pokemon', 'all')), ['Pokémon Violet']);
+  assert.deepEqual(names(m.filterSteamLibrary(LIBRARY, 'half life', 'all')), ['Half-Life 2']);
+  assert.deepEqual(names(m.filterSteamLibrary(LIBRARY, '  portal  ', 'all')), ['Portal 2']);
+  // An app-id prefix is deliberate: 22 is not a title match for 220 only.
+  assert.deepEqual(names(m.filterSteamLibrary(LIBRARY, '22', 'all')), ['Half-Life 2']);
+  assert.deepEqual(names(m.filterSteamLibrary(LIBRARY, '57', 'all')), ['Dota 2']);
+  assert.equal(m.filterSteamLibrary(LIBRARY, '', 'all').length, LIBRARY.length);
+  assert.equal(m.filterSteamLibrary(LIBRARY, 'zzz', 'all').length, 0);
+});
+
+test('the curated-state filter and the search compose', () => {
+  assert.deepEqual(names(m.filterSteamLibrary(LIBRARY, '', 'native')), ['Portal 2']);
+  assert.deepEqual(names(m.filterSteamLibrary(LIBRARY, '', 'proton')), ['Pokémon Violet']);
+  assert.deepEqual(names(m.filterSteamLibrary(LIBRARY, '', 'tweaks')), ['Half-Life 2']);
+  assert.deepEqual(names(m.filterSteamLibrary(LIBRARY, '', 'blocked')), ['Counter-Strike 2']);
+  assert.deepEqual(names(m.filterSteamLibrary(LIBRARY, '', 'unreviewed')), ['Dota 2']);
+  assert.deepEqual(names(m.filterSteamLibrary(LIBRARY, '2', 'unreviewed')), ['Dota 2']);
+  assert.deepEqual(names(m.filterSteamLibrary(LIBRARY, 'portal', 'blocked')), []);
+});
+
+test('coverage counts what the local reads actually produced', () => {
+  assert.deepEqual(m.steamLibraryCoverage(LIBRARY), { total: 5, withVerdict: 4, covered: 1 });
+  assert.deepEqual(m.steamLibraryCoverage([]), { total: 0, withVerdict: 0, covered: 0 });
+});
+
+test('the cover budget caps rendered covers without mutating the scan', () => {
+  const many = Array.from({ length: 65 }, (_, index) => entry(String(index + 1), `Game ${index + 1}`, 'data:image/jpeg;base64,AAAA'));
+  const plan = m.steamLibraryCoverPlan(many);
+  assert.equal(m.STEAM_COVER_BUDGET, 60);
+  assert.equal(plan.entries.length, 65);
+  assert.equal(plan.covers, 60);
+  assert.equal(plan.budgeted, 5);
+  assert.equal(plan.entries.filter((item) => item.game.cover).length, 60);
+  // The scan result keeps every cover; only the plan drops the extras.
+  assert.equal(many.filter((item) => item.game.cover).length, 65);
+  assert.deepEqual(m.steamLibraryCoverPlan(many, 2).entries.map((item) => Boolean(item.game.cover)).slice(0, 3), [true, true, false]);
+  // A filtered list starts its own budget, so a later title's cover comes back.
+  const filtered = m.filterSteamLibrary(many, 'Game 65', 'all');
+  assert.ok(m.steamLibraryCoverPlan(filtered).entries[0].game.cover);
+});
+
+test('the coverage note reports counts, filtering and the budget, and stays local', () => {
+  const coverage = { total: 65, withVerdict: 2, covered: 65 };
+  const note = m.steamLibraryCoverageNote(coverage, 65, 5);
+  assert.match(note, /65 installed title/);
+  assert.match(note, /2 carry a curated note/);
+  assert.match(note, /65 have Steam’s cached cover art/);
+  assert.match(note, /5 more cover\(s\)/);
+  assert.match(note, /60-cover budget/);
+  assert.match(note, /no network request was made/i);
   assert.doesNotMatch(note, /\bfps\b|frame rate|latency/i);
 
-  const none = m.steamLibraryCoverNote([game('570', 'Dota 2')]);
-  assert.match(none, /no cached cover art/i);
-  assert.match(none, /No network request was made/);
-  assert.equal(m.steamLibraryCoverNote([]), '');
+  assert.doesNotMatch(m.steamLibraryCoverageNote(coverage, 65, 0), /budget/);
+  assert.match(m.steamLibraryCoverageNote(coverage, 2, 0), /Showing 2 under this search and filter/);
+  assert.equal(m.steamLibraryCoverageNote({ total: 0, withVerdict: 0, covered: 0 }, 0, 0), '');
 });
 
 const FRESH_NOW = Date.parse('2026-08-01T00:00:00Z');

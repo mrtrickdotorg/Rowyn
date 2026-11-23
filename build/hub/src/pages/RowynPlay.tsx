@@ -9,7 +9,7 @@ import { playSetupSteps, SETUP_MARKERS } from '../services/rowynPlaySetupModel';
 import { formatPlaytime, formatLastPlayed, recentPlayStatus } from '../services/rowynPlayRecentModel';
 import { shaderPreCachingLabel, SHADER_PRE_CACHING_TIP } from '../services/rowynPlayShaderModel';
 import { mangohudConfigLabel, mangohudConfigPath, MANGOHUD_READ_NOTE, MANGOHUD_RECOMMENDED } from '../services/rowynPlayMangohudModel';
-import { coverInitials, sortSteamGames, steamLibraryCoverNote, steamLibraryProvenance, steamStateChip } from '../services/rowynSteamLibraryModel';
+import { coverInitials, steamLibraryEntries, filterSteamLibrary, steamLibraryCoverage, steamLibraryCoverPlan, steamLibraryCoverageNote, steamLibraryProvenance, steamStateChip, type SteamStateFilter } from '../services/rowynSteamLibraryModel';
 import { CONTROLLER_READ_NOTE, controllerAdvice, controllerSummary } from '../services/rowynControllerModel';
 import { HELPER_EXAMPLES, GAMING_HELPERS_NOTE, TUNE_ADMIN_NOTE, TUNE_OFF_NOTE, HOST_ONLY_NOTE, gamingTuneLabel, tuneIsOn } from '../services/rowynPlayHelpersModel';
 import { copyText } from '../services/rowynClipboard';
@@ -44,6 +44,8 @@ export function Play() {
   useSectionFollow(SECTIONS);
   const [scan, setScan] = useState<InstalledFlatpaksResult | null>(null);
   const [steamScan, setSteamScan] = useState<SteamScan | null>(null);
+  const [libraryQuery, setLibraryQuery] = useState('');
+  const [libraryFilter, setLibraryFilter] = useState<SteamStateFilter>('all');
   const [recentPlay, setRecentPlay] = useState<RecentPlay | null>(null);
   const [recentFailed, setRecentFailed] = useState(false);
   const [shaderCache, setShaderCache] = useState<ShaderCacheStatus | null>(null);
@@ -191,6 +193,12 @@ export function Play() {
     recentPlay, recentFailed,
     mangohudConfig, mangohudFailed,
   });
+  // The card list is built once per scan: one app-id verdict lookup per title,
+  // then search, curated-state filter and the cover budget run over it.
+  const libraryEntries = steamScan ? steamLibraryEntries(steamScan.games, compatVerdict) : [];
+  const libraryVisible = filterSteamLibrary(libraryEntries, libraryQuery, libraryFilter);
+  const libraryCoverPlan = steamLibraryCoverPlan(libraryVisible);
+  const libraryCoverage = steamLibraryCoverage(libraryEntries);
   return <div className="page-content rowyn-mvp">
     <section className="glass dashboard-card" id="hub-section-gaming">
       <span className="home-eyebrow">Rowyn Play · MVP</span><h1>Play</h1>
@@ -297,12 +305,16 @@ export function Play() {
       {steamScan && !steamScan.available && <p className="card-copy">Steam was not detected in common locations. No titles are inferred from this result.</p>}
       {steamScan && steamScan.available && !steamScan.games.length && <p className="card-copy">No fully installed titles were detected in the scanned metadata.</p>}
       {profileWarning && <p className="card-copy" role="status">{profileWarning}</p>}
-      {!!steamScan?.games.length && <p className="card-copy" role="status">{steamLibraryCoverNote(steamScan.games)}</p>}
-      {!!steamScan?.games.length && <div className="rowyn-library">{sortSteamGames(steamScan.games).map((item) => {
+      {!!steamScan?.games.length && <p className="card-copy" role="status">{steamLibraryCoverageNote(libraryCoverage, libraryCoverPlan.entries.length, libraryCoverPlan.budgeted)}</p>}
+      {!!steamScan?.games.length && <div className="home-actions">
+        <label>Search installed titles<input value={libraryQuery} maxLength={80} onChange={(event) => setLibraryQuery(event.target.value)} placeholder="Title or Steam App ID" /></label>
+        <label>Show<select value={libraryFilter} onChange={(event) => setLibraryFilter(event.target.value as SteamStateFilter)}><option value="all">All titles</option><option value="native">Native</option><option value="proton">Proton</option><option value="tweaks">Tweaks</option><option value="blocked">Blocked</option><option value="unreviewed">No curated note</option></select></label>
+      </div>}
+      {!!steamScan?.games.length && !libraryVisible.length && <p className="card-copy">No installed title matches this search and filter.</p>}
+      {!!libraryCoverPlan.entries.length && <div className="rowyn-library">{libraryCoverPlan.entries.map(({ game: item, verdict }) => {
         const links = steamCompatibilityLinks(item.app_id);
-        // Attributed by app id only: a scanned title is never used to borrow a
-        // curated note from a same-named remake or re-release.
-        const verdict = compatVerdict(item.app_id);
+        // Attributed once, by app id, when the library was built: a scanned
+        // title is never used to borrow a same-named remake's note.
         const chip = steamStateChip(verdict);
         const profile = profileFor(profiles, item.app_id);
         // gamescope is a host-side wrapper, never a Flatpak layer step: the

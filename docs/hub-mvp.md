@@ -55,7 +55,13 @@ with Steam's own cached cover art from `appcache/librarycache` — the 600×900
 capsule where it exists, else the header or capsule — embedded as a bounded
 data URL (768 KB per file, 8 MB per scan). A title with no cached artwork gets
 a letter tile, and the page states how many titles actually had a cover; no
-artwork is downloaded and no game files are read. Each title shows a one-word
+artwork is downloaded and no game files are read. The list can be searched by
+title (accent- and punctuation-tolerant) or app ID and filtered by curated
+state or "no curated note", all locally. One line reports coverage — installed
+titles, how many carry a curated note, how many have cached art — and only the
+first 60 covers in the current result set are rendered, so a large library does
+not put every base64 cover in the document; the rest keep their letter tile and
+the line says so, and a search or filter gives them their cover back. Each title shows a one-word
 curated state (Native, Proton, Tweaks or Blocked) only when the shipped curated
 entry carries that title's Steam app ID — never by title alone, so a remake,
 demo or re-release cannot borrow a same-named game's note. A title with no
