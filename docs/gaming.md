@@ -164,46 +164,64 @@ native Steam would require host i386 multiarch the image
 deliberately does not carry, and Distrobox remains the advanced
 route for the cases native wins.
 
-## sched_ext schedulers (scx_lavd / scx_bpfland — deferred, spike Nov 2026)
+## sched_ext schedulers (scx_lavd / scx_bpfland — closed, no-go for 26.10)
 
-Bazzite's gaming reputation partly rests on sched_ext CPU
-schedulers. Rowyn spiked shipping `scx_lavd` and `scx_bpfland` and
-is **not** shipping them yet. The findings, in the order they were
-verified:
+Bazzite's gaming reputation partly rests on sched_ext CPU schedulers, so
+Rowyn reviewed the question against the Ubuntu 26.10 base and closed it on
+**2026-11-24 as a no-go for this cycle**: the kernel is ready, the archive
+still is not, and neither bridge across that gap is worth its cost yet.
 
-- **The kernel is ready.** The stock Ubuntu 26.10 kernel
-  (7.3.0-9-generic) ships `CONFIG_SCHED_CLASS_EXT=y`,
-  `CONFIG_BPF_SYSCALL=y` and `CONFIG_DEBUG_INFO_BTF=y` — verified
-  from the `.config` inside the archive's own linux-headers package,
-  not from release notes.
-- **The archive has no userspace.** No `scx*` package exists in the
-  stonking archive (checked against the full universe index), so —
-  unlike every other Rowyn payload component — the schedulers could
-  only arrive as a from-source vendored build.
-- **The build could not be completed from this environment.** The
-  pinned upstream (sched-ext/scx v1.0.15) was cloned and built with
-  clang 18 + libbpf four times; every attempt died in cargo's
-  crates.io index/download phase, with registry transfers stalling
-  at 0 bytes through this network's egress path while single-file
-  fetches succeeded. That is an environment blocker, recorded as
-  such — it is not evidence the source fails to build.
-- **Two structural blockers would remain even with a clean local
-  build.** Rowyn's image build is *offline*: a vendored crate tree
-  and a new build stage would be a mechanism no other payload
-  component needs. And there is no honest CI smoke for a scheduler —
-  a binary-presence check is all CI could assert, below the bar the
-  Vulkan and VA-API stacks meet by actually running (`vulkaninfo`,
-  ICD/driver file assertions). A scheduler is also boot-adjacent: a
-  bad one hangs the machine, so presence-only gating is not enough.
+**Kernel: ready.** The archive's `linux-image-generic` is `7.3.0-9.9`, built
+from Ubuntu's stonking kernel annotations, which set
+`CONFIG_SCHED_CLASS_EXT=y`, `CONFIG_BPF_SYSCALL=y`,
+`CONFIG_DEBUG_INFO_BTF=y` and `CONFIG_BPF_JIT_ALWAYS_ON=y` for amd64, with
+`CONFIG_BPF_UNPRIV_DEFAULT_OFF=y` — so loading a scheduler needs root, which
+is the intent anyway. Upstream's `kernel.config` is its own *development*
+config: where it differs from Ubuntu (`PROVE_LOCKING`, `DEBUG_ATOMIC_SLEEP`,
+`PREEMPT`), the switches it asks for are debug options for scx's selftests,
+not runtime requirements.
 
-What unblocks it, any one of: an Ubuntu archive scx package (the
-clean route — it becomes a payload line like everything else); a
-deliberate vendoring project with checksum pinning **plus**
-on-hardware validation of both schedulers; or upstream scx
-stabilising a release cadence Rowyn can track. If it lands, the
-shape is opt-in — a Hub surface reading the kernel's own
-`/sys/kernel/scx` state, never a default scheduler — and this
-section gets rewritten with the evidence.
+**Archive: still no package.** Checked on 2026-11-24 against the stonking,
+resolute and questing source and `binary-amd64` indexes: the only `scx`
+match is `qt6-scxml`, Qt's state-chart library. Launchpad's
+published-sources lookup returns zero entries for both `scx` and
+`scx-scheds`, and Debian's source index has none either. Upstream
+v1.1.4's own `INSTALL.md` Ubuntu section still says "build from source"
+(clang, llvm, libelf-dev, libbpf-dev, pahole, protobuf-compiler,
+libseccomp-dev, cargo), which is a distribution gap, not a Rowyn choice.
+
+**Upstream: trackable, not consumable.** scx is at v1.1.4 (2026-10-15) with
+roughly six releases in 2026, a mostly two-month cadence and a *stable* Rust
+toolchain — but releases are source-only: no `.deb`, `.rpm` or prebuilt
+binaries, so every bump means a build on Rowyn's side.
+
+**Build blockers.** Rowyn's image build is fully offline (Containerfile;
+build assets are fetched on the host first). The vendoring precedent exists
+— bootc ships as a host-fetched source tree with vendored crates and
+`CARGO_NET_OFFLINE=true` — but scx would add a second vendored tree that
+needs clang/llvm, libbpf and bpftool on top of cargo, a build pin to bump
+every couple of months, and a maintenance surface (BPF programs, kernel
+version coupling) no other payload component has.
+
+**Validation blockers.** CI could assert only that the binaries and units
+exist — below the bar the Vulkan and VA-API stacks meet by actually running.
+A scheduler is also boot-adjacent: a bad load hangs or wedges the machine,
+so presence-only gating is not acceptable. Closing that gap needs
+on-hardware runs of both schedulers on the signed, Secure Boot-enrolled
+image, a recovery path (boot the previous deployment) and a documented
+revert to the kernel default. This environment cannot produce those runs,
+and no frame-rate or latency claim can be made from here.
+
+What unblocks it, any one of: an Ubuntu archive scx package (the clean
+route — a payload line, a presence plus `/sys/kernel/sched_ext/state` smoke,
+and the same on-hardware validation); a deliberate vendoring project with
+checksum pinning **plus** that validation; or upstream publishing distro
+packages it already tracks. If it lands the shape stays opt-in: a Hub
+surface that reads `/sys/kernel/sched_ext/state` and `root/ops` and starts
+one scheduler on request — never a default scheduler, never a bundled
+benchmark. Today no scx surface ships: the port removes upstream's
+`commands::gaming` registrations, including `scx_status`, `scx_available`
+and `scx_set_scheduler`.
 
 ## Xbox controllers over Bluetooth (xpadneo — deferred)
 
