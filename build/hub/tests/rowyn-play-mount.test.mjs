@@ -386,3 +386,28 @@ test('a failed read renders an unknown step instead of claiming readiness', asyn
   assert.doesNotMatch(text, /\d+ setting\(s\) in/);
   mount.unmount();
 });
+
+test('per-game GameMode is offered only where the sandbox client can reach the game', async () => {
+  const mixed = [
+    { app_id: '1245620', name: 'Elden Ring', cover: null, container: true },
+    { app_id: '620', name: 'Portal 2', cover: null, container: false },
+  ];
+  const { mount } = mountWith({
+    rowyn_gamemode_status: {
+      daemon_installed: true, daemon_active: false, daemon_scope: 'user',
+      sandbox_client: true, available: true,
+      detail: 'GameMode activates with this option.',
+    },
+    rowyn_steam_games_scan: { available: true, warnings: 0, games: mixed },
+  });
+  await mount.settle();
+  const scan = byText(mount.tree, 'Scan Steam games', 'button');
+  await scan.props.onClick();
+  await mount.settle();
+  const text = textOf(mount.tree);
+  // The native title gets the checkbox; the Proton title gets the reason.
+  assert.match(text, /GameMode \(gamemoderun %command%\): audio and power-profile hooks apply/);
+  assert.match(text, /No per-game GameMode here: Steam starts this title through Proton/);
+  assert.match(text, /cannot load the client at all/);
+  mount.unmount();
+});

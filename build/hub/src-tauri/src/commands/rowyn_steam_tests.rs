@@ -577,3 +577,76 @@ fn apply_fails_closed_on_unrecognized_shapes() {
     // Not VDF.
     assert!(apply_default_compat_mapping("hello world").is_err());
 }
+
+fn config_with_mapping(entries: &[(u32, &str)]) -> String {
+    let mut body = String::from(
+        "\"InstallConfigStore\"\n{\n\t\"Software\"\n\t{\n\t\t\"Valve\"\n\t\t{\n\t\t\t\"Steam\"\n\t\t\t{\n\t\t\t\t\"CompatToolMapping\"\n\t\t\t\t{\n",
+    );
+    for (app_id, tool) in entries {
+        body.push_str(&format!(
+            "\t\t\t\t\t\"{app_id}\"\n\t\t\t\t\t{{\n\t\t\t\t\t\t\"name\"\t\t\"{tool}\"\n\t\t\t\t\t}}\n"
+        ));
+    }
+    body.push_str("\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n}\n");
+    body
+}
+
+#[test]
+fn a_titles_compat_tool_comes_from_its_entry_then_the_global_default() {
+    let config = config_with_mapping(&[(1245620, "proton_9_0"), (0, "proton_experimental")]);
+    assert_eq!(compat_tool_for(&config, "1245620").as_deref(), Some("proton_9_0"));
+    // No entry of its own: the "0" default decides, so a title switched to
+    // Proton by "Enable Steam Play for all titles" is still a container run.
+    assert_eq!(compat_tool_for(&config, "620").as_deref(), Some("proton_experimental"));
+    assert_eq!(compat_tool_for(&config_with_mapping(&[]), "620"), None);
+}
+
+#[test]
+fn container_tools_are_proton_and_the_steam_linux_runtime() {
+    for tool in [
+        "proton_9_0",
+        "proton_experimental",
+        "Proton-GE",
+        "steamlinuxruntime_sniper",
+        "Steam Linux Runtime 3.0 (sniper)",
+    ] {
+        assert!(launches_in_container(tool), "{tool}");
+    }
+    // A native title has no mapping at all, and a blank name decides nothing.
+    assert!(!launches_in_container(""));
+    assert!(!launches_in_container("native"));
+}
+
+#[test]
+fn a_proton_title_is_flagged_as_a_container_launch_in_the_scan() {
+    let temporary = tempfile::tempdir().unwrap();
+    let home = temporary.path();
+    let steam = home.join(".local/share/Steam");
+    fs::create_dir_all(steam.join("steamapps")).unwrap();
+    fs::create_dir_all(steam.join("config")).unwrap();
+    write_game(&steam, 620, "Portal 2", 4);
+    write_game(&steam, 1245620, "Elden Ring", 4);
+    fs::write(
+        steam.join("config/config.vdf"),
+        config_with_mapping(&[(1245620, "proton_9_0")]),
+    )
+    .unwrap();
+    let scan = scan_steam_libraries(home, false);
+    let flags: Vec<(&str, bool)> = scan
+        .games
+        .iter()
+        .map(|game| (game.app_id.as_str(), game.container))
+        .collect();
+    // Sorted by app id, and only the Proton title is a container launch.
+    assert_eq!(flags, vec![("1245620", true), ("620", false)]);
+    assert!(serde_json::to_string(&scan).unwrap().contains("\"container\":true"));
+
+    // The global default applies to every title without its own entry.
+    fs::write(
+        steam.join("config/config.vdf"),
+        config_with_mapping(&[(0, "proton_experimental")]),
+    )
+    .unwrap();
+    let shifted = scan_steam_libraries(home, false);
+    assert!(shifted.games.iter().all(|game| game.container));
+}

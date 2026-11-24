@@ -46,6 +46,11 @@ pub(crate) struct SteamGame {
     name: String,
     /// A data URL of Steam's own cached cover art, when this machine has it.
     cover: Option<String>,
+    /// Steam plays this title inside a Proton or Steam Linux Runtime container
+    /// (its own CompatToolMapping entry, else the "0" default). That container
+    /// has its own /usr and no GameMode client library, so a preload cannot
+    /// register the game.
+    container: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -356,6 +361,7 @@ fn parse_manifest(path: &Path, expected_id: &str, warnings: &mut usize) -> Optio
         app_id: app_id.to_string(),
         name: name.to_string(),
         cover: None,
+        container: false,
     })
 }
 
@@ -409,6 +415,17 @@ fn scan_steam_libraries(home: &Path, with_covers: bool) -> SteamScan {
             }
         }
     }
+    // Steam's own answer to "does this title run in a container": the global
+    // CompatToolMapping in config.vdf, per app with the "0" default behind it.
+    // Read once per scan and bounded like the other config reads.
+    let compat_tokens = roots.iter().find_map(|root| {
+        let path = root.join("config/config.vdf");
+        if fs::metadata(&path).ok()?.len() > MAX_LOCAL_CONFIG_BYTES {
+            return None;
+        }
+        let source = fs::read_to_string(&path).ok()?;
+        tokenize_spans(&source).ok()
+    });
     let mut games = BTreeMap::new();
     let mut examined = 0;
     for library in libraries {
@@ -460,6 +477,12 @@ fn scan_steam_libraries(home: &Path, with_covers: bool) -> SteamScan {
         }
     }
     let mut games: Vec<SteamGame> = games.into_values().collect();
+    if let Some(tokens) = &compat_tokens {
+        for game in &mut games {
+            game.container = compat_tool_in(tokens, &game.app_id)
+                .is_some_and(|tool| launches_in_container(&tool));
+        }
+    }
     // Covers are the one part of the scan that reads image bytes; they are
     // attached under a per-file and per-scan budget, and only for the explicit
     // library scan — the recent-play read asks for names alone.
@@ -1227,6 +1250,41 @@ fn compat_default_tool(input: &str) -> Option<String> {
     let (_, map_open, map_close) = child_block(&tokens, open + 1, close, "CompatToolMapping")?;
     let (_, zero_open, zero_close) = child_block(&tokens, map_open + 1, map_close, "0")?;
     child_scalar(&tokens, zero_open + 1, zero_close, "name").map(str::to_string)
+}
+
+/// The compat tool Steam will use for one title: its own CompatToolMapping
+/// entry, else the global ("0") default. `None` when Steam records neither,
+/// which is the native-Linux case.
+fn compat_tool_in(tokens: &[SpanToken], app_id: &str) -> Option<String> {
+    let (_, open, close) = steam_block(tokens)?;
+    let (_, map_open, map_close) = child_block(tokens, open + 1, close, "CompatToolMapping")?;
+    for id in [app_id, "0"] {
+        let Some((_, entry_open, entry_close)) = child_block(tokens, map_open + 1, map_close, id)
+        else {
+            continue;
+        };
+        if let Some(name) = child_scalar(tokens, entry_open + 1, entry_close, "name") {
+            return Some(name.to_string());
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+fn compat_tool_for(input: &str, app_id: &str) -> Option<String> {
+    let tokens = tokenize_spans(input).ok()?;
+    compat_tool_in(&tokens, app_id)
+}
+
+/// Proton and the Steam Linux Runtime both start the game inside a
+/// pressure-vessel container with its own /usr. GameMode's client library is
+/// not there and the container refuses host /usr shares, so the preloaded
+/// client cannot register the game (ValveSoftware/steam-runtime#814).
+fn launches_in_container(tool: &str) -> bool {
+    let tool = tool.to_ascii_lowercase();
+    tool.contains("proton")
+        || tool.contains("steamlinuxruntime")
+        || tool.contains("steam linux runtime")
 }
 
 fn line_indent(input: &str, byte: usize) -> String {

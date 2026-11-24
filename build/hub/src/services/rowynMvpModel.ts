@@ -37,7 +37,14 @@ export function readingStateLabel(state: string): string {
     default: return `unknown state (${state || 'not reported'})`;
   }
 }
-export interface SteamGame { app_id: string; name: string; cover: string | null }
+export interface SteamGame {
+  app_id: string;
+  name: string;
+  cover: string | null;
+  /** Steam plays this title inside a Proton/Steam Linux Runtime container,
+   * whose own /usr has no GameMode client library. */
+  container?: boolean;
+}
 export interface SteamScan { available: boolean; warnings: number; games: SteamGame[] }
 
 /**

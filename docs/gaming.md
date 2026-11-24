@@ -119,32 +119,45 @@ for one depends on the client inside Steam's sandbox:
 `gamemoderun %command%` runs `/usr`- and `/app`-side, and the host's
 `/usr/games/gamemoderun` is not reachable from there.
 
-That client is now there. The `org.freedesktop.Platform` runtime Steam uses
-ships `gamemoderun` and `libgamemodeauto.so.0` in its own files, which mount
-at `/usr` inside the sandbox — verified on the deployed Flathub build (Steam
-1.0.0.87, runtime 26.08, checked 2026-11-24; the app's own files ship
-neither). The Play page reads the runtime the app's metadata declares and
-looks in both that deployment and the app's files, so the per-game GameMode
-option is offered when the client is present and the host has `gamemoded`;
-when one of the two is missing the page names which, instead of handing the
-player a launch option that would fail as an unknown command. Nothing is
-assumed: a build or runtime without the client keeps the option hidden.
+That client is in the sandbox — the `org.freedesktop.Platform` runtime Steam
+uses ships `gamemoderun` and `libgamemodeauto.so.0` in its own files, which
+mount at `/usr` (verified on the deployed Flathub build: Steam 1.0.0.87,
+runtime 26.08, checked 2026-11-24; the app's own files ship neither). But a
+sandbox client is not enough for every title. Steam starts Windows titles
+through Proton or the Steam Linux Runtime, and those run in a pressure-vessel
+container with its own `/usr`. pressure-vessel captures the `LD_PRELOAD`
+entry, and the client it loads then `dlopen`s `libgamemode.so.0`, which that
+container does not carry and cannot take from the host (`/usr` is reserved by
+the container framework) — so the game never registers and GameMode is never
+asked to start (ValveSoftware/steam-runtime#814, mirrored as
+ValveSoftware/Proton#9645). The host's `/usr/games/gamemoderun` is likewise
+unreachable from the sandbox.
 
-The option states its limits. GameMode's per-process registration does not
-cross the Flatpak PID namespace (`gamemoded -s <pid>` reports the game as
-active but not registered), so `renice` and CPU pinning do not reach the
-game, and MangoHud's GameMode chip reads off for the same reason. The
-daemon-side hooks do apply: the session drops to the short audio quantum and
-the power profile moves to `performance` while GameMode is active. The daemon
-is D-Bus-activated, so an installed-but-inactive `gamemoded` is normal and is
-not reported as broken.
+Detection follows deployments, not version strings. The Play page reads the
+runtime the app's metadata declares and checks it and the app's files for the
+client, and it reads Steam's own `CompatToolMapping` (the title's entry, else
+the `"0"` default) to know whether a title runs in a container. The per-game
+GameMode option is offered only when the sandbox client exists, the host has
+`gamemoded`, and the title is not a container launch; a Proton or
+Steam-Linux-Runtime title is told why and pointed at launcher-wide GameMode.
+Nothing is assumed: a build, runtime or title whose pieces are missing keeps
+the option hidden.
 
-**Start launchers under GameMode** remains for the other case: the Play page
-starts `flatpak run …` through `/usr/games/gamemoderun` on the host, so
-GameMode covers the whole launcher session. It is opt-in and per session for
-a reason — the power profile and raised clocks last until the launcher exits,
-including time spent in the store or the friends list — so the per-game
-option is the narrower choice when a title runs under Proton.
+For the titles that do get it, the option states its limits. GameMode's
+per-process registration does not cross the Flatpak PID namespace
+(`gamemoded -s <pid>` reports the game as active but not registered), so
+`renice` and CPU pinning do not reach the game, and MangoHud's GameMode chip
+reads off for the same reason. The daemon-side hooks do apply: the session
+drops to the short audio quantum and the power profile moves to `performance`
+while GameMode is active. The daemon is D-Bus-activated, so an
+installed-but-inactive `gamemoded` is normal and is not reported as broken.
+
+**Start launchers under GameMode** is the route for container titles: the
+Play page starts `flatpak run …` through `/usr/games/gamemoderun` on the
+host, so GameMode covers the whole launcher session and the game inherits
+none of it. It is opt-in and per session for a reason — the power profile and
+raised clocks last until the launcher exits, including time spent in the
+store or the friends list.
 
 gamescope's per-game option is host-only, and honest about it: it
 prefixes a native command with the `gamescope` binary, so the Play page

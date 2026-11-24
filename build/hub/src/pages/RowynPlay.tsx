@@ -320,13 +320,16 @@ export function Play() {
         // gamescope is a host-side wrapper, never a Flatpak layer step: the
         // option is offered only on the host boundary, and only when this
         // session resolves the binary. GameMode is the mirror image: the client
-        // has to exist inside Steam's sandbox. Either saved flag is masked
-        // rather than emitted as a command that would fail at launch.
+        // has to exist inside Steam's sandbox, and a Proton/runtime title runs
+        // in a further container that cannot load it, so the option is gated
+        // per title from Steam's own compat mapping. Either saved flag is
+        // masked rather than emitted as a command that would fail at launch.
         const gamescopeUsable = boundary === 'host' && gamescope?.available === true;
+        const containerLaunch = item.container === true;
         const profileForAssembly = {
           ...profile,
           gamescope: gamescopeUsable ? profile.gamescope : false,
-          gamemode: gamemodeUsable ? profile.gamemode : false,
+          gamemode: gamemodeUsable && !containerLaunch ? profile.gamemode : false,
         };
         const assembled = assembleProfileOptions(boundary, profileForAssembly);
         return <article className="rowyn-library-card" key={item.app_id}>
@@ -344,7 +347,8 @@ export function Play() {
           <p className="card-copy">Remembered per title on this machine and rebuilt below using the boundary chosen in Compatibility (currently: {boundary === 'flatpak' ? 'Flatpak Steam' : 'host-native'}). Paste the result into Steam → Properties → Launch Options for this game; the builder above remains the unsaved default profile.</p>
           <label><input type="checkbox" checked={profile.mangohud} onChange={(event) => updateProfile(item.app_id, { mangohud: event.target.checked })} /> MangoHud overlay</label>
           <label><input type="checkbox" checked={profile.vkbasalt} onChange={(event) => updateProfile(item.app_id, { vkbasalt: event.target.checked })} /> vkBasalt post-processing</label>
-          {boundary === 'flatpak' && gamemodeUsable && <label><input type="checkbox" checked={profile.gamemode} onChange={(event) => updateProfile(item.app_id, { gamemode: event.target.checked })} /> GameMode (gamemoderun %command%): audio and power-profile hooks apply; renice and CPU pinning cannot inside the sandbox</label>}
+          {boundary === 'flatpak' && gamemodeUsable && !containerLaunch && <label><input type="checkbox" checked={profile.gamemode} onChange={(event) => updateProfile(item.app_id, { gamemode: event.target.checked })} /> GameMode (gamemoderun %command%): audio and power-profile hooks apply; renice and CPU pinning cannot inside the sandbox</label>}
+          {boundary === 'flatpak' && gamemodeUsable && containerLaunch && <p className="card-copy">No per-game GameMode here: Steam starts this title through Proton or the Steam Linux Runtime, and that container has no GameMode client library, so the game cannot register. Start the launcher under GameMode for the session instead.</p>}
           {boundary === 'flatpak' && !gamemodeUsable && <p className="card-copy">{gamemodeFailed ? 'GameMode availability could not be read, so the option is not offered.' : gamemodeStatus ? gamemodeStatus.detail : 'Checking for GameMode…'}</p>}
           {gamescopeUsable && <label><input type="checkbox" checked={profile.gamescope} onChange={(event) => updateProfile(item.app_id, { gamescope: event.target.checked })} /> gamescope (host: wraps this command in the gamescope compositor)</label>}
           {boundary === 'host' && !gamescopeUsable && <p className="card-copy">{gamescopeFailed ? 'gamescope availability could not be read, so the option is not offered.' : gamescope ? gamescope.detail : 'Checking for gamescope…'}</p>}
@@ -369,7 +373,7 @@ export function Play() {
       <label>Game label (local only; never executed)<input value={game} maxLength={80} onChange={(event) => setGame(event.target.value)} placeholder="Your game" /></label>
       <label>Where does this game run?<select value={boundary} onChange={(event) => setBoundary(event.target.value as 'flatpak' | 'host')}><option value="flatpak">Flatpak Steam / sandboxed launcher</option><option value="host">Host-native Steam / host command</option></select></label>
       <label><input type="checkbox" checked={gaming} disabled={boundary === 'flatpak'} onChange={(event) => setGaming(event.target.checked)} /> Use Rowyn gaming slice / GameMode when available</label>
-      {boundary === 'flatpak' && gamemodeUsable && <label><input type="checkbox" checked={gameMode} onChange={(event) => setGameMode(event.target.checked)} /> GameMode (gamemoderun %command%): Rowyn&apos;s low-latency audio and performance power profile apply; renice and CPU pinning cannot inside the sandbox</label>}
+      {boundary === 'flatpak' && gamemodeUsable && <label><input type="checkbox" checked={gameMode} onChange={(event) => setGameMode(event.target.checked)} /> GameMode (gamemoderun %command%): Rowyn&apos;s low-latency audio and performance power profile apply; renice and CPU pinning cannot inside the sandbox, and Proton/Steam Linux Runtime titles run in a container that cannot load the client at all</label>}
       {boundary === 'flatpak' && !gamemodeUsable && <p className="card-copy">{gamemodeFailed ? 'GameMode availability could not be read, so the option is not offered.' : gamemodeStatus ? gamemodeStatus.detail : 'Checking for GameMode…'}</p>}
       <label><input type="checkbox" checked={mimalloc} disabled={boundary === 'flatpak'} onChange={(event) => setMimalloc(event.target.checked)} /> Try mimalloc for this game only (experimental; may regress or warn on 32-bit games)</label>
       <label><input type="checkbox" checked={mangohud} onChange={(event) => setMangohud(event.target.checked)} /> MangoHud overlay (frame rate and frame-time readout; needs the MangoHud Vulkan layer below)</label>
