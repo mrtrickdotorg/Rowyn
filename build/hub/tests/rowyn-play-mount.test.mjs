@@ -205,7 +205,7 @@ function bridge(overrides = {}) {
     rowyn_gamescope_status: { available: true, detail: 'gamescope is available to this session.' },
     rowyn_gamemode_status: {
       daemon_installed: true, daemon_active: false, daemon_scope: 'user',
-      sandbox_client: false, available: false, detail: 'The sandbox Steam client has no gamemoderun.',
+      sandbox_client: false, available: false, detail: 'Neither this Steam Flatpak nor the runtime it uses ships gamemoderun.',
     },
     rowyn_steam_play_status: {
       steam_present: true, steam_running: false, mapping_present: true,

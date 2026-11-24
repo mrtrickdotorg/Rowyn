@@ -114,31 +114,37 @@ with `on` or `off`.
 
 GameMode is installed in the image, and `/etc/gamemode.ini` hooks Rowyn's
 low-latency PipeWire quantum (256 samples) and the `performance` power
-profile onto every GameMode session. Whether a *sandboxed* Steam game can
-ask for one depends on the client inside Steam's own Flatpak:
-`gamemoderun %command%` runs `/app`-side, and the host's
-`/usr/games/gamemoderun` is not reachable from there. The Play page reads
-the deployed Steam app files and offers the per-game GameMode option only
-when that build actually ships `gamemoderun`. The current Flathub build
-does not, and the page says so rather than handing the player a launch
-option that would fail as an unknown command.
+profile onto every GameMode session. Whether a *sandboxed* Steam game can ask
+for one depends on the client inside Steam's sandbox:
+`gamemoderun %command%` runs `/usr`- and `/app`-side, and the host's
+`/usr/games/gamemoderun` is not reachable from there.
 
-Where the option is offered, the limits are stated with it. GameMode's
-per-process registration does not cross the Flatpak PID namespace
-(`gamemoded -s <pid>` reports the game as active but not registered), so
-`renice` and CPU pinning do not reach the game, and MangoHud's GameMode
-chip reads off for the same reason. The daemon-side hooks do apply: the
-session drops to the short audio quantum and the power profile moves to
-`performance` while GameMode is active. The daemon is D-Bus-activated, so
-an installed-but-inactive `gamemoded` is normal and is not reported as
-broken.
+That client is now there. The `org.freedesktop.Platform` runtime Steam uses
+ships `gamemoderun` and `libgamemodeauto.so.0` in its own files, which mount
+at `/usr` inside the sandbox — verified on the deployed Flathub build (Steam
+1.0.0.87, runtime 26.08, checked 2026-11-24; the app's own files ship
+neither). The Play page reads the runtime the app's metadata declares and
+looks in both that deployment and the app's files, so the per-game GameMode
+option is offered when the client is present and the host has `gamemoded`;
+when one of the two is missing the page names which, instead of handing the
+player a launch option that would fail as an unknown command. Nothing is
+assumed: a build or runtime without the client keeps the option hidden.
 
-The route that works with today's Steam build covers the launcher instead:
-**Start launchers under GameMode** on the Play page starts
-`flatpak run …` through `/usr/games/gamemoderun`, so GameMode is active for
-as long as the launcher is. It is opt-in and per session for a reason —
-the power profile and raised clocks last until the launcher exits,
-including time spent in the store or the friends list.
+The option states its limits. GameMode's per-process registration does not
+cross the Flatpak PID namespace (`gamemoded -s <pid>` reports the game as
+active but not registered), so `renice` and CPU pinning do not reach the
+game, and MangoHud's GameMode chip reads off for the same reason. The
+daemon-side hooks do apply: the session drops to the short audio quantum and
+the power profile moves to `performance` while GameMode is active. The daemon
+is D-Bus-activated, so an installed-but-inactive `gamemoded` is normal and is
+not reported as broken.
+
+**Start launchers under GameMode** remains for the other case: the Play page
+starts `flatpak run …` through `/usr/games/gamemoderun` on the host, so
+GameMode covers the whole launcher session. It is opt-in and per session for
+a reason — the power profile and raised clocks last until the launcher exits,
+including time spent in the store or the friends list — so the per-game
+option is the narrower choice when a title runs under Proton.
 
 gamescope's per-game option is host-only, and honest about it: it
 prefixes a native command with the `gamescope` binary, so the Play page

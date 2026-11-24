@@ -85,16 +85,53 @@ fn unit_state_needs_both_load_and_active_fields() {
 }
 
 #[test]
-fn the_sandbox_client_is_read_from_the_deployed_app_files() {
+fn the_sandbox_client_is_read_from_the_app_or_the_runtime_it_declares() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("flatpak");
     let id = "com.valvesoftware.Steam";
+    let app = root.join("app").join(id).join("x86_64/stable");
+    let runtime = root.join("runtime/org.freedesktop.Platform/x86_64/26.08");
     assert!(!flatpak_gamemoderun_in(&[root.clone()], id));
-    let bin = root.join("app").join(id).join("current/active/files/bin");
-    std::fs::create_dir_all(&bin).unwrap();
-    std::fs::write(bin.join("gamemoderun"), b"#!/bin/sh\n").unwrap();
-    assert!(flatpak_gamemoderun_in(&[root], id));
-    // A directory of that name is not an executable.
+
+    // The deployed app, declaring the runtime the sandbox will mount.
+    let app_commit = app.join("e02cefb");
+    std::fs::create_dir_all(app_commit.join("files/bin")).unwrap();
+    std::fs::write(
+        app_commit.join("metadata"),
+        "app-id=com.valvesoftware.Steam\nruntime=org.freedesktop.Platform/x86_64/26.08\n",
+    )
+    .unwrap();
+    std::os::unix::fs::symlink("e02cefb", app.join("active")).unwrap();
+    assert!(!flatpak_gamemoderun_in(&[root.clone()], id));
+
+    // A client in a runtime the app does not declare is not the sandbox's.
+    let other = root.join("runtime/org.freedesktop.Platform/x86_64/25.08");
+    std::fs::create_dir_all(other.join("df26daa/files/bin")).unwrap();
+    std::fs::write(other.join("df26daa/files/bin/gamemoderun"), b"#!/bin/bash\n").unwrap();
+    std::os::unix::fs::symlink("df26daa", other.join("active")).unwrap();
+    assert!(!flatpak_gamemoderun_in(&[root.clone()], id));
+
+    // freedesktop-sdk 26.08 ships it there; the app's own files do not.
+    std::fs::create_dir_all(runtime.join("df26dab/files/bin")).unwrap();
+    std::fs::write(runtime.join("df26dab/files/bin/gamemoderun"), b"#!/bin/bash\n").unwrap();
+    std::os::unix::fs::symlink("df26dab", runtime.join("active")).unwrap();
+    assert!(flatpak_gamemoderun_in(&[root.clone()], id));
+
+    // An empty runtime deployment leaves the option off.
+    std::fs::remove_file(runtime.join("df26dab/files/bin/gamemoderun")).unwrap();
+    assert!(!flatpak_gamemoderun_in(&[root.clone()], id));
+
+    // A build that bundles the client in the app keeps working, and the older
+    // `current/active` nesting is still read.
+    let bundled = temp
+        .path()
+        .join("bundled/flatpak/app")
+        .join(id)
+        .join("x86_64/stable/current/active/files/bin");
+    std::fs::create_dir_all(&bundled).unwrap();
+    std::fs::write(bundled.join("gamemoderun"), b"#!/bin/sh\n").unwrap();
+    assert!(flatpak_gamemoderun_in(&[temp.path().join("bundled/flatpak")], id));
+    // Another installation root is not consulted.
     assert!(!flatpak_gamemoderun_in(&[temp.path().join("elsewhere")], id));
 }
 
@@ -107,7 +144,7 @@ fn gamemode_status_promises_only_what_both_pieces_support() {
     assert!(ready.detail.contains("Per-process registration fails"));
     let no_client = gamemode_status(installed.clone(), false);
     assert!(!no_client.available);
-    assert!(no_client.detail.contains("ships no gamemoderun"));
+    assert!(no_client.detail.contains("nor the runtime it uses ships gamemoderun"));
     let no_daemon = gamemode_status(absent, true);
     assert!(!no_daemon.available);
     assert!(no_daemon.detail.contains("nothing to activate"));

@@ -295,9 +295,11 @@ pub(crate) async fn rowyn_vulkan_layer_install(layer: String) -> Result<VulkanLa
 // Rowyn's GameMode hooks (low-latency PipeWire, the performance power profile)
 // only run when something asks gamemoded to start. The per-game launch option
 // for a sandboxed game is `gamemoderun %command%`, which needs the client
-// inside Steam's own sandbox, and the daemon on the host. Both are read here:
-// the Flathub Steam build ships no gamemoderun, so the option is offered only
-// when the deployed app files actually contain it. Nothing is assumed.
+// inside Steam's own sandbox, and the daemon on the host. Both are read here.
+// The client can come from the app's own files or from the runtime the app
+// declares (freedesktop-sdk 26.08 ships gamemoderun, mounted at /usr in the
+// sandbox), so the option is offered only when a deployed file proves it
+// exists. Nothing is assumed.
 
 const GAMEMODERUN: &str = "/usr/games/gamemoderun";
 
@@ -369,14 +371,68 @@ fn systemctl_show(scope: &str) -> Option<(String, String)> {
     unit_state(&String::from_utf8_lossy(&output.stdout))
 }
 
-/// The deployed app's `current/active` symlinks point at the current commit, so
-/// no commit hash is guessed. A missing client is a fact about this Steam
-/// build, not an error.
+/// A deployed ref keeps `active` as a symlink to its current commit; some
+/// flatpak versions nest that under `current/`. Whichever exists is the
+/// deployment in use, so no commit hash is guessed.
+fn flatpak_deployment(branch_dir: &Path) -> Option<PathBuf> {
+    [branch_dir.join("active"), branch_dir.join("current/active")]
+        .into_iter()
+        .find(|path| path.is_dir())
+}
+
+/// Every deployed arch/branch of one ref under a flatpak installation root.
+fn flatpak_deployments(root: &Path, kind: &str, id: &str) -> Vec<PathBuf> {
+    let mut deployments = Vec::new();
+    let Ok(arches) = std::fs::read_dir(root.join(kind).join(id)) else {
+        return deployments;
+    };
+    for arch in arches.flatten() {
+        let Ok(branches) = std::fs::read_dir(arch.path()) else {
+            continue;
+        };
+        for branch in branches.flatten() {
+            if let Some(deployment) = flatpak_deployment(&branch.path()) {
+                deployments.push(deployment);
+            }
+        }
+    }
+    deployments
+}
+
+/// `runtime=ID/ARCH/BRANCH` from the app's own metadata, so the runtime the
+/// sandbox will actually mount is read rather than guessed.
+fn flatpak_app_runtime(deployment: &Path) -> Option<(String, String, String)> {
+    let metadata = std::fs::read_to_string(deployment.join("metadata")).ok()?;
+    let runtime = metadata
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("runtime="))?;
+    let mut parts = runtime.trim().split('/');
+    Some((
+        parts.next()?.to_string(),
+        parts.next()?.to_string(),
+        parts.next()?.to_string(),
+    ))
+}
+
+/// `gamemoderun %command%` runs inside Steam's sandbox, so the client has to be
+/// in the sandbox's `/usr` or `/app`: the app's own files, or the runtime the
+/// app declares, which mounts at `/usr`. A missing client is a fact about this
+/// Steam build, not an error.
 fn flatpak_gamemoderun_in(roots: &[PathBuf], app_id: &str) -> bool {
-    let relative = Path::new("current/active/files/bin/gamemoderun");
-    roots
-        .iter()
-        .any(|root| root.join("app").join(app_id).join(relative).is_file())
+    roots.iter().any(|root| {
+        flatpak_deployments(root, "app", app_id)
+            .into_iter()
+            .any(|deployment| {
+                if deployment.join("files/bin/gamemoderun").is_file() {
+                    return true;
+                }
+                let Some((id, arch, branch)) = flatpak_app_runtime(&deployment) else {
+                    return false;
+                };
+                flatpak_deployment(&root.join("runtime").join(id).join(arch).join(branch))
+                    .is_some_and(|runtime| runtime.join("files/bin/gamemoderun").is_file())
+            })
+    })
 }
 
 fn flatpak_app_roots(home: &Path) -> Vec<PathBuf> {
@@ -398,7 +454,7 @@ pub(crate) struct GamemodeStatus {
 
 fn gamemode_status(daemon: DaemonState, sandbox_client: bool) -> GamemodeStatus {
     let detail = if !sandbox_client {
-        "This Steam Flatpak ships no gamemoderun, so `gamemoderun %command%` would fail as an unknown command. Rowyn's GameMode hooks can still cover a whole launcher session: start the launcher under GameMode instead."
+        "Neither this Steam Flatpak nor the runtime it uses ships gamemoderun, so `gamemoderun %command%` would fail as an unknown command. Rowyn's GameMode hooks can still cover a whole launcher session: start the launcher under GameMode instead."
     } else if !daemon.installed {
         "gamemoderun is present in Steam's sandbox, but gamemoded is not installed, so there is nothing to activate. Install the gamemode daemon."
     } else {
