@@ -119,19 +119,26 @@ for one depends on the client inside Steam's sandbox:
 `gamemoderun %command%` runs `/usr`- and `/app`-side, and the host's
 `/usr/games/gamemoderun` is not reachable from there.
 
-That client is in the sandbox — the `org.freedesktop.Platform` runtime Steam
-uses ships `gamemoderun` and `libgamemodeauto.so.0` in its own files, which
-mount at `/usr` (verified on the deployed Flathub build: Steam 1.0.0.87,
-runtime 26.08, checked 2026-11-24; the app's own files ship neither). But a
-sandbox client is not enough for every title. Steam starts Windows titles
-through Proton or the Steam Linux Runtime, and those run in a pressure-vessel
-container with its own `/usr`. pressure-vessel captures the `LD_PRELOAD`
-entry, and the client it loads then `dlopen`s `libgamemode.so.0`, which that
-container does not carry and cannot take from the host (`/usr` is reserved by
-the container framework) — so the game never registers and GameMode is never
-asked to start (ValveSoftware/steam-runtime#814, mirrored as
-ValveSoftware/Proton#9645). The host's `/usr/games/gamemoderun` is likewise
-unreachable from the sandbox.
+What is verified is the client's presence, by reading the deployment: the
+`org.freedesktop.Platform` runtime Steam uses (26.08) ships `gamemoderun` and
+its `libgamemode*` libraries in its own files, which mount at `/usr` inside
+the sandbox — Steam 1.0.0.87 on the pinned Flathub build, checked 2026-11-24;
+the app's own files ship neither. **That is the whole of the verification. No
+game has been launched under `gamemoderun %command%` on the Rowyn image yet,
+so activation, the `gamemode.ini` hooks and their effect are untested rather
+than established**, and the page's copy says exactly that.
+
+A sandbox client is not enough for every title, which is separately clear
+from the loader path. Steam starts Windows titles through Proton or the Steam
+Linux Runtime, and those run in a pressure-vessel container with its own
+`/usr`. pressure-vessel captures the `LD_PRELOAD` entry, but the client it
+loads then `dlopen`s `libgamemode.so.0`, which the installed Steam runtime
+tree does not carry and which pressure-vessel will not take from the host
+(`/usr` is reserved by the container framework). That is the failure upstream
+reports as ValveSoftware/steam-runtime#814 (mirrored as
+ValveSoftware/Proton#9645), and the reason the Play page gates the option for
+those titles instead of offering it. The host's `/usr/games/gamemoderun` is
+likewise unreachable from the sandbox.
 
 Detection follows deployments, not version strings. The Play page reads the
 runtime the app's metadata declares and checks it and the app's files for the
@@ -143,21 +150,23 @@ Steam-Linux-Runtime title is told why and pointed at launcher-wide GameMode.
 Nothing is assumed: a build, runtime or title whose pieces are missing keeps
 the option hidden.
 
-For the titles that do get it, the option states its limits. GameMode's
-per-process registration does not cross the Flatpak PID namespace
-(`gamemoded -s <pid>` reports the game as active but not registered), so
-`renice` and CPU pinning do not reach the game, and MangoHud's GameMode chip
-reads off for the same reason. The daemon-side hooks do apply: the session
-drops to the short audio quantum and the power profile moves to `performance`
-while GameMode is active. The daemon is D-Bus-activated, so an
-installed-but-inactive `gamemoded` is normal and is not reported as broken.
+For the titles that do get it, the option says what it can and cannot claim.
+GameMode's per-process registration is not expected to cross the Flatpak PID
+namespace, so `gamemoded -s <pid>` would not list the game and `renice`/CPU
+pinning would not reach it, with MangoHud's GameMode chip reading off for the
+same reason — none of which has been observed on the image either. The
+`/etc/gamemode.ini` hooks (the 256-sample PipeWire quantum and the
+`performance` power profile) are configured for every GameMode session; if a
+sandboxed game starts one, they are what would run. The daemon is
+D-Bus-activated, so an installed-but-inactive `gamemoded` is normal and is not
+reported as broken.
 
 **Start launchers under GameMode** is the route for container titles: the
 Play page starts `flatpak run …` through `/usr/games/gamemoderun` on the
-host, so GameMode covers the whole launcher session and the game inherits
-none of it. It is opt-in and per session for a reason — the power profile and
-raised clocks last until the launcher exits, including time spent in the
-store or the friends list.
+host, which opens a GameMode session for the launcher's lifetime. It is opt-in
+and per session for a reason — the configured power profile and raised clocks
+last until the launcher exits, including time spent in the store or the
+friends list. This path is not verified end-to-end on the Rowyn image either.
 
 gamescope's per-game option is host-only, and honest about it: it
 prefixes a native command with the `gamescope` binary, so the Play page

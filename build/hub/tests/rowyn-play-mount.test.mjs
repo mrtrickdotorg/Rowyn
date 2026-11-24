@@ -406,7 +406,8 @@ test('per-game GameMode is offered only where the sandbox client can reach the g
   await mount.settle();
   const text = textOf(mount.tree);
   // The native title gets the checkbox; the Proton title gets the reason.
-  assert.match(text, /GameMode \(gamemoderun %command%\): audio and power-profile hooks apply/);
+  assert.match(text, /GameMode \(gamemoderun %command%\): the client ships in Steam's runtime/);
+  assert.match(text, /in-game activation has not been tested on Rowyn yet/);
   assert.match(text, /No per-game GameMode here: Steam starts this title through Proton/);
   assert.match(text, /cannot load the client at all/);
   mount.unmount();

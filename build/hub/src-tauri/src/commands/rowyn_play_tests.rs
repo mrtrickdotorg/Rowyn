@@ -141,7 +141,7 @@ fn gamemode_status_promises_only_what_both_pieces_support() {
     let absent = DaemonState { installed: false, active: false, scope: None };
     let ready = gamemode_status(DaemonState { installed: true, active: true, scope: Some("user") }, true);
     assert!(ready.available);
-    assert!(ready.detail.contains("Per-process registration fails"));
+    assert!(ready.detail.contains("has not been tested on the Rowyn image"));
     let no_client = gamemode_status(installed.clone(), false);
     assert!(!no_client.available);
     assert!(no_client.detail.contains("nor the runtime it uses ships gamemoderun"));

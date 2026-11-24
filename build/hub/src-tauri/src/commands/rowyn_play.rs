@@ -458,7 +458,7 @@ fn gamemode_status(daemon: DaemonState, sandbox_client: bool) -> GamemodeStatus 
     } else if !daemon.installed {
         "gamemoderun is present in Steam's sandbox, but gamemoded is not installed, so there is nothing to activate. Install the gamemode daemon."
     } else {
-        "GameMode activates with this option. Per-process registration fails inside the Flatpak sandbox, so renice and CPU pinning do not apply; Rowyn's session hooks — low-latency audio and the performance power profile — still run on the host."
+        "GameMode's client is present in Steam's sandbox, but in-game activation has not been tested on the Rowyn image yet. Per-process registration is not expected to cross the Flatpak PID namespace, so treat renice and CPU pinning as unconfirmed; a Proton or Steam Linux Runtime title cannot load the client at all."
     };
     GamemodeStatus {
         daemon_installed: daemon.installed,
