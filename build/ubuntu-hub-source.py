@@ -29,10 +29,10 @@ boot-health OS identity check in updates.rs to Rowyn's os-release ID
 (ID=rowyn; the upstream check keyed to ID=kythos would flag every Rowyn
 system unhealthy). The sweep is mechanical (counted replace-alls per
 file) so a new upstream string fails the port closed in the branding
-regression test instead of shipping under the wrong name. Provenance
-data that legitimately names the upstream system
-(src/data/compat_games.json, whose notes record where a compatibility
-verdict came from) is not rewritten.
+regression test instead of shipping under the wrong name. The curated
+compatibility dataset (src/data/compat_games.json) is Rowyn-owned: the
+build/hub overlay ships Rowyn's own re-checked copy, so the upstream
+names the old copy carried are rewritten like every other string.
 
 Never executes upstream build scripts. The input checkout is read-only; git
 archive exports exactly the pinned objects.
@@ -325,10 +325,9 @@ def sync_cargo_lock(crate, absent_packages):
 #     an enrolled MOK -- the Dashboard check matches external output;
 #   * "kyth-vpnc-script": a negative regression needle in vpn_saml's
 #     tests pinning that the upstream script name stays out of argv.
-# One file is excluded outright: src/data/compat_games.json, whose
-# notes are provenance data recording that a verdict came from
-# upstream validation; rewriting them would falsify the record (the
-# branding regression test allowlists exactly this file).
+# Nothing is excluded from the sweep: the curated compatibility dataset
+# is Rowyn's own re-checked copy (build/hub/src/data/compat_games.json),
+# so it carries no upstream names to preserve.
 RENAME_PROTECTED = (
     "kyth-os/kyth",
     "mrtrickdotorg/Rowyn",
@@ -336,7 +335,7 @@ RENAME_PROTECTED = (
     "KythOS Secure Boot",
     "kyth-vpnc-script",
 )
-RENAME_EXCLUDED = {"src/rowyn-hub-web/src/data/compat_games.json"}
+RENAME_EXCLUDED: set[str] = set()
 RENAME_PAIRS = (
     ("KythOS", "Rowyn"),
     ("KYTHOS", "ROWYN"),

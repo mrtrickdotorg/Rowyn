@@ -1,0 +1,366 @@
+{
+  "updated": "2026-11-24",
+  "schema": 1,
+  "games": [
+    {
+      "name": "Counter-Strike 2",
+      "anticheat": "VAC",
+      "status": "native",
+      "note": "Native Linux client with SteamOS support; VAC does not restrict Linux.",
+      "checked": "2026-11-24",
+      "source": "Steam store; Are We Anti-Cheat Yet (2026-11-24)",
+      "source_url": "https://store.steampowered.com/app/730/CounterStrike_2/"
+    },
+    {
+      "name": "Dota 2",
+      "anticheat": "VAC",
+      "status": "native",
+      "note": "Native Linux client with SteamOS support; VAC does not restrict Linux.",
+      "checked": "2026-11-24",
+      "source": "Steam store; Are We Anti-Cheat Yet (2026-11-24)",
+      "source_url": "https://store.steampowered.com/app/570/Dota_2/"
+    },
+    {
+      "name": "Team Fortress 2",
+      "anticheat": "VAC",
+      "status": "native",
+      "note": "Native Linux client with SteamOS support; VAC does not restrict Linux.",
+      "checked": "2026-11-24",
+      "source": "Steam store; Are We Anti-Cheat Yet (2026-11-24)",
+      "source_url": "https://store.steampowered.com/app/440/Team_Fortress_2/"
+    },
+    {
+      "name": "Baldur's Gate 3",
+      "anticheat": "None",
+      "status": "native",
+      "note": "Native Linux client; the Proton build is also worth testing after major patches.",
+      "checked": "2026-11-24",
+      "source": "Steam store; ProtonDB (2026-11-24)",
+      "source_url": "https://store.steampowered.com/app/1086940/Baldurs_Gate_3/"
+    },
+    {
+      "name": "The Witcher 3",
+      "anticheat": "None",
+      "status": "native",
+      "note": "Native Linux client included; ProtonDB rates the Windows build Platinum.",
+      "checked": "2026-11-24",
+      "source": "Steam store; ProtonDB (2026-11-24)",
+      "source_url": "https://store.steampowered.com/app/292030/The_Witcher_3_Wild_Hunt/"
+    },
+    {
+      "name": "Hollow Knight",
+      "anticheat": "None",
+      "status": "native",
+      "note": "Native Linux client; ProtonDB rates the Windows build Platinum.",
+      "checked": "2026-11-24",
+      "source": "Steam store; ProtonDB (2026-11-24)",
+      "source_url": "https://store.steampowered.com/app/367520/Hollow_Knight/"
+    },
+    {
+      "name": "Stardew Valley",
+      "anticheat": "None",
+      "status": "native",
+      "note": "Native Linux client; ProtonDB rates the Windows build Platinum.",
+      "checked": "2026-11-24",
+      "source": "Steam store; ProtonDB (2026-11-24)",
+      "source_url": "https://store.steampowered.com/app/413150/Stardew_Valley/"
+    },
+    {
+      "name": "Terraria",
+      "anticheat": "None",
+      "status": "native",
+      "note": "Native Linux client; ProtonDB rates the Windows build Platinum.",
+      "checked": "2026-11-24",
+      "source": "Steam store; ProtonDB (2026-11-24)",
+      "source_url": "https://store.steampowered.com/app/105600/Terraria/"
+    },
+    {
+      "name": "Elden Ring",
+      "anticheat": "EAC",
+      "status": "proton",
+      "note": "EAC Linux support is enabled; ProtonDB reports Gold with Platinum trending.",
+      "checked": "2026-11-24",
+      "source": "ProtonDB; Are We Anti-Cheat Yet (2026-11-24)",
+      "source_url": "https://www.protondb.com/app/1245620"
+    },
+    {
+      "name": "Cyberpunk 2077",
+      "anticheat": "None",
+      "status": "proton",
+      "note": "ProtonDB reports Gold with Platinum trending; test HDR, FSR and frame pacing on each release.",
+      "checked": "2026-11-24",
+      "source": "ProtonDB (2026-11-24)",
+      "source_url": "https://www.protondb.com/app/1091500"
+    },
+    {
+      "name": "Red Dead Redemption 2",
+      "anticheat": "Rockstar",
+      "status": "proton",
+      "note": "ProtonDB reports Gold; the Rockstar Launcher remains the risk surface.",
+      "checked": "2026-11-24",
+      "source": "ProtonDB (2026-11-24)",
+      "source_url": "https://www.protondb.com/app/1174180"
+    },
+    {
+      "name": "GTA V",
+      "anticheat": "BattlEye (GTA Online)",
+      "status": "proton",
+      "note": "Story Mode runs well under Proton (ProtonDB Gold); GTA Online's BattlEye is not enabled for Linux, so online play stays unsupported.",
+      "checked": "2026-11-24",
+      "source": "Rockstar BattlEye FAQ; ProtonDB (2026-11-24)",
+      "source_url": "https://www.protondb.com/app/271590"
+    },
+    {
+      "name": "God of War",
+      "anticheat": "None",
+      "status": "proton",
+      "note": "ProtonDB reports Platinum.",
+      "checked": "2026-11-24",
+      "source": "ProtonDB (2026-11-24)",
+      "source_url": "https://www.protondb.com/app/1593500"
+    },
+    {
+      "name": "Hogwarts Legacy",
+      "anticheat": "None",
+      "status": "proton",
+      "note": "ProtonDB reports Gold with Platinum trending.",
+      "checked": "2026-11-24",
+      "source": "ProtonDB (2026-11-24)",
+      "source_url": "https://www.protondb.com/app/990080"
+    },
+    {
+      "name": "Spider-Man Remastered",
+      "anticheat": "None",
+      "status": "proton",
+      "note": "ProtonDB reports Platinum.",
+      "checked": "2026-11-24",
+      "source": "ProtonDB (2026-11-24)",
+      "source_url": "https://www.protondb.com/app/1817070"
+    },
+    {
+      "name": "Resident Evil 4 (2023)",
+      "anticheat": "None",
+      "status": "proton",
+      "note": "ProtonDB reports Gold with Platinum trending.",
+      "checked": "2026-11-24",
+      "source": "ProtonDB (2026-11-24)",
+      "source_url": "https://www.protondb.com/app/2050650"
+    },
+    {
+      "name": "Sekiro",
+      "anticheat": "None",
+      "status": "proton",
+      "note": "ProtonDB reports Platinum.",
+      "checked": "2026-11-24",
+      "source": "ProtonDB (2026-11-24)",
+      "source_url": "https://www.protondb.com/app/814380"
+    },
+    {
+      "name": "Dark Souls III",
+      "anticheat": "VAC",
+      "status": "proton",
+      "note": "ProtonDB reports Platinum; VAC does not restrict Linux for this title.",
+      "checked": "2026-11-24",
+      "source": "ProtonDB; Are We Anti-Cheat Yet (2026-11-24)",
+      "source_url": "https://www.protondb.com/app/374320"
+    },
+    {
+      "name": "Monster Hunter: World",
+      "anticheat": "None",
+      "status": "proton",
+      "note": "ProtonDB reports Gold with Platinum trending.",
+      "checked": "2026-11-24",
+      "source": "ProtonDB (2026-11-24)",
+      "source_url": "https://www.protondb.com/app/582010"
+    },
+    {
+      "name": "Hades",
+      "anticheat": "None",
+      "status": "proton",
+      "note": "ProtonDB reports Platinum.",
+      "checked": "2026-11-24",
+      "source": "ProtonDB (2026-11-24)",
+      "source_url": "https://www.protondb.com/app/1145360"
+    },
+    {
+      "name": "Deep Rock Galactic",
+      "anticheat": "EAC",
+      "status": "proton",
+      "note": "EAC Linux support is enabled; ProtonDB reports Platinum.",
+      "checked": "2026-11-24",
+      "source": "ProtonDB; Are We Anti-Cheat Yet (2026-11-24)",
+      "source_url": "https://www.protondb.com/app/548430"
+    },
+    {
+      "name": "Dead by Daylight",
+      "anticheat": "EAC",
+      "status": "proton",
+      "note": "EAC Linux support is enabled on Steam, the recommended storefront; Epic's version is reported broken on Linux.",
+      "checked": "2026-11-24",
+      "source": "ProtonDB; Are We Anti-Cheat Yet (2026-11-24)",
+      "source_url": "https://www.protondb.com/app/381210"
+    },
+    {
+      "name": "The Finals",
+      "anticheat": "EAC",
+      "status": "proton",
+      "note": "EAC Linux support is enabled; ProtonDB reports Gold.",
+      "checked": "2026-11-24",
+      "source": "ProtonDB; Are We Anti-Cheat Yet (2026-11-24)",
+      "source_url": "https://www.protondb.com/app/2073850"
+    },
+    {
+      "name": "Halo Infinite",
+      "anticheat": "EAC",
+      "status": "proton",
+      "note": "EAC Linux support is enabled; ProtonDB reports Silver, so check current reports and a recent Proton before counting on it.",
+      "checked": "2026-11-24",
+      "source": "ProtonDB; Are We Anti-Cheat Yet (2026-11-24)",
+      "source_url": "https://www.protondb.com/app/1240440"
+    },
+    {
+      "name": "Overwatch 2",
+      "anticheat": "Warden",
+      "status": "proton",
+      "note": "Blizzard's Steam release runs under Proton (ProtonDB Platinum); the Battle.net/umu path also works.",
+      "checked": "2026-11-24",
+      "source": "Steam store; ProtonDB (2026-11-24)",
+      "source_url": "https://www.protondb.com/app/2357570"
+    },
+    {
+      "name": "Paladins",
+      "anticheat": "EAC",
+      "status": "tweaks",
+      "note": "EAC is enabled for Linux, but Hi-Rez has said it has no Linux plans and the game is known to break after updates; ProtonDB reports Silver.",
+      "checked": "2026-11-24",
+      "source": "ProtonDB; Are We Anti-Cheat Yet (2026-11-24)",
+      "source_url": "https://www.protondb.com/app/444090"
+    },
+    {
+      "name": "Rainbow Six Siege",
+      "anticheat": "BattlEye",
+      "status": "blocked",
+      "note": "Ubisoft has not enabled BattlEye for Linux and does not support Proton; ProtonDB rates it Borked.",
+      "checked": "2026-11-24",
+      "source": "Ubisoft BattlEye FAQ; ProtonDB; Are We Anti-Cheat Yet (2026-11-24)",
+      "source_url": "https://www.protondb.com/app/359550"
+    },
+    {
+      "name": "Hunt: Showdown",
+      "anticheat": "EAC",
+      "status": "proton",
+      "note": "EAC Linux support is enabled; ProtonDB reports Gold.",
+      "checked": "2026-11-24",
+      "source": "ProtonDB; Are We Anti-Cheat Yet (2026-11-24)",
+      "source_url": "https://www.protondb.com/app/594650"
+    },
+    {
+      "name": "Warframe",
+      "anticheat": "EAC",
+      "status": "proton",
+      "note": "EAC Linux support is enabled; ProtonDB reports Gold with Platinum trending.",
+      "checked": "2026-11-24",
+      "source": "ProtonDB; Are We Anti-Cheat Yet (2026-11-24)",
+      "source_url": "https://www.protondb.com/app/230410"
+    },
+    {
+      "name": "Apex Legends",
+      "anticheat": "Javelin",
+      "status": "blocked",
+      "note": "EA blocked Linux access in October 2024 and moved PC anti-cheat to EA Javelin on 29 September 2026; no Linux support has been announced.",
+      "checked": "2026-11-24",
+      "source": "EA Javelin announcement; ProtonDB; Are We Anti-Cheat Yet (2026-11-24)",
+      "source_url": "https://www.protondb.com/app/1172470"
+    },
+    {
+      "name": "Destiny 2",
+      "anticheat": "BattlEye",
+      "status": "blocked",
+      "note": "Bungie states SteamOS/Proton is unsupported and warns against bypass attempts; BattlEye is not enabled for Linux.",
+      "checked": "2026-11-24",
+      "source": "Bungie Help; Are We Anti-Cheat Yet (2026-11-24)",
+      "source_url": "https://areweanticheatyet.com/game/destiny-2"
+    },
+    {
+      "name": "Rust",
+      "anticheat": "EAC",
+      "status": "blocked",
+      "note": "Facepunch has publicly said there are no current Proton/Linux support plans.",
+      "checked": "2026-11-24",
+      "source": "Facepunch statement coverage; Are We Anti-Cheat Yet (2026-11-24)",
+      "source_url": "https://www.pcgamer.com/games/survival-crafting/rust-developer-has-no-plans-for-linux-or-proton-support-says-games-that-support-them-are-not-serious-about-anti-cheat/"
+    },
+    {
+      "name": "PUBG",
+      "anticheat": "BattlEye",
+      "status": "blocked",
+      "note": "BattlEye and additional anti-cheat are present and not configured for Proton; online play is unavailable on Linux.",
+      "checked": "2026-11-24",
+      "source": "Are We Anti-Cheat Yet (2026-11-24)",
+      "source_url": "https://areweanticheatyet.com/game/pubg-battlegrounds"
+    },
+    {
+      "name": "Valorant",
+      "anticheat": "Vanguard",
+      "status": "blocked",
+      "note": "Riot Vanguard requires ring-0 kernel access: Windows-only driver. No Linux support from Riot.",
+      "checked": "2026-11-24",
+      "source": "Riot Vanguard documentation (2026-11-24)",
+      "source_url": "https://support.riotgames.com/en-us/riot/performance/what-is-vanguard"
+    },
+    {
+      "name": "Fortnite",
+      "anticheat": "EAC",
+      "status": "blocked",
+      "note": "Epic has not enabled Linux support for Fortnite, despite EAC supporting Linux for other games.",
+      "checked": "2026-11-24",
+      "source": "Are We Anti-Cheat Yet (2026-11-24)",
+      "source_url": "https://areweanticheatyet.com/game/fortnite"
+    },
+    {
+      "name": "Call of Duty (MP/WZ)",
+      "anticheat": "RICOCHET",
+      "status": "blocked",
+      "note": "RICOCHET anti-cheat runs at kernel level on Windows and has no Linux support.",
+      "checked": "2026-11-24",
+      "source": "Are We Anti-Cheat Yet (2026-11-24)",
+      "source_url": "https://areweanticheatyet.com/game/call-of-duty-warzone"
+    },
+    {
+      "name": "Roblox",
+      "anticheat": "Hyperion",
+      "status": "blocked",
+      "note": "Roblox's Byfron/Hyperion anti-cheat blocks Wine/Proton paths; third-party runtimes are not Linux support.",
+      "checked": "2026-11-24",
+      "source": "Are We Anti-Cheat Yet (2026-11-24)",
+      "source_url": "https://areweanticheatyet.com/game/roblox"
+    },
+    {
+      "name": "League of Legends",
+      "anticheat": "Vanguard",
+      "status": "blocked",
+      "note": "Riot moved LoL to Vanguard in 2024 and states it does not support Linux.",
+      "checked": "2026-11-24",
+      "source": "Riot Vanguard documentation (2026-11-24)",
+      "source_url": "https://www.leagueoflegends.com/en-us/news/dev/dev-vanguard-x-lol/"
+    },
+    {
+      "name": "Escape from Tarkov",
+      "anticheat": "BattlEye",
+      "status": "blocked",
+      "note": "BattlEye can support Linux, but this title has not enabled a supported Proton path; online raids are unavailable.",
+      "checked": "2026-11-24",
+      "source": "Are We Anti-Cheat Yet (2026-11-24)",
+      "source_url": "https://areweanticheatyet.com/game/escape-from-tarkov"
+    },
+    {
+      "name": "Lost Ark",
+      "anticheat": "EAC",
+      "status": "tweaks",
+      "note": "EAC was enabled for Linux in July 2025; Proton 10 or Proton-GE 10.9 and later are recommended, and ProtonDB reports Gold.",
+      "checked": "2026-11-24",
+      "source": "Are We Anti-Cheat Yet; ProtonDB (2026-11-24)",
+      "source_url": "https://areweanticheatyet.com/game/lost-ark"
+    }
+  ]
+}

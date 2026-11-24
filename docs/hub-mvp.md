@@ -123,8 +123,10 @@ Compatibility section carries a single provenance note (reviewed 2026-10-31,
 sourced to Valve's Proton anti-cheat developer documentation and linked
 community reports; it is **not Rowyn game validation** or an online lookup),
 and the Steam library section states the curated dataset's own date and size
-once — last checked 2026-05-18, counting only the entries whose Steam app ID
-is known. Once that date is more than six months old the same note says so in
+once — last checked 2026-11-24, counting only the entries whose Steam app ID
+is known. The dataset is Rowyn's own copy in `build/hub/src/data/`, re-checked
+against ProtonDB, Are We Anti-Cheat Yet, the Steam store and any publisher
+statement that settles a title, and every entry names the date it was checked. Once that date is more than six months old the same note says so in
 place ("more than six months ago — treat them as stale and check ProtonDB") and
 the frontend tests print a FLAG naming the age; the check fails if stale data
 is ever presented as merely dated. A verdict appears only on

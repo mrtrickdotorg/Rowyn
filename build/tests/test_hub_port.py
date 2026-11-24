@@ -722,22 +722,19 @@ class PinnedHubSourceTests(unittest.TestCase):
             web = root / "src/rowyn-hub-web"
             crate = web / "src-tauri"
 
-            # Frontend: no "KythOS" anywhere under src/ except the one
-            # allowlisted provenance file. compat_games.json is data for
-            # the cut Play surfaces whose notes record that a verdict
-            # came from KythOS validation; rewriting it would falsify
-            # the record, so it is the deliberate exception — and the
-            # set equality below fails if any other file joins it or if
-            # the exception itself disappears upstream.
-            allowlist = {"src/data/compat_games.json"}
+            # Frontend: no "KythOS" anywhere under src/. The curated
+            # compatibility dataset used to be the deliberate exception
+            # (upstream provenance data); Rowyn now ships its own
+            # re-checked copy from the build/hub overlay, so it is held
+            # to the same rule as every other file.
             survivors = {
                 str(p.relative_to(web))
                 for p in (web / "src").rglob("*")
                 if p.is_file() and p.suffix in (".ts", ".tsx", ".css", ".json")
                 and "KythOS" in p.read_text(errors="ignore")
             }
-            self.assertEqual(survivors, allowlist)
-            self.assertIn("KythOS", (web / "src/data/compat_games.json").read_text())
+            self.assertEqual(survivors, set())
+            self.assertIn('"games"', (web / "src/data/compat_games.json").read_text())
 
             # The exact sentence from Patrick's screenshot, rebranded.
             messages = (web / "src/components/updateMessages.ts").read_text()
@@ -803,13 +800,11 @@ class PinnedHubSourceTests(unittest.TestCase):
             # No unmasked kyth reference survives anywhere in the
             # export. Deliberate exceptions: the GitHub org in
             # registry/identity strings, the upstream cert-name
-            # matcher, one negative regression needle, and the
-            # KythOS-era provenance data in compat_games.json
-            # (excluded from the scan entirely).
+            # matcher, and one negative regression needle.
             protected = ("KythOS Secure Boot", "kyth-vpnc-script")
             offenders = []
             for path in root.rglob("*"):
-                if not path.is_file() or path.name == "compat_games.json":
+                if not path.is_file():
                     continue
                 try:
                     masked = path.read_text()
