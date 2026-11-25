@@ -190,10 +190,63 @@ fn controller_warnings_are_not_reported_as_an_ok_summary() {
             detail: "missing".into(),
         }],
         hints: Vec::new(),
+        steam_sandbox: None,
     }));
     assert_eq!(result.state, "attention");
     let missing = controller_section(Err("unavailable: helper missing".into()));
     assert_eq!(missing.state, "unavailable");
+}
+
+#[test]
+fn granted_devices_come_from_the_context_section_only() {
+    let raw = "[Context]\nshared=network;\ndevices=all;input;\n\n[Environment]\ndevices=leaked;\n";
+    assert_eq!(
+        granted_devices(raw),
+        Some(vec!["all".to_string(), "input".to_string()])
+    );
+    // No devices line at all means no device grant, which the caller reads as
+    // an empty list rather than as a failed query.
+    assert_eq!(granted_devices("[Context]\nshared=network;\n"), None);
+    assert_eq!(granted_devices("[Context]\ndevices=;\n"), Some(Vec::new()));
+    // The same key outside [Context] is not the sandbox's grant.
+    assert_eq!(granted_devices("[Environment]\ndevices=all;\n"), None);
+    assert_eq!(
+        granted_devices("[Context]\ndevices=all;;dri;\n"),
+        Some(vec!["all".to_string(), "dri".to_string()])
+    );
+}
+
+#[test]
+fn the_sandbox_verdict_never_claims_reach_it_cannot_prove() {
+    let granted = classify_steam_sandbox(true, true, vec!["all".into()], true, true);
+    assert!(granted.reachable);
+    assert_eq!(granted.reading().state, "ok");
+    assert!(granted.detail.contains("visible inside its sandbox"));
+
+    // Granted, but nothing on the host to reach, or no read access to it.
+    let no_nodes = classify_steam_sandbox(true, true, vec!["all".into()], false, false);
+    assert!(!no_nodes.reachable);
+    assert!(no_nodes.detail.contains("no /dev/input/event* node"));
+    let unreadable = classify_steam_sandbox(true, true, vec!["all".into()], true, false);
+    assert!(!unreadable.reachable);
+    assert!(unreadable.detail.contains("cannot open"));
+    assert_eq!(unreadable.reading().state, "warn");
+
+    // A sandbox without input devices hides the pad even when the host is fine.
+    let dri_only = classify_steam_sandbox(true, true, vec!["dri".into()], true, true);
+    assert!(!dri_only.reachable);
+    assert!(!dri_only.input_granted);
+    assert!(dri_only.detail.contains("granted only dri"));
+    assert_eq!(dri_only.reading().state, "warn");
+
+    // Not installed is informational; an unread permission query is unknown.
+    let absent = classify_steam_sandbox(true, false, Vec::new(), true, true);
+    assert!(!absent.reachable);
+    assert_eq!(absent.reading().state, "info");
+    let unknown = classify_steam_sandbox(false, false, Vec::new(), true, true);
+    assert!(!unknown.checked);
+    assert!(unknown.detail.contains("could not be read"));
+    assert!(!unknown.reachable);
 }
 
 #[test]

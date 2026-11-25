@@ -1,24 +1,25 @@
-// B5: the controller section opens with three player lines — a pad is present,
-// its kernel driver is reported, and this session can write /dev/uinput — and
-// keeps the helper's technical rows behind a details toggle. The helper's own
-// hint text is dropped in Rust; only the curated per-family table reaches here.
-// Nothing in this model presses a button or claims input was tested.
+// B5: the controller section opens with four player lines — a pad is present,
+// its kernel driver is reported, this session can write /dev/uinput, and
+// Flatpak Steam's own sandbox is granted the input devices — and keeps the
+// helper's technical rows behind a details toggle. The helper's own hint text
+// is dropped in Rust; only the curated per-family table reaches here. Nothing
+// in this model presses a button or claims input was tested.
 
-import type { ControllerHint, ControllerReport } from './rowynMvp';
+import type { ControllerHint, ControllerReport, SteamControllerSandbox } from './rowynMvp';
 import type { Reading } from './rowynMvpModel';
 
 export type ControllerLineState = 'ok' | 'warn' | 'unknown';
 
 export interface ControllerLine {
-  key: 'pad' | 'driver' | 'uinput';
+  key: 'pad' | 'driver' | 'uinput' | 'sandbox';
   label: string;
   state: ControllerLineState;
   detail: string;
 }
 
-/** What the three lines do and do not establish. */
+/** What the four lines do and do not establish. */
 export const CONTROLLER_READ_NOTE =
-  'These three lines report what the shipped controller check read: a controller-like device, the kernel driver for a detected pad, and whether this session can write /dev/uinput for Steam Input and remappers. No button, stick, trigger or rumble test runs, and nothing here changes permissions.';
+  'These lines report what the shipped controller check and Flatpak’s own permission record say: a controller-like device, the kernel driver for a detected pad, whether this session can write /dev/uinput for Steam Input and remappers, and whether Flatpak Steam’s sandbox is granted the input devices. A pad this session can see is not automatically a pad Flatpak Steam can reach. No button, stick, trigger or rumble test runs, and nothing here changes permissions.';
 
 const PAD_COUNT = /^(\d+) controller-like device\(s\): (.+)$/;
 const DRIVER_PREFIX = 'Driver for ';
@@ -27,7 +28,7 @@ function reading(readings: Reading[], name: string): Reading | undefined {
   return readings.find((item) => item.name.toLowerCase() === name);
 }
 
-function padLine(readings: Reading[]): ControllerLine {
+function padLine(readings: Reading[], sandbox: ControllerLine): ControllerLine {
   const item = reading(readings, 'input devices');
   if (!item) {
     return { key: 'pad', label: 'Controller', state: 'unknown', detail: 'The helper returned no input-device row.' };
@@ -36,11 +37,50 @@ function padLine(readings: Reading[]): ControllerLine {
     return { key: 'pad', label: 'Controller', state: 'warn', detail: 'No controller-like input device was found.' };
   }
   const counted = item.detail.match(PAD_COUNT);
+  const detail = counted ? `${counted[1]} controller-like device(s): ${counted[2]}.` : item.detail;
+  // A pad this session can open is not a pad a sandboxed launcher can reach,
+  // so the pad line cannot say "ready" while the launcher cannot see it.
+  if (sandbox.state === 'warn') {
+    return {
+      key: 'pad',
+      label: 'Controller',
+      state: 'warn',
+      detail: `${detail} Flatpak Steam cannot reach it — see the Flatpak Steam line.`,
+    };
+  }
+  return { key: 'pad', label: 'Controller', state: 'ok', detail };
+}
+
+function sandboxLine(sandbox: SteamControllerSandbox | null | undefined): ControllerLine {
+  if (!sandbox) {
+    return {
+      key: 'sandbox',
+      label: 'Flatpak Steam',
+      state: 'unknown',
+      detail: 'This run did not report Flatpak Steam’s sandbox, so whether it can see a pad is unknown.',
+    };
+  }
+  if (!sandbox.checked) {
+    return {
+      key: 'sandbox',
+      label: 'Flatpak Steam',
+      state: 'unknown',
+      detail: 'Flatpak Steam’s permissions could not be read; whether its sandbox can see a controller is unknown.',
+    };
+  }
+  if (!sandbox.installed) {
+    return {
+      key: 'sandbox',
+      label: 'Flatpak Steam',
+      state: 'ok',
+      detail: 'Flatpak Steam is not installed, so there is no launcher sandbox to check.',
+    };
+  }
   return {
-    key: 'pad',
-    label: 'Controller',
-    state: 'ok',
-    detail: counted ? `${counted[1]} controller-like device(s): ${counted[2]}.` : item.detail,
+    key: 'sandbox',
+    label: 'Flatpak Steam',
+    state: sandbox.reachable ? 'ok' : 'warn',
+    detail: sandbox.detail,
   };
 }
 
@@ -86,10 +126,11 @@ function uinputLine(readings: Reading[]): ControllerLine {
   };
 }
 
-/** The three player lines, in the order the review describes them. */
-export function controllerSummary(findings: Reading[] | null): ControllerLine[] {
-  if (!findings) return [];
-  return [padLine(findings), driverLine(findings), uinputLine(findings)];
+/** The four player lines, in the order the review describes them. */
+export function controllerSummary(report: ControllerReport | null): ControllerLine[] {
+  if (!report) return [];
+  const sandbox = sandboxLine(report.steam_sandbox);
+  return [padLine(report.findings, sandbox), driverLine(report.findings), uinputLine(report.findings), sandbox];
 }
 
 /** Curated advice for the families this scan saw; never the helper's text. */

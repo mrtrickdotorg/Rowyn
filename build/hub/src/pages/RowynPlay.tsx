@@ -485,7 +485,7 @@ export function Play() {
         setControllers(null); const next = await rowynControllerScan(); setControllers(next); return 'Controller scan finished. Review findings below.';
       })}>Rescan controllers</button>
       {!controllers && <p className="card-copy">{checkFailure.controllers ? 'The controller check could not run; use Rescan controllers to retry.' : 'Reading input devices…'}</p>}
-      {controllers && <ul className="rowyn-controller-summary" aria-label="Controller readiness summary">{controllerSummary(controllers.findings).map((line) => <li key={line.key} className={`is-${line.state}`}><span className={`rowyn-state is-${line.state}`}>{line.label}</span><span>{line.detail}</span></li>)}</ul>}
+      {controllers && <ul className="rowyn-controller-summary" aria-label="Controller readiness summary">{controllerSummary(controllers).map((line) => <li key={line.key} className={`is-${line.state}`}><span className={`rowyn-state is-${line.state}`}>{line.label}</span><span>{line.detail}</span></li>)}</ul>}
       {controllers && <p className="card-copy">{CONTROLLER_READ_NOTE}</p>}
       {!!controllerAdvice(controllers).length && <><h3>If a pad is not recognised</h3>{controllerAdvice(controllers).map((hint) => <p className="card-copy" key={hint.family}><strong>{hint.label}</strong> — {hint.hint}</p>)}</>}
       {controllers && <details className="rowyn-disclosure rowyn-controller-findings"><summary>Technical findings ({controllers.findings.length})</summary><div className="rowyn-disclosure-body">{controllers.findings.map((item) => <div key={item.name}><h4>{item.name} <span className="rowyn-state">{item.state}</span></h4><pre>{item.detail}</pre></div>)}</div></details>}

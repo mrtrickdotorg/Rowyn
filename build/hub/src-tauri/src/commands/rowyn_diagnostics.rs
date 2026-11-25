@@ -309,6 +309,192 @@ pub(crate) struct ControllerReport {
     findings: Vec<Reading>,
     /// Curated advice for the families this scan saw, in table order.
     hints: Vec<ControllerHint>,
+    /// Whether Flatpak Steam's own sandbox can reach /dev/input. Absent when the
+    /// helper read failed before the launcher question could be asked.
+    steam_sandbox: Option<SteamControllerSandbox>,
+}
+
+/// What Flatpak Steam's sandbox is granted, and whether this session could see
+/// a pad at all. A pad that this session can open is not visible to a sandboxed
+/// launcher without `devices=` covering /dev/input, so the Controllers card has
+/// to report both or it reports the pad as ready when Steam cannot reach it.
+#[derive(Debug, Serialize, Clone)]
+pub(crate) struct SteamControllerSandbox {
+    /// The permission query ran; false is "unknown", never "granted".
+    checked: bool,
+    installed: bool,
+    /// Every device class `[Context] devices=` grants, lowercased.
+    devices: Vec<String>,
+    /// `all` or `input` covers /dev/input inside the sandbox.
+    input_granted: bool,
+    /// This machine exposes at least one /dev/input/event* node.
+    host_input_nodes: bool,
+    /// This session can open such a node for reading.
+    host_readable: bool,
+    /// True only when a sandboxed Steam would be able to reach a pad.
+    reachable: bool,
+    detail: String,
+}
+
+impl SteamControllerSandbox {
+    fn reading(&self) -> Reading {
+        let state = if !self.checked || !self.installed {
+            "info"
+        } else if self.reachable {
+            "ok"
+        } else {
+            "warn"
+        };
+        Reading {
+            name: "Flatpak Steam input".into(),
+            state: state.into(),
+            detail: safe_text(&self.detail),
+        }
+    }
+}
+
+/// The `[Context] devices=` list from `flatpak info --show-permissions`. Only
+/// that section counts: the same key spelled elsewhere is not the sandbox.
+fn granted_devices(raw: &str) -> Option<Vec<String>> {
+    let mut in_context = false;
+    for line in raw.lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            in_context = line == "[Context]";
+            continue;
+        }
+        if !in_context {
+            continue;
+        }
+        let Some(value) = line.strip_prefix("devices=") else {
+            continue;
+        };
+        return Some(
+            value
+                .split(';')
+                .map(str::trim)
+                .filter(|device| !device.is_empty() && device.len() <= 32)
+                .map(str::to_ascii_lowercase)
+                .collect(),
+        );
+    }
+    None
+}
+
+/// Ok(None) when Flatpak Steam is not installed: there is no sandbox to ask
+/// about, which is different from a permission read that failed.
+fn flatpak_steam_devices() -> Result<Option<Vec<String>>, String> {
+    let mut command = Command::new("/usr/bin/flatpak");
+    command
+        .args(["info", "--show-permissions", "com.valvesoftware.Steam"])
+        .env("LC_ALL", "C")
+        .env("PATH", "/usr/bin:/bin");
+    let output = run_bounded_command(command, Duration::from_secs(8))
+        .map_err(|error| format!("unavailable: launcher check could not complete: {error}"))?;
+    if output.stdout.len() > 64_000 {
+        return Err("error: permission output exceeded size limit".into());
+    }
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.to_lowercase().contains("not installed") {
+            return Ok(None);
+        }
+        return Err(probe_failure(&stderr));
+    }
+    Ok(Some(
+        granted_devices(&String::from_utf8_lossy(&output.stdout)).unwrap_or_default(),
+    ))
+}
+
+/// `(a node exists, this session can open one)`. Opening an event node is
+/// read-only and consumes nothing; no event is read and no ioctl is issued.
+fn host_input_nodes() -> (bool, bool) {
+    let Ok(entries) = fs::read_dir("/dev/input") else {
+        return (false, false);
+    };
+    let mut found = false;
+    for entry in entries.flatten().take(4096) {
+        let name = entry.file_name();
+        if !name.to_string_lossy().starts_with("event") {
+            continue;
+        }
+        found = true;
+        if fs::File::open(entry.path()).is_ok() {
+            return (true, true);
+        }
+    }
+    (found, false)
+}
+
+fn classify_steam_sandbox(
+    checked: bool,
+    installed: bool,
+    devices: Vec<String>,
+    host_input_nodes: bool,
+    host_readable: bool,
+) -> SteamControllerSandbox {
+    let input_granted = devices.iter().any(|device| device == "all" || device == "input");
+    let granted = if devices.is_empty() {
+        "no device classes".to_string()
+    } else {
+        devices.join(", ")
+    };
+    let (reachable, detail) = if !checked {
+        (
+            false,
+            "Flatpak Steam’s permissions could not be read, so whether its sandbox can reach a controller is unknown.".to_string(),
+        )
+    } else if !installed {
+        (
+            false,
+            "Flatpak Steam is not installed, so there is no launcher sandbox to check.".to_string(),
+        )
+    } else if !input_granted {
+        (
+            false,
+            format!(
+                "Flatpak Steam is granted only {granted}; /dev/input is hidden inside its sandbox, so a controller cannot reach it there."
+            ),
+        )
+    } else if !host_input_nodes {
+        (
+            false,
+            format!(
+                "Flatpak Steam is granted {granted}, but this machine exposes no /dev/input/event* node."
+            ),
+        )
+    } else if !host_readable {
+        (
+            false,
+            format!(
+                "Flatpak Steam is granted {granted}, but this session cannot open /dev/input/event* (permissions)."
+            ),
+        )
+    } else {
+        (
+            true,
+            format!("Flatpak Steam is granted {granted}; /dev/input is visible inside its sandbox."),
+        )
+    };
+    SteamControllerSandbox {
+        checked,
+        installed,
+        devices,
+        input_granted,
+        host_input_nodes,
+        host_readable,
+        reachable,
+        detail,
+    }
+}
+
+fn steam_controller_sandbox() -> SteamControllerSandbox {
+    let (nodes, readable) = host_input_nodes();
+    match flatpak_steam_devices() {
+        Ok(Some(devices)) => classify_steam_sandbox(true, true, devices, nodes, readable),
+        Ok(None) => classify_steam_sandbox(true, false, Vec::new(), nodes, readable),
+        Err(_) => classify_steam_sandbox(false, false, Vec::new(), nodes, readable),
+    }
 }
 
 /// The family a controller-like input device name belongs to. The name is read
@@ -411,6 +597,7 @@ fn parse_controller(raw: &str) -> Result<ControllerReport, String> {
     Ok(ControllerReport {
         findings,
         hints: controller_hints(&data),
+        steam_sandbox: None,
     })
 }
 /// Format an epoch second as "YYYY-MM-DD HH:MM UTC" (civil-from-days,
@@ -645,7 +832,13 @@ fn update_cycle_reading(raw: Result<String, String>, now: u64) -> Reading {
 
 fn controllers() -> Result<ControllerReport, String> {
     let _guard = ReadGuard::take(&CONTROLLER_RUNNING)?;
-    parse_controller(&probe(Probe::Controller)?)
+    let mut report = parse_controller(&probe(Probe::Controller)?)?;
+    // A pad this session can open is not a pad Flatpak Steam can reach: the
+    // launcher's sandbox needs the devices granted, so both are reported.
+    let sandbox = steam_controller_sandbox();
+    report.findings.push(sandbox.reading());
+    report.steam_sandbox = Some(sandbox);
+    Ok(report)
 }
 fn controller_section(result: Result<ControllerReport, String>) -> Reading {
     match result {

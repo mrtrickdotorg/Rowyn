@@ -223,6 +223,12 @@ function bridge(overrides = {}) {
     rowyn_controller_scan: {
       findings: [{ name: 'Input devices', state: 'ok', detail: 'one pad' }],
       hints: [],
+      // Granted and readable: the setup strip and card can call the pad ready.
+      steam_sandbox: {
+        checked: true, installed: true, devices: ['all'], input_granted: true,
+        host_input_nodes: true, host_readable: true, reachable: true,
+        detail: 'Flatpak Steam is granted all; /dev/input is visible inside its sandbox.',
+      },
     },
     rowyn_steam_recent_play: {
       steam_detected: true, profile_read: true, warnings: 0, unnamed: 0, games: [],

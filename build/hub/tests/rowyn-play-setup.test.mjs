@@ -201,3 +201,16 @@ test('a missing controller is a task, not a failure', () => {
   assert.match(step.label, /optional/);
   assert.match(step.hint, /pair it over Bluetooth/);
 });
+
+test('a pad the sandboxed launcher cannot reach is not a done step', () => {
+  const blocked = {
+    ...READY,
+    controllers: [
+      { name: 'Input devices', state: 'ok', detail: '1 controller-like device(s): DualSense' },
+      { name: 'Flatpak Steam input', state: 'warn', detail: '/dev/input is hidden' },
+    ],
+  };
+  const step = m.playSetupSteps(blocked)[6];
+  assert.equal(step.state, 'todo');
+  assert.match(step.hint, /Flatpak Steam cannot reach it/);
+});

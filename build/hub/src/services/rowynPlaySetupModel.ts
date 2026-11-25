@@ -310,11 +310,24 @@ function controllersStep(input: PlaySetupInput): SetupStep {
     };
   }
   const detected = controllers.some((item) => item.name === 'Input devices' && item.state === 'ok');
+  // The pad row is this session's view. A sandboxed Steam that was not granted
+  // the input devices cannot reach the pad, so the step cannot say it is ready.
+  const sandboxBlocked = controllers.some(
+    (item) => item.name === 'Flatpak Steam input' && item.state === 'warn',
+  );
+  if (detected && sandboxBlocked) {
+    return {
+      key: 'controllers',
+      label: 'Controller detected',
+      hint: 'This session can see a pad, but Flatpak Steam cannot reach it — see the Flatpak Steam line under Controllers.',
+      state: 'todo',
+    };
+  }
   return detected
     ? {
       key: 'controllers',
       label: 'Controller detected',
-      hint: 'Steam Input and remappers can see it.',
+      hint: 'This session can see it; the Flatpak Steam line under Controllers says whether its sandbox can too.',
       state: 'done',
     }
     : {

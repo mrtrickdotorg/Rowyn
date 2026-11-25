@@ -13,7 +13,24 @@ export async function rowynDiagnosticsSnapshot(): Promise<DiagnosticsSnapshot> {
   return invoke<DiagnosticsSnapshot>('rowyn_diagnostics_snapshot');
 }
 export interface ControllerHint { family: string; label: string; hint: string }
-export interface ControllerReport { findings: Reading[]; hints: ControllerHint[] }
+/** Flatpak Steam's own view of the input devices, read from
+ * `flatpak info --show-permissions` and /dev/input. `checked` false means the
+ * permission query did not run, never that access was granted. */
+export interface SteamControllerSandbox {
+  checked: boolean;
+  installed: boolean;
+  devices: string[];
+  input_granted: boolean;
+  host_input_nodes: boolean;
+  host_readable: boolean;
+  reachable: boolean;
+  detail: string;
+}
+export interface ControllerReport {
+  findings: Reading[];
+  hints: ControllerHint[];
+  steam_sandbox?: SteamControllerSandbox | null;
+}
 export async function rowynControllerScan(): Promise<ControllerReport> {
   nativeOnly();
   return invoke<ControllerReport>('rowyn_controller_scan');

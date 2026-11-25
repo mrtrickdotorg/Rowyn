@@ -182,6 +182,22 @@ Gaming) edit the overlays' settings graphically, and LACT, OpenRGB,
 Piper and Solaar live in the Tuning & Peripherals pack. Native
 (host) games can use the distribution's tools inside Distrobox.
 
+## Controllers in the Flatpak sandbox
+
+A pad this session can open is not automatically a pad Flatpak Steam can
+reach. The Controllers card therefore reports both sides: the shipped
+`rowyn-controller-check` rows (device, driver, `/dev/uinput`), and Flatpak
+Steam's own sandbox, read from `flatpak info --show-permissions
+com.valvesoftware.Steam` with `/dev/input` checked on the host. Steam's Flathub
+manifest grants `devices=all`, so `/dev/input` is visible inside its sandbox
+(verified on the deployed build, 2026-11-25); a build or override granted only
+`dri` would hide the pad, and the card says so instead of marking the pad
+ready. The read is fixed-argument and read-only: it opens one
+`/dev/input/event*` node to check access, reads no events, issues no ioctl and
+changes no permissions. When the permission query cannot run, the line reports
+unknown rather than assuming access; when Flatpak Steam is not installed it
+says there is no sandbox to check.
+
 ## VR, and why Steam is a Flatpak here
 
 Steam ships as a Flatpak on Rowyn (preinstalled). Wireless VR works

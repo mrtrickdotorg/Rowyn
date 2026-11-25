@@ -107,10 +107,17 @@ as copyable text only, and `MANGOHUD=1 %command%` remains the switch that
 turns the overlay on.
 
 Controller rescan calls the same fixed read-only helper, but the section now
-opens with three player lines — a controller-like device is present, its
-kernel driver is reported, and this session can write `/dev/uinput` for Steam
-Input and remappers — with the helper's technical rows folded into a details
-toggle. Advice is a fixed per-family table in Rust (PlayStation, Xbox, Switch,
+opens with four player lines — a controller-like device is present, its
+kernel driver is reported, this session can write `/dev/uinput` for Steam
+Input and remappers, and Flatpak Steam's own sandbox is granted the input
+devices — with the helper's technical rows folded into a details toggle. The
+last line comes from `flatpak info --show-permissions com.valvesoftware.Steam`
+(`[Context] devices=`, `all` or `input` covering `/dev/input`) plus a
+read-only check that this session can open a `/dev/input/event*` node; no
+permission is changed. Because a pad this session can open is not a pad a
+sandboxed launcher can reach, a sandbox without the devices turns the pad line
+into a warning and the setup step into a task, and a permission read that could
+not run stays unknown instead of assuming access. Advice is a fixed per-family table in Rust (PlayStation, Xbox, Switch,
 8BitDo, the Microsoft wireless adapter) built only from the families the scan
 saw — from the helper's USB rows or from the name of a controller-like input
 device, so a Bluetooth pad gets the same advice as a wired one — and emitted in
