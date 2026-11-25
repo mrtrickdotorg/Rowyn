@@ -23,7 +23,7 @@ const NAME: &str = "rowyn-deb";
 // and a moving tag cannot decide which image a managed environment is
 // verified against. build/tests pin the two modules to the same digest.
 const IMAGE: &str =
-    "docker.io/library/ubuntu@sha256:1c2a84ae3f2a24aeb97cded5b41f0211b441662f1a188cbd2e139e7625f6f1d6";
+    "docker.io/library/ubuntu@sha256:29ac5e68db830ab61b7d77c1ffdb78c73f0631de88a5d77bf4399868f64f38dd";
 const IMAGE_TAG_ALIAS: &str = "docker.io/library/ubuntu:26.10";
 // USN-8996-1 (CVE-2026-109518): no published Ubuntu image carries this
 // fix yet, so the managed container installs the fixed apt itself
