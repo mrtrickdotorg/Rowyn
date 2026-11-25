@@ -81,7 +81,7 @@ class UbuntuPinBump(unittest.TestCase):
                          {"contents": "write", "actions": "write"})
         self.assertNotIn("workflows: write", WORKFLOW.read_text(encoding="utf-8"))
 
-    def test_exactly_one_dispatch_leaves_each_run(self):
+    def test_bump_always_dispatches_and_routine_rebuild_runs_every_two_days(self):
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
         steps = workflow["jobs"]["bump"]["steps"]
         names = [step["name"] for step in steps]
@@ -108,21 +108,31 @@ class UbuntuPinBump(unittest.TestCase):
         self.assertLess(names.index("Commit the pin to main"),
                         names.index("Dispatch Rowyn CI for the landed bump"))
 
-        # The daily rebuild dispatch keys off the opposite value of the
-        # same committed signal, so exactly one build leaves each run:
-        # the bump build when a bump landed, the daily rebuild otherwise
-        # (pin already current — the commit step is skipped and the
-        # signal stays unset — or the bump was already applied and the
-        # commit step reported false). A no-change day still rebuilds
-        # against the day's archive; reproducibility keeps it a
-        # zero-download day for clients.
-        rebuild = by_name["Dispatch the daily rebuild"]
-        self.assertEqual(rebuild["if"],
-                         "steps.commit.outputs.committed != 'true'")
+        # The routine rebuild runs every two days (Patrick's cadence,
+        # 2026-11-25): a cadence step derives rebuild_due from the UTC
+        # day parity, with a manual dispatch always due. The rebuild
+        # dispatch keys off the opposite value of the same committed
+        # signal as the bump dispatch, so the two can never both fire;
+        # on an off day with no bump, nothing is dispatched at all.
+        cadence = by_name["Decide whether the routine rebuild is due"]
+        self.assertEqual(cadence["id"], "cadence")
+        self.assertIn("workflow_dispatch", cadence["run"])
+        self.assertIn("86400", cadence["run"])
+        self.assertIn("% 2", cadence["run"])
+        self.assertIn('echo "rebuild_due=true" >> "${GITHUB_OUTPUT}"', cadence["run"])
+        self.assertIn('echo "rebuild_due=false" >> "${GITHUB_OUTPUT}"', cadence["run"])
+        self.assertLess(names.index("Commit the pin to main"),
+                        names.index("Decide whether the routine rebuild is due"))
+
+        rebuild = by_name["Dispatch the routine rebuild"]
+        self.assertEqual(
+            rebuild["if"],
+            "steps.commit.outputs.committed != 'true' && "
+            "steps.cadence.outputs.rebuild_due == 'true'")
         self.assertIn("gh workflow run build.yml", rebuild["run"])
         self.assertIn("--ref main", rebuild["run"])
         self.assertLess(names.index("Dispatch Rowyn CI for the landed bump"),
-                        names.index("Dispatch the daily rebuild"))
+                        names.index("Dispatch the routine rebuild"))
 
     def test_iso_workflow_derives_the_pin_instead_of_carrying_it(self):
         module = load()

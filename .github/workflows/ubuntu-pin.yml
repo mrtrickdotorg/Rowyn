@@ -5,14 +5,16 @@ name: Rowyn Ubuntu digest pin
 # that image behind the tag, so resolve it on a schedule, move every pin
 # together, validate, and commit to main. A commit pushed with the workflow
 # token starts no runs of its own, so a landed bump then dispatches Rowyn
-# CI explicitly to build, smoke-test and sign the new pin. On days the pin
-# does not move, the run instead dispatches one rebuild, so archive
-# package and security updates land daily; reproducible builds make a
-# no-change rebuild produce the identical digest, so clients download
-# nothing on a quiet day, and Rowyn CI compares that rebuild with the
-# digest it recorded for the same source revision and package set, so a
-# drift fails the build instead of reaching them. The repository takes no pull requests, so this
-# never opens one.
+# CI explicitly to build, smoke-test and sign the new pin. The pin is
+# still checked daily and a landed bump always builds the day it lands.
+# On days the pin does not move, the run dispatches one routine rebuild
+# only every two days, so archive package and security updates land on
+# that cadence; reproducible builds make a no-change rebuild produce
+# the identical digest, so clients download nothing on a quiet cycle,
+# and Rowyn CI compares that rebuild with the digest it recorded for
+# the same source revision and package set, so a drift fails the build
+# instead of reaching them. The repository takes no pull requests, so
+# this never opens one.
 on:
   schedule:
     - cron: "41 5 * * *"
@@ -142,6 +144,28 @@ jobs:
           git push origin main
           echo "committed=true" >> "${GITHUB_OUTPUT}"
 
+      - name: Decide whether the routine rebuild is due
+        id: cadence
+        shell: bash --noprofile --norc -euo pipefail {0}
+        run: |
+          # Routine rebuilds run every two days, not daily: the count
+          # of whole UTC days since the epoch flips parity once per
+          # day, so even days are due and odd days are not. A manual
+          # dispatch always counts as due — a person who dispatched
+          # the workflow asked for the rebuild. Pin bumps ignore this
+          # gate entirely: the bump dispatch below keys only off the
+          # committed signal and builds the day the bump lands.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "rebuild_due=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          epoch_day=$(( $(date -u +%s) / 86400 ))
+          if [ $(( epoch_day % 2 )) -eq 0 ]; then
+            echo "rebuild_due=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "rebuild_due=false" >> "${GITHUB_OUTPUT}"
+          fi
+
       - name: Dispatch Rowyn CI for the landed bump
         if: steps.commit.outputs.committed == 'true'
         shell: bash --noprofile --norc -euo pipefail {0}
@@ -158,26 +182,30 @@ jobs:
           # lands but never builds has to be loud, not silent.
           gh workflow run build.yml --repo "${{ github.repository }}" --ref main
 
-      - name: Dispatch the daily rebuild
-        if: steps.commit.outputs.committed != 'true'
+      - name: Dispatch the routine rebuild
+        if: steps.commit.outputs.committed != 'true' && steps.cadence.outputs.rebuild_due == 'true'
         shell: bash --noprofile --norc -euo pipefail {0}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # No bump was committed on this run — the pin is already
           # current, or the bump turned out to be already applied — so
-          # the step above dispatched nothing. Dispatch one build
-          # anyway: the image installs its packages from the Ubuntu
-          # archive at build time, and that archive moves daily even
-          # when the base digest does not. Builds are reproducible, so
-          # if the archive has not changed either, the rebuild produces
-          # the identical digest and clients see no update at all; if
-          # it has, only the changed layers differ and clients download
-          # just those. Exactly one dispatch leaves this workflow per
-          # run: this step and the bump dispatch key off opposite
-          # values of the same committed signal (a skipped commit step
-          # leaves the signal unset, which is not 'true'). If this
-          # dispatch is refused the step fails the run, for the same
-          # reason as above: a silently skipped day is the failure mode
-          # this cadence exists to remove.
+          # the step above dispatched nothing, and today is a due day
+          # on the two-day routine cadence. Dispatch one build: the
+          # image installs its packages from the Ubuntu archive at
+          # build time, and that archive moves even when the base
+          # digest does not, so a due-day rebuild picks up up to two
+          # days of package and security updates. Builds are
+          # reproducible, so if the archive has not changed either,
+          # the rebuild produces the identical digest and clients see
+          # no update at all; if it has, only the changed layers
+          # differ and clients download just those. On off days this
+          # step is skipped and nothing is dispatched — the next due
+          # day picks the archive up. The bump dispatch and this step
+          # can never both fire: they key off opposite values of the
+          # same committed signal (a skipped commit step leaves the
+          # signal unset, which is not 'true'). If this dispatch is
+          # refused the step fails the run, for the same reason as
+          # above: a silently skipped cycle is the failure mode this
+          # cadence exists to remove.
           gh workflow run build.yml --repo "${{ github.repository }}" --ref main

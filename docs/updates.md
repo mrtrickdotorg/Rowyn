@@ -1,7 +1,7 @@
-# Updates: small downloads, daily freshness
+# Updates: small downloads, two-day freshness
 
 Rowyn's update goal is that a machine can take the latest packages
-and security fixes every day without downloading gigabytes to do it.
+and security fixes every two days without downloading gigabytes to do it.
 Two mechanisms are live today, and a third is built but held back
 until its proof passes:
 
@@ -20,9 +20,9 @@ until its proof passes:
    status" below — so a no-change day is a zero-byte day, and
    every rebuild is compared with the digest recorded for the
    same source revision and package set, so the claim cannot
-   regress silently. The daily rebuild cadence that depends on
-   this proof was enabled on 2026-11-21 — see "Daily rebuild
-   cadence" below.
+   regress silently. The rebuild cadence that depends on
+   this proof was enabled on 2026-11-21 and set to every two
+   days on 2026-11-25 — see "Rebuild cadence" below.
 
 Channels (stable/testing) are covered in
 [update-channels.md](update-channels.md); this document is about the
@@ -238,26 +238,30 @@ moves, the pair is new, so there is no earlier digest to compare.
 That case is the layer map's to bound, and the fingerprint at
 least makes it visible which of the two happened.
 
-## Daily rebuild cadence
+## Rebuild cadence
 
-The Ubuntu digest-pin workflow runs daily. On days when the pin
-moves, its landed bump dispatches a build as before. On days
-when the pin does not move, the run also dispatches one build,
-so archive package and security updates are picked up daily
-instead of waiting for the next Canonical base republication.
-Exactly one dispatch leaves each pin run: the two dispatch steps
+The Ubuntu digest-pin workflow still runs daily, and on days
+when the pin moves, its landed bump dispatches a build as
+before — base updates are never held for the cadence. On days
+when the pin does not move, the run dispatches a routine
+rebuild only every two days (UTC day parity; a manual dispatch
+of the pin workflow always counts as due), so archive package
+and security updates are picked up on a two-day cycle instead
+of waiting for the next Canonical base republication. The bump
+dispatch and the routine dispatch can never both fire: they
 key off opposite values of the same committed signal.
 
-This was gated on the double-build proof above, which passed on
-2026-11-21, and the cadence was enabled the same day. Enabling
-it earlier would have pushed a multi-hundred-megabyte "update"
-to every client on quiet days, which is exactly what this work
-exists to prevent. With cross-commit stability (above), a
-quiet day rebuilds to the identical digest and clients download
-nothing — even if unrelated commits landed in between; a day
-with archive changes downloads only the layers those changes
-touch, and a day whose only commits touched one image input
-downloads only that input's layers.
+The cadence was enabled daily on 2026-11-21, gated on the
+double-build proof above, and changed to every two days on
+2026-11-25. Enabling it earlier would have pushed a
+multi-hundred-megabyte "update" to every client on quiet days,
+which is exactly what this work exists to prevent. With
+cross-commit stability (above), a quiet cycle rebuilds to the
+identical digest and clients download nothing — even if
+unrelated commits landed in between; a cycle with archive
+changes downloads only the layers those changes touch, and a
+cycle whose only commits touched one image input downloads
+only that input's layers.
 
 ## Metered connections
 
