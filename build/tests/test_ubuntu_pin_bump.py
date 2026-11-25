@@ -104,6 +104,14 @@ class UbuntuPinBump(unittest.TestCase):
                          "steps.commit.outputs.committed == 'true'")
         self.assertIn("gh workflow run build.yml", dispatch["run"])
         self.assertIn("--ref main", dispatch["run"])
+        # Both dispatches retry the gh call: the endpoint answers with
+        # transient HTTP 500s (the routine dispatch died on one on its
+        # first scheduled run, 2026-11-25), and one server error must
+        # not strand a bump or a due cycle. The step still fails the
+        # run when every attempt fails.
+        for step in (dispatch, by_name["Dispatch the routine rebuild"]):
+            self.assertIn("for attempt in 1 2 3", step["run"])
+            self.assertIn("dispatch failed after three attempts", step["run"])
         # The dispatch can only follow the commit it reacts to.
         self.assertLess(names.index("Commit the pin to main"),
                         names.index("Dispatch Rowyn CI for the landed bump"))

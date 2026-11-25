@@ -177,10 +177,21 @@ jobs:
           # the new pin would sit unbuilt until an unrelated push happened
           # to run Rowyn CI on main. Starting a run by dispatch is the one
           # route the built-in token is allowed, so dispatch Rowyn CI on
-          # main now and let it build, sign and promote the new pin. If the
-          # dispatch itself is refused this step fails the run: a bump that
-          # lands but never builds has to be loud, not silent.
-          gh workflow run build.yml --repo "${{ github.repository }}" --ref main
+          # main now and let it build, sign and promote the new pin. The
+          # dispatch call itself is retried: GitHub's API answers it with
+          # transient 500s (seen 2026-11-25 on the routine dispatch), and
+          # one server error must not strand the bump. If every attempt
+          # fails this step fails the run: a bump that lands but never
+          # builds has to be loud, not silent.
+          for attempt in 1 2 3; do
+            if gh workflow run build.yml --repo "${{ github.repository }}" --ref main; then
+              exit 0
+            fi
+            echo "::warning::dispatch attempt ${attempt} failed; retrying" >&2
+            sleep 15
+          done
+          echo "::error::dispatch failed after three attempts" >&2
+          exit 1
 
       - name: Dispatch the routine rebuild
         if: steps.commit.outputs.committed != 'true' && steps.cadence.outputs.rebuild_due == 'true'
@@ -207,5 +218,16 @@ jobs:
           # signal unset, which is not 'true'). If this dispatch is
           # refused the step fails the run, for the same reason as
           # above: a silently skipped cycle is the failure mode this
-          # cadence exists to remove.
-          gh workflow run build.yml --repo "${{ github.repository }}" --ref main
+          # cadence exists to remove. The dispatch call is retried for
+          # the same reason as the bump dispatch above: on 2026-11-25
+          # this step's first scheduled execution died on a transient
+          # HTTP 500 from the dispatch endpoint.
+          for attempt in 1 2 3; do
+            if gh workflow run build.yml --repo "${{ github.repository }}" --ref main; then
+              exit 0
+            fi
+            echo "::warning::dispatch attempt ${attempt} failed; retrying" >&2
+            sleep 15
+          done
+          echo "::error::dispatch failed after three attempts" >&2
+          exit 1
