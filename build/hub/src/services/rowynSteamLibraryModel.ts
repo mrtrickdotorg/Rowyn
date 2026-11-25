@@ -41,10 +41,10 @@ export function steamStateChip(verdict: CompatVerdict | null): SteamStateChip | 
   return label ? { label, tone: `is-${verdict.status}` } : null;
 }
 
-/** The scan's own status line. It names how many folders were read and which
- * of Steam's declared folders could not be read, so an unmounted second drive
- * is stated rather than hidden behind "others may be missing". The hedge
- * survives only for the case that earns it: an unparsed folder list. */
+/** The scan's own status line: how many folders were read and what was found.
+ * The hedge survives only for the case that earns it, an unparsed folder list.
+ * What a partial scan skipped or could not reach is stated once, by
+ * `steamScanPartialNote` beside the library, rather than repeated here. */
 export function steamScanStatus(scan: SteamScan): string {
   if (!scan.available) {
     return 'Steam was not detected in the common native or Flatpak paths, so no library folder was read.';
@@ -57,13 +57,27 @@ export function steamScanStatus(scan: SteamScan): string {
   const found = scan.games.length
     ? `Detected ${scan.games.length} installed title(s) from local Steam manifests in ${where}.`
     : `No fully installed titles were found in ${where}.`;
-  const unavailable = coverage && coverage.unavailable > 0
-    ? ` ${coverage.unavailable} folder(s) Steam lists could not be read (an unmounted drive, a card that is not inserted, or a path this user cannot open), so titles on them are not listed.`
+  return `${found} Compatibility was not tested.`;
+}
+
+/** The one place the page states a partial scan: metadata items it skipped and
+ * declared folders it could not read, so an unmounted second drive is named
+ * instead of hidden behind a warning count. Empty for a clean read, and empty
+ * when Steam was not detected, since the status line already says that. */
+export function steamScanPartialNote(scan: SteamScan): string {
+  if (!scan.available) return '';
+  const unavailable = scan.libraries?.unavailable ?? 0;
+  // `warnings` counts a declared folder it could not visit too; that folder is
+  // named once below, so it is not counted a second time as a skipped item.
+  const skipped = Math.max(0, scan.warnings - unavailable);
+  if (!skipped && !unavailable) return '';
+  const items = skipped
+    ? ` ${skipped} library item(s) were skipped or unreadable, so additional titles may be missing.`
     : '';
-  const partial = scan.warnings > 0
-    ? ` ${scan.warnings} library item(s) were skipped or unreadable.`
+  const folders = unavailable
+    ? ` ${unavailable} folder(s) Steam lists could not be read (an unmounted drive, a card that is not inserted, or a path this user cannot open), so titles on them are not listed.`
     : '';
-  return `${found}${unavailable}${partial} Compatibility was not tested.`;
+  return `Partial scan:${items}${folders}`;
 }
 
 /** Alphabetical, as a library is read; ties fall back to the app id. */

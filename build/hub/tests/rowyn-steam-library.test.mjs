@@ -218,10 +218,28 @@ test('the scan status names what the folder list said', () => {
   assert.doesNotMatch(clean, /may be missing/);
   assert.doesNotMatch(clean, /Compatibility was tested/);
 
-  // An unmounted card is named, not folded into the warning count.
-  const missingFolder = m.steamScanStatus(scan({ libraries: { scanned: 2, unavailable: 1, list_read: true } }));
-  assert.match(missingFolder, /1 folder\(s\) Steam lists could not be read/);
-  assert.match(missingFolder, /unmounted drive/);
+  // An unmounted card is named once, by the partial-scan note, and the status
+  // line does not repeat it.
+  const missingFolder = scan({ warnings: 1, libraries: { scanned: 2, unavailable: 1, list_read: true } });
+  assert.doesNotMatch(m.steamScanStatus(missingFolder), /could not be read|unreadable|unmounted/);
+  const folderNote = m.steamScanPartialNote(missingFolder);
+  assert.match(folderNote, /^Partial scan:/);
+  assert.match(folderNote, /1 folder\(s\) Steam lists could not be read/);
+  assert.match(folderNote, /unmounted drive/);
+  assert.match(folderNote, /not listed/);
+  // The folder's warning is not counted a second time as a skipped item.
+  assert.doesNotMatch(folderNote, /library item\(s\)/);
+  assert.equal(folderNote.split('could not be read').length - 1, 1);
+
+  // A skipped manifest and an unreadable folder are both stated, once each.
+  const both = scan({ warnings: 3, libraries: { scanned: 3, unavailable: 1, list_read: true } });
+  const bothNote = m.steamScanPartialNote(both);
+  assert.match(bothNote, /2 library item\(s\) were skipped or unreadable/);
+  assert.match(bothNote, /1 folder\(s\) Steam lists could not be read/);
+
+  // A clean read says nothing twice.
+  assert.equal(m.steamScanPartialNote(scan({})), '');
+  assert.equal(m.steamScanPartialNote({ available: false, warnings: 0, games: [] }), '');
 
   // The hedge survives only when the list itself could not be read.
   const unlisted = m.steamScanStatus(scan({ libraries: { scanned: 1, unavailable: 0, list_read: false } }));

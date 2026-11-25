@@ -10,7 +10,7 @@ import { playSetupSteps, SETUP_MARKERS } from '../services/rowynPlaySetupModel';
 import { formatPlaytime, formatLastPlayed, recentPlayStatus } from '../services/rowynPlayRecentModel';
 import { shaderPreCachingLabel, SHADER_PRE_CACHING_TIP } from '../services/rowynPlayShaderModel';
 import { mangohudConfigLabel, mangohudConfigPath, MANGOHUD_READ_NOTE, MANGOHUD_RECOMMENDED } from '../services/rowynPlayMangohudModel';
-import { coverInitials, steamLibraryEntries, filterSteamLibrary, steamLibraryCoverage, steamLibraryCoverPlan, steamLibraryCoverageNote, steamLibraryProvenance, steamScanStatus, steamStateChip, type SteamStateFilter } from '../services/rowynSteamLibraryModel';
+import { coverInitials, steamLibraryEntries, filterSteamLibrary, steamLibraryCoverage, steamLibraryCoverPlan, steamLibraryCoverageNote, steamLibraryProvenance, steamScanStatus, steamScanPartialNote, steamStateChip, type SteamStateFilter } from '../services/rowynSteamLibraryModel';
 import { CONTROLLER_READ_NOTE, controllerAdvice, controllerSummary } from '../services/rowynControllerModel';
 import { HELPER_EXAMPLES, GAMING_HELPERS_NOTE, TUNE_ADMIN_NOTE, TUNE_OFF_NOTE, HOST_ONLY_NOTE, gamingTuneLabel, tuneIsOn } from '../services/rowynPlayHelpersModel';
 import { copyText } from '../services/rowynClipboard';
@@ -200,6 +200,9 @@ export function Play() {
   const libraryVisible = filterSteamLibrary(libraryEntries, libraryQuery, libraryFilter);
   const libraryCoverPlan = steamLibraryCoverPlan(libraryVisible);
   const libraryCoverage = steamLibraryCoverage(libraryEntries);
+  // Partial-scan detail is stated once, here beside the library, not in the
+  // status line above it.
+  const partialNote = steamScan ? steamScanPartialNote(steamScan) : '';
   return <div className="page-content rowyn-mvp">
     <section className="glass dashboard-card" id="hub-section-gaming">
       <span className="home-eyebrow">Rowyn Play · MVP</span><h1>Play</h1>
@@ -379,7 +382,7 @@ export function Play() {
           </div>
         </article>;
       })}</div>}
-      {!!steamScan?.warnings && <p className="card-copy" role="status">Partial scan: skipped or unreadable library metadata may hide additional titles.{steamScan.libraries && steamScan.libraries.unavailable > 0 ? ` ${steamScan.libraries.unavailable} folder(s) Steam lists could not be read, so titles on them are not listed.` : ''}</p>}
+      {!!partialNote && <p className="card-copy" role="status">{partialNote}</p>}
     </section>
     <section className="glass dashboard-card" id="hub-section-compatibility"><h2>Compatibility &amp; anti-cheat</h2>
       <p className="card-copy">Kernel-level Windows anti-cheat generally cannot run under Proton. Easy Anti-Cheat and BattlEye support requires the game developer to enable Linux/Proton support; the middleware name alone proves nothing. Check the exact title and multiplayer mode before buying or installing.</p>
