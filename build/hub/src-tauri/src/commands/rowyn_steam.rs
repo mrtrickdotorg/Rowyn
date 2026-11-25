@@ -32,6 +32,11 @@ const MAX_COVER_BYTES: u64 = 768 * 1024;
 /// Across one scan: room for a large library, still one bounded message.
 const MAX_COVER_TOTAL_BYTES: usize = 8 * 1024 * 1024;
 const MAX_COVER_VARIANTS: usize = 32;
+/// Steam's per-app `LaunchOptions` field is short (the Play page lets a player
+/// append 200 characters to a generated command). A longer value is clamped for
+/// display, and the reconciliation then reports drift rather than a match it
+/// cannot prove.
+const MAX_LAUNCH_OPTIONS_CHARS: usize = 1024;
 /// Preferred artwork first: the 600×900 capsule is the portrait cover.
 const COVER_NAMES: [&str; 4] = [
     "library_600x900.jpg",
@@ -51,12 +56,20 @@ pub(crate) struct SteamGame {
     /// has its own /usr and no GameMode client library, so a preload cannot
     /// register the game.
     container: bool,
+    /// The launch options Steam itself records for this title, from the most
+    /// recently used account's `localconfig.vdf`. `None` means Steam has none
+    /// recorded for it; whether the profile could be read at all is reported
+    /// once, on `SteamScan::launch_options_read`.
+    launch_options: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub(crate) struct SteamScan {
     available: bool,
     warnings: usize,
+    /// A per-account profile was parsed, so a `None` launch_options means
+    /// "Steam recorded nothing" rather than "not known".
+    launch_options_read: bool,
     games: Vec<SteamGame>,
 }
 
@@ -362,6 +375,7 @@ fn parse_manifest(path: &Path, expected_id: &str, warnings: &mut usize) -> Optio
         name: name.to_string(),
         cover: None,
         container: false,
+        launch_options: None,
     })
 }
 
@@ -400,6 +414,7 @@ fn scan_steam_libraries(home: &Path, with_covers: bool) -> SteamScan {
         return SteamScan {
             available: false,
             warnings: 0,
+            launch_options_read: false,
             games: Vec::new(),
         };
     }
@@ -483,6 +498,13 @@ fn scan_steam_libraries(home: &Path, with_covers: bool) -> SteamScan {
                 .is_some_and(|tool| launches_in_container(&tool));
         }
     }
+    // What Steam will actually run, read back per title. The page compares this
+    // with the command it builds, so a saved profile is never presented as if
+    // it were applied.
+    let (launch_options_read, recorded) = scan_launch_options(&roots, &mut warnings);
+    for game in &mut games {
+        game.launch_options = recorded.get(&game.app_id).cloned();
+    }
     // Covers are the one part of the scan that reads image bytes; they are
     // attached under a per-file and per-scan budget, and only for the explicit
     // library scan — the recent-play read asks for names alone.
@@ -512,6 +534,7 @@ fn scan_steam_libraries(home: &Path, with_covers: bool) -> SteamScan {
     SteamScan {
         available: true,
         warnings,
+        launch_options_read,
         games,
     }
 }
@@ -614,6 +637,162 @@ pub(crate) async fn rowyn_steam_games_scan() -> Result<SteamScan, String> {
     tauri::async_runtime::spawn_blocking(move || scan_steam_libraries(&home, true))
         .await
         .map_err(|error| format!("Steam library scan did not complete: {error}"))
+}
+
+// --- Recorded launch options ----------------------------------------------
+// The per-account profile is the only place Steam records the launch options a
+// title will really run with. Reading that back is what lets the Play page say
+// whether the command it built is in effect, instead of showing a saved profile
+// as though it had been applied. Read-only: nothing here writes Steam's files,
+// starts Steam or launches a game.
+
+fn valid_account_id(account: &str) -> bool {
+    !account.is_empty() && account.len() <= 32 && account.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+/// Steam's app keys are written as decimals; normalizing through `u32` makes a
+/// zero-padded key match the manifest's own id.
+fn normalized_app_id(app_id: &str) -> Option<String> {
+    app_id
+        .parse::<u32>()
+        .ok()
+        .filter(|id| *id > 0)
+        .map(|id| id.to_string())
+}
+
+fn clamp_chars(value: &str, limit: usize) -> String {
+    if value.chars().count() <= limit {
+        return value.to_string();
+    }
+    let mut clamped: String = value.chars().take(limit).collect();
+    clamped.push('…');
+    clamped
+}
+
+/// The account Steam last used, from the `MostRecent` flag in
+/// `config/loginusers.vdf` (falling back to the newest `Timestamp`). This file
+/// is optional and often absent, so a missing one is not a failed read.
+fn most_recent_account(root: &Path) -> Option<String> {
+    let path = root.join("config/loginusers.vdf");
+    let mut ignored = 0;
+    let source = read_bounded_text(&path, MAX_VDF_BYTES, &mut ignored)?;
+    let parsed = parse_vdf(&source).ok()?;
+    let users = object(&parsed, "users")?;
+    let mut newest: Option<(u64, String)> = None;
+    for (account, value) in users {
+        let Value::Object(fields) = value else {
+            continue;
+        };
+        if !valid_account_id(account) {
+            continue;
+        }
+        if text(fields, "MostRecent") == Some("1") {
+            return Some(account.clone());
+        }
+        let timestamp = text(fields, "Timestamp")
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(0);
+        let newer = match &newest {
+            Some((best, _)) => timestamp > *best,
+            None => true,
+        };
+        if newer {
+            newest = Some((timestamp, account.clone()));
+        }
+    }
+    newest.map(|(_, account)| account)
+}
+
+/// One account's recorded launch options, keyed by normalized app id. Empty
+/// values are skipped: Steam writes `"LaunchOptions" ""` for a title whose
+/// options were cleared, which is the same as none recorded.
+fn recorded_launch_options(apps: &[(String, Value)]) -> BTreeMap<String, String> {
+    let mut recorded = BTreeMap::new();
+    for (app_id, value) in apps.iter().take(MAX_RECENT_APPS) {
+        let Value::Object(fields) = value else {
+            continue;
+        };
+        let Some(app_id) = normalized_app_id(app_id) else {
+            continue;
+        };
+        let Some(options) = text(fields, "LaunchOptions") else {
+            continue;
+        };
+        let options = options.trim();
+        if options.is_empty() {
+            continue;
+        }
+        recorded.insert(app_id, clamp_chars(options, MAX_LAUNCH_OPTIONS_CHARS));
+    }
+    recorded
+}
+
+/// `(profile_read, launch options by app id)`. The active account decides,
+/// because that is whose options Steam will run; when `loginusers.vdf` cannot
+/// name it, the profile carrying the most recorded state is the best evidence
+/// of the account in use rather than a guess at a name.
+fn scan_launch_options(
+    roots: &[PathBuf],
+    warnings: &mut usize,
+) -> (bool, BTreeMap<String, String>) {
+    let mut accounts: Vec<(String, BTreeMap<String, String>)> = Vec::new();
+    for root in roots {
+        let entries = match fs::read_dir(root.join("userdata")) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(_) => {
+                *warnings += 1;
+                continue;
+            }
+        };
+        let mut directory_entries = 0;
+        for entry in entries {
+            directory_entries += 1;
+            if directory_entries > MAX_DIRECTORY_ENTRIES {
+                *warnings += 1;
+                break;
+            }
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(_) => {
+                    *warnings += 1;
+                    continue;
+                }
+            };
+            let account = entry.file_name();
+            let account = account.to_string_lossy();
+            if !valid_account_id(&account) {
+                continue;
+            }
+            let path = entry.path().join("config/localconfig.vdf");
+            if !path.is_file() {
+                continue;
+            }
+            if accounts.len() >= MAX_ACCOUNTS {
+                *warnings += 1;
+                break;
+            }
+            let Some(apps) = local_config_apps(&path, warnings) else {
+                continue;
+            };
+            accounts.push((account.to_string(), recorded_launch_options(&apps)));
+        }
+    }
+    if accounts.is_empty() {
+        return (false, BTreeMap::new());
+    }
+    if let Some(recent) = roots.iter().find_map(|root| most_recent_account(root)) {
+        if let Some((_, recorded)) = accounts.iter().find(|(account, _)| *account == recent) {
+            return (true, recorded.clone());
+        }
+    }
+    let mut best = BTreeMap::new();
+    for (_, recorded) in &accounts {
+        if recorded.len() > best.len() {
+            best = recorded.clone();
+        }
+    }
+    (true, best)
 }
 
 // --- Recently played ------------------------------------------------------

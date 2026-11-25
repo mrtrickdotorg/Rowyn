@@ -136,7 +136,14 @@ and its date is shown in the library section rather than repeated on each
 card. Links use the Hub's system-browser bridge.
 
 Launch options are per-game copy-only text, not saved config or an execution
-bridge. Host wrappers are for an already-installed host-native launcher. They
+bridge: the page never writes Steam's configuration. It does read back what
+Steam has recorded for a title — `userdata/<account>/config/localconfig.vdf` →
+`apps/<appid>/LaunchOptions`, from the account Steam used last — and compares it
+with the command it would build, so every card says **In sync**, **Drift**
+(naming Steam's own text), **Not applied**, or **Not checked** when the profile
+could not be read. A saved profile is a choice the player still has to paste in,
+never evidence that it is in effect. Host wrappers are for an already-installed
+host-native launcher. They
 are **not generally accessible inside Flatpak Steam**; the sandbox default is
 `%command%`. The page neither installs a native launcher nor recommends a
 sandbox escape. Mimalloc is experimental and opt-in per game; no custom

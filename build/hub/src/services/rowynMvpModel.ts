@@ -44,8 +44,19 @@ export interface SteamGame {
   /** Steam plays this title inside a Proton/Steam Linux Runtime container,
    * whose own /usr has no GameMode client library. */
   container?: boolean;
+  /** The launch options Steam records for this title in the active account's
+   * localconfig.vdf. Absent when Steam has none recorded for it; whether the
+   * profile could be read at all is `SteamScan.launch_options_read`. */
+  launch_options?: string | null;
 }
-export interface SteamScan { available: boolean; warnings: number; games: SteamGame[] }
+export interface SteamScan {
+  available: boolean;
+  warnings: number;
+  /** A per-account profile was parsed, so an empty launch_options means
+   * "Steam recorded nothing" rather than "not known". */
+  launch_options_read?: boolean;
+  games: SteamGame[];
+}
 
 /**
  * Curated compatibility verdicts from the shipped compat_games.json

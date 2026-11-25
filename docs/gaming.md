@@ -69,7 +69,10 @@ Flathub:
 The Play page checks which of these are installed for the runtime
 branch Steam actually uses, installs the missing ones, and its
 launch-options builder — including the per-game profiles — composes
-the MangoHud and vkBasalt switches.
+the MangoHud and vkBasalt switches. It also reads back the launch options
+Steam has recorded for each title and says whether the saved profile's command
+is what Steam will run, so a profile that was never pasted in shows as drift
+rather than as applied.
 
 MangoHud's settings live inside the Flathub sandbox at
 `~/.var/app/com.valvesoftware.Steam/config/MangoHud/MangoHud.conf`, and a

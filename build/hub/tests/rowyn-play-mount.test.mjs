@@ -412,3 +412,21 @@ test('per-game GameMode is offered only where the sandbox client can reach the g
   assert.match(text, /cannot load the client at all/);
   mount.unmount();
 });
+
+test('a card names the drift between the built command and what Steam records', async () => {
+  const games = [
+    { app_id: '620', name: 'Portal 2', cover: null, container: false, launch_options: 'MANGOHUD=1 %command%' },
+  ];
+  const { mount } = mountWith({
+    rowyn_steam_games_scan: { available: true, warnings: 0, launch_options_read: true, games },
+  });
+  await mount.settle();
+  await byText(mount.tree, 'Scan Steam games', 'button').props.onClick();
+  await mount.settle();
+  const text = textOf(mount.tree);
+  // The default profile builds no options, so Steam's own text is the drift.
+  assert.match(text, /Drift/);
+  assert.match(text, /this profile does not include/);
+  assert.match(text, /MANGOHUD=1 %command%/);
+  mount.unmount();
+});

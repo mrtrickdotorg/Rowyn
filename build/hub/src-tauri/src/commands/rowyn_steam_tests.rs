@@ -650,3 +650,105 @@ fn a_proton_title_is_flagged_as_a_container_launch_in_the_scan() {
     let shifted = scan_steam_libraries(home, false);
     assert!(shifted.games.iter().all(|game| game.container));
 }
+
+fn profile_with_launch_options(entries: &[(&str, &str)]) -> String {
+    let mut out = String::from(
+        "\"UserLocalConfigStore\"\n{\n\t\"Software\"\n\t{\n\t\t\"Valve\"\n\t\t{\n\t\t\t\"Steam\"\n\t\t\t{\n\t\t\t\t\"apps\"\n\t\t\t\t{\n",
+    );
+    for (app_id, options) in entries {
+        out.push_str(&format!(
+            "\t\t\t\t\t\"{app_id}\"\n\t\t\t\t\t{{\n\t\t\t\t\t\t\"LaunchOptions\"\t\t\"{options}\"\n\t\t\t\t\t}}\n"
+        ));
+    }
+    out.push_str("\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n}\n");
+    out
+}
+
+fn write_login_users(home: &Path, entries: &[(&str, bool, u64)]) {
+    let config = home.join(".local/share/Steam/config");
+    fs::create_dir_all(&config).unwrap();
+    let mut body = String::from("\"users\"\n{\n");
+    for (account, most_recent, timestamp) in entries {
+        body.push_str(&format!(
+            "\t\"{account}\"\n\t{{\n\t\t\"Timestamp\"\t\t\"{timestamp}\"\n\t\t\"MostRecent\"\t\t\"{}\"\n\t}}\n",
+            if *most_recent { "1" } else { "0" }
+        ));
+    }
+    body.push_str("}\n");
+    fs::write(config.join("loginusers.vdf"), body).unwrap();
+}
+
+#[test]
+fn recorded_launch_options_come_from_the_account_steam_used_last() {
+    let temporary = tempfile::tempdir().unwrap();
+    let home = temporary.path();
+    let steam = home.join(".local/share/Steam");
+    write_game(&steam, 620, "Portal 2", 4);
+    write_game(&steam, 570, "Dota 2", 4);
+
+    // Steam installed but never run here: nothing to reconcile, and the scan
+    // says the profile was not read rather than claiming no options exist.
+    let unread = scan_steam_libraries(home, false);
+    assert!(!unread.launch_options_read);
+    assert!(unread.games.iter().all(|game| game.launch_options.is_none()));
+
+    write_profile(
+        home,
+        "111",
+        &profile_with_launch_options(&[("620", "MANGOHUD=1 %command%")]),
+    );
+    write_profile(
+        home,
+        "222",
+        &profile_with_launch_options(&[("570", "gamemoderun %command%")]),
+    );
+    // 222 is the account Steam used last, so its options are the ones that
+    // would run — not the other account's, and not a merge of both.
+    write_login_users(
+        home,
+        &[("111", false, 1_700_000_000), ("222", true, 1_760_000_000)],
+    );
+    let scan = scan_steam_libraries(home, false);
+    assert!(scan.launch_options_read);
+    let portal = scan.games.iter().find(|game| game.app_id == "620").unwrap();
+    let dota = scan.games.iter().find(|game| game.app_id == "570").unwrap();
+    assert_eq!(portal.launch_options, None);
+    assert_eq!(dota.launch_options.as_deref(), Some("gamemoderun %command%"));
+    let json = serde_json::to_string(&scan).unwrap();
+    assert!(!json.contains("111"));
+    assert!(!json.contains("222"));
+
+    // Switching the active account switches which text the page reconciles
+    // against, because that is the text Steam would run.
+    write_login_users(
+        home,
+        &[("111", true, 1_760_000_000), ("222", false, 1_700_000_000)],
+    );
+    let switched = scan_steam_libraries(home, false);
+    let portal = switched.games.iter().find(|game| game.app_id == "620").unwrap();
+    let dota = switched.games.iter().find(|game| game.app_id == "570").unwrap();
+    assert_eq!(portal.launch_options.as_deref(), Some("MANGOHUD=1 %command%"));
+    assert_eq!(dota.launch_options, None);
+}
+
+#[test]
+fn launch_option_reads_fail_closed_instead_of_inventing_an_empty_state() {
+    let temporary = tempfile::tempdir().unwrap();
+    let home = temporary.path();
+    let steam = home.join(".local/share/Steam");
+    write_game(&steam, 620, "Portal 2", 4);
+
+    // Steam writes an empty value when a player clears the field; that is the
+    // same as none recorded, not a command that could accidentally match.
+    write_profile(home, "123", &profile_with_launch_options(&[("620", "")]));
+    let cleared = scan_steam_libraries(home, false);
+    assert!(cleared.launch_options_read);
+    assert_eq!(cleared.games[0].launch_options, None);
+
+    // An unparseable profile is a failed read, and it stays visible as one.
+    write_profile(home, "123", "not a vdf {");
+    let broken = scan_steam_libraries(home, false);
+    assert!(!broken.launch_options_read);
+    assert!(broken.warnings > 0);
+    assert_eq!(broken.games[0].launch_options, None);
+}

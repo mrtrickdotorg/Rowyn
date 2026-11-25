@@ -4,6 +4,7 @@ import { cancelInstall, fetchInstalledFlatpaks, installFlatpak, uninstallFlatpak
 import { rowynControllerScan, openRowynLauncher, rowynSteamGamesScan, rowynSteamRecentPlay, rowynSteamShaderCache, rowynSteamPlayStatus, rowynSteamPlayApply, rowynDisplayModesScan, rowynVulkanLayersScan, rowynVulkanLayerInstall, rowynMangohudConfig, rowynSunshineStatus, rowynSunshineFirewallOpen, rowynSunshineAutostartEnable, rowynGamescopeStatus, rowynGamemodeStatus, rowynGamingHelpersStatus, rowynGamingTuneApply, type SteamPlayStatus, type DisplayModes, type VulkanLayers, type MangohudConfig, type SunshineStatus, type GamescopeStatus, type GamemodeStatus, type RecentPlay, type ShaderCacheStatus, type ControllerReport, type GamingHelpers } from '../services/rowynMvp';
 import { LAUNCHERS, launcherState, installLauncher, createPlayStatusOwner, launchOptions, steamCompatibilityLinks, compatVerdict, compatReviewedOn, compatVerdictCount, type SteamScan } from '../services/rowynMvpModel';
 import { loadProfiles, saveProfiles, profileFor, isDefaultProfile, assembleProfileOptions, type GameProfile } from '../services/rowynPlayProfilesModel';
+import { reconcileLaunchOptions } from '../services/rowynPlayLaunchOptionsModel';
 import { openRowynSettings } from '../services/rowynSettings';
 import { playSetupSteps, SETUP_MARKERS } from '../services/rowynPlaySetupModel';
 import { formatPlaytime, formatLastPlayed, recentPlayStatus } from '../services/rowynPlayRecentModel';
@@ -332,6 +333,15 @@ export function Play() {
           gamemode: gamemodeUsable && !containerLaunch ? profile.gamemode : false,
         };
         const assembled = assembleProfileOptions(boundary, profileForAssembly);
+        // The saved profile is a choice; Steam's own recorded options are what
+        // it will run. Reconcile the two so drift is named, not hidden behind
+        // a profile that was never pasted in.
+        const drift = reconcileLaunchOptions({
+          assembled,
+          recorded: item.launch_options ?? null,
+          read: steamScan?.launch_options_read === true,
+          defaultProfile: isDefaultProfile(profile),
+        });
         return <article className="rowyn-library-card" key={item.app_id}>
           {item.cover
             ? <img className="rowyn-library-cover" src={item.cover} alt={`${item.name} — Steam’s locally cached cover art`} loading="lazy" />
@@ -356,6 +366,10 @@ export function Play() {
           <label><input type="checkbox" checked={profile.mimalloc} disabled={boundary === 'flatpak'} onChange={(event) => updateProfile(item.app_id, { mimalloc: event.target.checked })} /> mimalloc allocator wrapper (host only, experimental)</label>
           <label>Extra launch options (kept verbatim)<input value={profile.extra} maxLength={200} onChange={(event) => updateProfile(item.app_id, { extra: event.target.value })} placeholder="e.g. -high or PROTON_LOG=1" /></label>
           <p className="card-copy">Launch options: <code>{assembled}</code></p>
+          <p className="card-copy" data-drift={drift.state}>
+            <span className={`rowyn-state${drift.state === 'matches' ? ' is-native' : drift.state === 'differs' ? ' is-blocked' : ''}`}>{drift.label}</span>{' '}{drift.detail}
+            {drift.state === 'differs' && drift.recorded && <> Steam’s recorded text: <code>{drift.recorded}</code>.</>}
+          </p>
           <div className="home-actions"><button className="action-button" onClick={() => void copyText(assembled)}>Copy launch options</button>
           {!isDefaultProfile(profile) && <button className="action-button" onClick={() => updateProfile(item.app_id, { mangohud: false, vkbasalt: false, gamescope: false, gamemode: false, gaming: false, mimalloc: false, extra: '' })}>Reset profile</button>}</div>
                   <div className="home-actions"><ExternalLink href={links.protondb}>ProtonDB community reports</ExternalLink>
