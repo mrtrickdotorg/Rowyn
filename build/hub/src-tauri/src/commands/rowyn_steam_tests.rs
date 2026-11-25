@@ -59,6 +59,87 @@ fn scans_native_and_flatpak_libraries_without_exposing_paths() {
 }
 
 #[test]
+fn declared_library_folders_are_scanned_including_legacy_entries() {
+    let temporary = tempfile::tempdir().unwrap();
+    let home = temporary.path();
+    let steam = home.join(".local/share/Steam");
+    let card = home.join("sd-card/SteamLibrary");
+    write_game(&steam, 620, "Portal 2", 4);
+    write_game(&card, 570, "Dota 2", 4);
+    fs::write(
+        steam.join("steamapps/libraryfolders.vdf"),
+        format!(
+            "\"libraryfolders\"\n{{\n\t\"0\"\n\t{{\n\t\t\"path\"\t\t\"{}\"\n\t}}\n\t\"1\"\n\t{{\n\t\t\"path\"\t\t\"{}\"\n\t}}\n\t\"2\"\t\t\"/media/removable/not-mounted\"\n}}\n",
+            steam.display(),
+            card.display()
+        ),
+    )
+    .unwrap();
+
+    let scan = scan_steam_libraries(home, false);
+    // A title Steam declared on another drive is found, not left behind the
+    // common-path install, and the old plain-value entry form is read too.
+    assert_eq!(
+        scan.games
+            .iter()
+            .map(|game| game.app_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["570", "620"]
+    );
+    assert!(scan.libraries.list_read);
+    assert_eq!(scan.libraries.scanned, 2);
+    // The unmounted entry is stated, not folded into a generic warning count.
+    assert_eq!(scan.libraries.unavailable, 1);
+    let json = serde_json::to_string(&scan).unwrap();
+    assert!(!json.contains("sd-card"));
+    assert!(!json.contains("not-mounted"));
+}
+
+#[test]
+fn two_steam_installs_declaring_one_library_folder_scan_it_once() {
+    let temporary = tempfile::tempdir().unwrap();
+    let home = temporary.path();
+    let native = home.join(".local/share/Steam");
+    let flatpak = home.join(".var/app/com.valvesoftware.Steam/.local/share/Steam");
+    let shared = home.join("mnt/games");
+    write_game(&native, 620, "Portal 2", 4);
+    write_game(&flatpak, 440, "Team Fortress 2", 4);
+    write_game(&shared, 570, "Dota 2", 4);
+    for root in [&native, &flatpak] {
+        fs::write(
+            root.join("steamapps/libraryfolders.vdf"),
+            format!(
+                "\"libraryfolders\"\n{{\n\t\"0\" {{ \"path\" \"{}\" }}\n\t\"1\" {{ \"path\" \"{}\" }}\n}}\n",
+                root.display(),
+                shared.display()
+            ),
+        )
+        .unwrap();
+    }
+
+    let scan = scan_steam_libraries(home, false);
+    // Both installs plus the shared folder are read, once each.
+    assert_eq!(scan.libraries.scanned, 3);
+    assert_eq!(scan.libraries.unavailable, 0);
+    assert!(scan.libraries.list_read);
+    assert_eq!(scan.games.len(), 3);
+}
+
+#[test]
+fn a_steam_install_without_a_folder_list_says_the_list_was_not_read() {
+    let temporary = tempfile::tempdir().unwrap();
+    let home = temporary.path();
+    let steam = home.join(".local/share/Steam");
+    write_game(&steam, 620, "Portal 2", 4);
+    let scan = scan_steam_libraries(home, false);
+    assert!(scan.available);
+    // Only the install folder is known, and the page is told why.
+    assert!(!scan.libraries.list_read);
+    assert_eq!(scan.libraries.scanned, 1);
+    assert_eq!(scan.libraries.unavailable, 0);
+}
+
+#[test]
 fn missing_steam_install_is_unavailable_not_an_empty_library() {
     let temporary = tempfile::tempdir().unwrap();
     let result = scan_steam_libraries(temporary.path(), false);

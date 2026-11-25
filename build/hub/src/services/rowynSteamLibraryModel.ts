@@ -4,7 +4,7 @@
 // many covers the local read actually returned. Nothing here measures, fetches
 // or infers a verdict.
 
-import type { CompatVerdict, SteamGame } from './rowynMvpModel';
+import type { CompatVerdict, SteamGame, SteamScan } from './rowynMvpModel';
 
 export interface SteamStateChip {
   label: string;
@@ -39,6 +39,31 @@ export function steamStateChip(verdict: CompatVerdict | null): SteamStateChip | 
   if (!verdict) return null;
   const label = CHIPS[verdict.status];
   return label ? { label, tone: `is-${verdict.status}` } : null;
+}
+
+/** The scan's own status line. It names how many folders were read and which
+ * of Steam's declared folders could not be read, so an unmounted second drive
+ * is stated rather than hidden behind "others may be missing". The hedge
+ * survives only for the case that earns it: an unparsed folder list. */
+export function steamScanStatus(scan: SteamScan): string {
+  if (!scan.available) {
+    return 'Steam was not detected in the common native or Flatpak paths, so no library folder was read.';
+  }
+  const coverage = scan.libraries;
+  const folders = coverage?.scanned ?? 0;
+  const where = coverage?.list_read
+    ? `${folders} library folder(s) Steam lists`
+    : 'the Steam install folder — its libraryfolders.vdf could not be read, so a folder on another drive may be missing';
+  const found = scan.games.length
+    ? `Detected ${scan.games.length} installed title(s) from local Steam manifests in ${where}.`
+    : `No fully installed titles were found in ${where}.`;
+  const unavailable = coverage && coverage.unavailable > 0
+    ? ` ${coverage.unavailable} folder(s) Steam lists could not be read (an unmounted drive, a card that is not inserted, or a path this user cannot open), so titles on them are not listed.`
+    : '';
+  const partial = scan.warnings > 0
+    ? ` ${scan.warnings} library item(s) were skipped or unreadable.`
+    : '';
+  return `${found}${unavailable}${partial} Compatibility was not tested.`;
 }
 
 /** Alphabetical, as a library is read; ties fall back to the app id. */

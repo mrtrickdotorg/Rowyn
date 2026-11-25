@@ -48,13 +48,20 @@ a starting point, not a fault). Each of those sections keeps its own button
 for a fresh read.
 The MVP detects launcher installations with explicit scans. Steam game discovery
 is a separate, opt-in read-only scan of bounded `libraryfolders.vdf` and
-`appmanifest_*.acf` metadata in common native/Flatpak Steam locations. It
-includes external libraries Steam lists but does not read game files, reveal
-library paths, launch games, or make compatibility claims. A missing install or
-partial metadata read is shown as unknown/partial rather than a clean empty
-library. ProtonDB links are generated only from validated numeric app IDs and
-lead to community reports; they are not Rowyn test results. Custom Steam roots
-outside the locations discovered from Steam's metadata may be missed.
+`appmanifest_*.acf` metadata. Each native and Flatpak Steam install is located
+at its common path, and every library folder that install declares — a second
+drive, an external SSD, an SD card, including the older plain-value form of the
+list — is scanned in turn, so a title is not left out because it lives
+elsewhere. It reads no game files, reveals no library paths, launches no game
+and makes no compatibility claim. The scan reports how many folders it read and
+how many that Steam lists could not be read (an unmounted drive, a card that is
+not inserted, a path this user cannot open), so those titles are stated as
+missing rather than implied by a generic warning; an unparsed folder list is
+reported as such. A missing install or partial metadata read is shown as
+unknown/partial rather than a clean empty library. ProtonDB links are generated
+only from validated numeric app IDs and lead to community reports; they are not
+Rowyn test results. Steam roots that no manifest or configuration metadata
+points at remain outside this scan.
 
 **The library comes first.** Detected titles are sorted for reading and shown
 with Steam's own cached cover art from `appcache/librarycache` — the 600×900

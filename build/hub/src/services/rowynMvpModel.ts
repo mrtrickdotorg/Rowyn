@@ -49,12 +49,23 @@ export interface SteamGame {
    * profile could be read at all is `SteamScan.launch_options_read`. */
   launch_options?: string | null;
 }
+export interface SteamLibraryCoverage {
+  /** Distinct folders the scan read; the install root counts as one. */
+  scanned: number;
+  /** Folders Steam lists that could not be read: an unmounted drive, a card
+   * that is not inserted, or a path this user cannot open. */
+  unavailable: number;
+  /** `libraryfolders.vdf` was parsed, so a declared folder was visited or
+   * counted rather than skipped. */
+  list_read: boolean;
+}
 export interface SteamScan {
   available: boolean;
   warnings: number;
   /** A per-account profile was parsed, so an empty launch_options means
    * "Steam recorded nothing" rather than "not known". */
   launch_options_read?: boolean;
+  libraries?: SteamLibraryCoverage;
   games: SteamGame[];
 }
 

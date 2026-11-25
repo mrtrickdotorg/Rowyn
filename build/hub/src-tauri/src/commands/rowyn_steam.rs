@@ -70,7 +70,22 @@ pub(crate) struct SteamScan {
     /// A per-account profile was parsed, so a `None` launch_options means
     /// "Steam recorded nothing" rather than "not known".
     launch_options_read: bool,
+    /// What the folder list itself said, so a title on an unreadable second
+    /// drive is named as such instead of disappearing behind a warning count.
+    libraries: LibraryCoverage,
     games: Vec<SteamGame>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct LibraryCoverage {
+    /// Distinct folders this scan read; the install root counts as one.
+    scanned: usize,
+    /// Folders Steam lists that this scan could not read: an unmounted drive, a
+    /// card that is not inserted, or a path this user cannot open.
+    unavailable: usize,
+    /// `libraryfolders.vdf` was parsed, so a declared folder was visited or
+    /// counted rather than skipped.
+    list_read: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -242,24 +257,40 @@ fn valid_library_path(path: &str) -> bool {
         && Path::new(path).is_absolute()
 }
 
-fn library_paths(root: &Path, warnings: &mut usize) -> Vec<PathBuf> {
-    let mut paths = vec![root.to_path_buf()];
+/// One Steam install's folder list. `libraryfolders.vdf` is the only place a
+/// second drive, external SSD or SD card is declared, so it is parsed whenever
+/// it exists and every declared folder is visited — the common install path
+/// alone would hide those titles.
+struct LibraryList {
+    paths: Vec<PathBuf>,
+    /// The list was parsed, so a declared folder was visited or counted.
+    list_read: bool,
+    /// Declared folders this scan could not read.
+    unavailable: usize,
+}
+
+fn library_list(root: &Path, warnings: &mut usize) -> LibraryList {
+    let mut list = LibraryList {
+        paths: vec![root.to_path_buf()],
+        list_read: false,
+        unavailable: 0,
+    };
     let file = root.join("steamapps/libraryfolders.vdf");
     let metadata = match fs::symlink_metadata(&file) {
         Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => metadata,
         Ok(_) => {
             *warnings += 1;
-            return paths;
+            return list;
         }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return paths,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return list,
         Err(_) => {
             *warnings += 1;
-            return paths;
+            return list;
         }
     };
     if metadata.len() > MAX_VDF_BYTES {
         *warnings += 1;
-        return paths;
+        return list;
     }
     let mut source = String::new();
     if File::open(&file)
@@ -268,42 +299,50 @@ fn library_paths(root: &Path, warnings: &mut usize) -> Vec<PathBuf> {
         || source.len() as u64 > MAX_VDF_BYTES
     {
         *warnings += 1;
-        return paths;
+        return list;
     }
     let parsed = match parse_vdf(&source) {
         Ok(parsed) => parsed,
         Err(_) => {
             *warnings += 1;
-            return paths;
+            return list;
         }
     };
     let Some(libraries) = object(&parsed, "libraryfolders") else {
         *warnings += 1;
-        return paths;
+        return list;
     };
+    list.list_read = true;
     for (_, entry) in libraries {
-        let Value::Object(fields) = entry else {
-            continue;
-        };
-        let Some(path) = text(fields, "path") else {
-            continue;
+        // Current Steam writes an object per library; older clients wrote the
+        // path as the entry's own value, which still names a real folder.
+        let path = match entry {
+            Value::Object(fields) => match text(fields, "path") {
+                Some(path) => path,
+                None => continue,
+            },
+            Value::Text(path) => path.as_str(),
+            _ => continue,
         };
         if !valid_library_path(path) {
             *warnings += 1;
             continue;
         }
-        if paths.len() >= MAX_LIBRARIES {
+        if list.paths.len() >= MAX_LIBRARIES {
             *warnings += 1;
             break;
         }
         let path = PathBuf::from(path);
         if path.is_dir() {
-            paths.push(path);
+            list.paths.push(path);
         } else {
+            // An unmounted drive or an unreadable mount is counted, not
+            // dropped: the page names it instead of implying a clean scan.
+            list.unavailable += 1;
             *warnings += 1;
         }
     }
-    paths
+    list
 }
 
 fn parse_manifest(path: &Path, expected_id: &str, warnings: &mut usize) -> Option<SteamGame> {
@@ -415,13 +454,23 @@ fn scan_steam_libraries(home: &Path, with_covers: bool) -> SteamScan {
             available: false,
             warnings: 0,
             launch_options_read: false,
+            libraries: LibraryCoverage {
+                scanned: 0,
+                unavailable: 0,
+                list_read: false,
+            },
             games: Vec::new(),
         };
     }
     let mut warnings = 0;
     let mut libraries = Vec::new();
+    let mut unavailable = 0usize;
+    let mut list_read = false;
     for root in &roots {
-        for library in library_paths(root, &mut warnings) {
+        let list = library_list(root, &mut warnings);
+        list_read |= list.list_read;
+        unavailable += list.unavailable;
+        for library in list.paths {
             let canonical = library.canonicalize().unwrap_or(library);
             if libraries.len() < MAX_LIBRARIES && !libraries.contains(&canonical) {
                 libraries.push(canonical);
@@ -441,6 +490,9 @@ fn scan_steam_libraries(home: &Path, with_covers: bool) -> SteamScan {
         let source = fs::read_to_string(&path).ok()?;
         tokenize_spans(&source).ok()
     });
+    // Count before the list is consumed: this is how many folders the scan
+    // actually read, including any Steam declared on another drive.
+    let scanned_libraries = libraries.len();
     let mut games = BTreeMap::new();
     let mut examined = 0;
     for library in libraries {
@@ -535,6 +587,11 @@ fn scan_steam_libraries(home: &Path, with_covers: bool) -> SteamScan {
         available: true,
         warnings,
         launch_options_read,
+        libraries: LibraryCoverage {
+            scanned: scanned_libraries,
+            unavailable,
+            list_read,
+        },
         games,
     }
 }

@@ -203,3 +203,30 @@ test('the model projects, it does not fetch or measure', () => {
     assert.ok(['function', 'string', 'number'].includes(typeof m[name]), name);
   }
 });
+
+test('the scan status names what the folder list said', () => {
+  const scan = (over) => ({
+    available: true,
+    warnings: 0,
+    games: [game('570', 'Dota 2')],
+    libraries: { scanned: 2, unavailable: 0, list_read: true },
+    ...over,
+  });
+  const clean = m.steamScanStatus(scan({}));
+  assert.match(clean, /Detected 1 installed title\(s\)/);
+  assert.match(clean, /2 library folder\(s\) Steam lists/);
+  assert.doesNotMatch(clean, /may be missing/);
+  assert.doesNotMatch(clean, /Compatibility was tested/);
+
+  // An unmounted card is named, not folded into the warning count.
+  const missingFolder = m.steamScanStatus(scan({ libraries: { scanned: 2, unavailable: 1, list_read: true } }));
+  assert.match(missingFolder, /1 folder\(s\) Steam lists could not be read/);
+  assert.match(missingFolder, /unmounted drive/);
+
+  // The hedge survives only when the list itself could not be read.
+  const unlisted = m.steamScanStatus(scan({ libraries: { scanned: 1, unavailable: 0, list_read: false } }));
+  assert.match(unlisted, /libraryfolders\.vdf could not be read/);
+  assert.match(unlisted, /may be missing/);
+
+  assert.match(m.steamScanStatus({ available: false, warnings: 0, games: [] }), /not detected/);
+});

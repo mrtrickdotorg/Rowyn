@@ -10,7 +10,7 @@ import { playSetupSteps, SETUP_MARKERS } from '../services/rowynPlaySetupModel';
 import { formatPlaytime, formatLastPlayed, recentPlayStatus } from '../services/rowynPlayRecentModel';
 import { shaderPreCachingLabel, SHADER_PRE_CACHING_TIP } from '../services/rowynPlayShaderModel';
 import { mangohudConfigLabel, mangohudConfigPath, MANGOHUD_READ_NOTE, MANGOHUD_RECOMMENDED } from '../services/rowynPlayMangohudModel';
-import { coverInitials, steamLibraryEntries, filterSteamLibrary, steamLibraryCoverage, steamLibraryCoverPlan, steamLibraryCoverageNote, steamLibraryProvenance, steamStateChip, type SteamStateFilter } from '../services/rowynSteamLibraryModel';
+import { coverInitials, steamLibraryEntries, filterSteamLibrary, steamLibraryCoverage, steamLibraryCoverPlan, steamLibraryCoverageNote, steamLibraryProvenance, steamScanStatus, steamStateChip, type SteamStateFilter } from '../services/rowynSteamLibraryModel';
 import { CONTROLLER_READ_NOTE, controllerAdvice, controllerSummary } from '../services/rowynControllerModel';
 import { HELPER_EXAMPLES, GAMING_HELPERS_NOTE, TUNE_ADMIN_NOTE, TUNE_OFF_NOTE, HOST_ONLY_NOTE, gamingTuneLabel, tuneIsOn } from '../services/rowynPlayHelpersModel';
 import { copyText } from '../services/rowynClipboard';
@@ -298,9 +298,9 @@ export function Play() {
       <button className="action-button" disabled={busy} onClick={() => run('Reading Steam library metadata…', async () => {
         setSteamScan(null);
         const next = await rowynSteamGamesScan(); setSteamScan(next);
-        if (!next.available) return 'Steam was not detected in the common native or Flatpak paths. A custom library location may not have been scanned.';
-        if (next.warnings) return `Partial scan: ${next.warnings} library item(s) were skipped or unreadable; detected titles are listed below, but others may be missing.`;
-        return next.games.length ? `Detected ${next.games.length} installed title(s) from local Steam manifests. Compatibility was not tested.` : 'No fully installed titles found in the scanned libraries; other locations may not have been scanned.';
+        // The status line reports the folder list Steam declares, so a title on
+        // an unmounted drive is named instead of implied by a warning count.
+        return steamScanStatus(next);
       })}>Scan Steam games (local only)</button>
       {!steamScan && <p className="card-copy">Not scanned yet. No scan runs automatically.</p>}
       {steamScan && !steamScan.available && <p className="card-copy">Steam was not detected in common locations. No titles are inferred from this result.</p>}
@@ -379,7 +379,7 @@ export function Play() {
           </div>
         </article>;
       })}</div>}
-      {!!steamScan?.warnings && <p className="card-copy" role="status">Partial scan: skipped or unreadable library metadata may hide additional titles.</p>}
+      {!!steamScan?.warnings && <p className="card-copy" role="status">Partial scan: skipped or unreadable library metadata may hide additional titles.{steamScan.libraries && steamScan.libraries.unavailable > 0 ? ` ${steamScan.libraries.unavailable} folder(s) Steam lists could not be read, so titles on them are not listed.` : ''}</p>}
     </section>
     <section className="glass dashboard-card" id="hub-section-compatibility"><h2>Compatibility &amp; anti-cheat</h2>
       <p className="card-copy">Kernel-level Windows anti-cheat generally cannot run under Proton. Easy Anti-Cheat and BattlEye support requires the game developer to enable Linux/Proton support; the middleware name alone proves nothing. Check the exact title and multiplayer mode before buying or installing.</p>
