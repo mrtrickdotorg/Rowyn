@@ -59,17 +59,49 @@ packages, with differences only where the Ubuntu archive itself
 moved between the two build dates (a kernel ABI bump 7.3.0-10 →
 7.3.0-11 and 19 point updates).
 
+### Desktop split (2026-11-28)
+
+The desktop row above was the map's honest weak spot: one layer
+carrying the backbone, the Plasma session, the KDE applications,
+the integration extras and the Hub/VPN runtime, so any one desktop
+package's update re-downloaded all ~1.05 GB. The desktop set now
+installs as five frequency groups — a partition, not a new set:
+the post-split build's package fingerprint is identical to the
+pre-split build's (`7e79abf3…`), so the installed set is the same
+2,407 name+version pairs with zero archive drift between the two
+builds. Measured from the published manifests (pre-split
+2026-11-27 build; post-split `8ff5e21`, 2026-11-28):
+
+| Desktop group | Bytes (zstd) | Contents |
+| --- | ---: | --- |
+| *(old single desktop layer)* | 1,040,617,203 | everything below in one layer |
+| desktop-backbone | 73,458,367 | ubuntu-minimal/standard, CLI tools, NetworkManager/PipeWire/Plymouth, tzdata |
+| desktop-session | 805,432,296 | Plasma, KWin, SDDM, Breeze, shell KCMs (carries the Qt/KF framework closure) |
+| desktop-integration | 16,660,747 | Kup, accounts/KIO workers, add-on packs, fprintd |
+| desktop-apps | 112,087,482 | Gwenview, Okular, Kate, Elisa, Haruna, Spectacle-class apps, system monitor |
+| desktop-hub-vpn | 48,122,793 | Hub WebKit runtime libraries, openconnect/VPN clients, firewalld |
+
+The five groups sum to slightly more than the old layer
+(1,055,761,685): a file several groups modify is stored in each
+of their layers. The image grew from 58 to 62 layers. The split
+is a one-time layer-structure change — clients took one larger
+download when it landed; every update since is incremental by
+group.
+
 ## What a typical update downloads
 
 A client downloads only the layers whose digests it has never
 seen. With the grouped layout, a typical day changes at most a
 group or two:
 
-- A desktop package security update re-downloads the **desktop**
-  layer (~1.05 GB) plus any small config layers — not the whole
-  image. (This is the honest worst case among the common ones:
-  the desktop group is the largest and the most frequently
-  updated. Splitting it further is future work.)
+- A desktop package security update re-downloads only its own
+  desktop group (see the split table above): a Plasma/KWin fix
+  pulls **desktop-session** (~805 MB — still the honest worst
+  common case, because the Qt/KF framework closure lands in the
+  first KDE group that installs), a KDE app update ~112 MB, a
+  WebKit or VPN update ~48 MB, a backbone update ~73 MB and an
+  integration update ~17 MB — never the whole desktop set, and
+  never the whole image.
 - A kernel update downloads **core** (~456 MB) plus the
   **initramfs** (~85 MB); a firmware update downloads
   **firmware** (~738 MB) — both are infrequent.
@@ -118,6 +150,18 @@ is closed out; every cause found was fixed at its source:
   machine), the iSCSI initiator name is normalized, and the
   ssl-cert snakeoil pair is deleted — `ssl-cert.service`
   regenerates it on first boot.
+- **Build-day stamps in /etc/shadow (found 2026-11-28).** The
+  November proofs all ran within one calendar day, which hid a
+  slower drift: package postinsts stamp the users they create
+  with the build's calendar day (days since epoch) in the
+  last-password-change field, so a same-inputs rebuild on the
+  next day differed in every install layer whose postinsts
+  create users (the 2026-11-28 repeat of the 2026-11-27 build
+  failed the ledger on exactly this, 20784 vs 20785). Every
+  install tail now zeroes that field in /etc/shadow and its
+  backup; the image ships no interactive account, so the field
+  is inert on the target. Verified in the shipped image: every
+  entry's field is 0.
 - **Compiled-binary variance.** rustc emits DWARF location lists
   in parallel-codegen completion order, so the bootc binaries'
   debug sections differed between builds even when every code
