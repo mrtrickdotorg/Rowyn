@@ -906,7 +906,9 @@ class InstalledPayloadDesktopTests(unittest.TestCase):
     def test_containerfile_installs_xorg_and_breeze_theme_before_normalization(self):
         payload = (ROOT / "Containerfile").read_text()
         package_start = payload.index("apt-get install -y", payload.index("# --- KDE Plasma package layer"))
-        package_end = payload.index("rm -rf /var/lib/apt/lists", package_start)
+        # The desktop set installs as several frequency groups; the
+        # span is all of them (up to the PIM group), not one layer.
+        package_end = payload.index("# Group: PIM", package_start)
         package_block = payload[package_start:package_end]
         for package in ("xserver-xorg", "sddm-theme-breeze"):
             self.assertRegex(package_block, rf"\b{re.escape(package)}\b")

@@ -18,7 +18,9 @@ def smoke_block() -> str:
 
 
 def kde_layer() -> str:
-    return CONTAINERFILE.split("# --- KDE Plasma package layer", 1)[1].split("apt-get purge", 1)[0]
+    # The desktop set installs as several frequency groups; the span
+    # is all of them (up to the PIM group), not one layer.
+    return CONTAINERFILE.split("# --- KDE Plasma package layer", 1)[1].split("# Group: PIM", 1)[0]
 
 
 class LocaleTests(unittest.TestCase):

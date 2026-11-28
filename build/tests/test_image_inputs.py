@@ -349,6 +349,25 @@ class ReproducibilityLedgerTests(unittest.TestCase):
         return {step["name"]: step
                 for step in load_workflow()["jobs"]["build"]["steps"]}
 
+    def test_every_install_tail_normalizes_the_shadow_day(self):
+        # Postinsts stamp the users they create into /etc/shadow with
+        # the build's calendar day (days since epoch) as the
+        # last-password-change field, so two builds of identical
+        # inputs on different days produced different layers in every
+        # group whose postinsts create users — a same-pair rebuild on
+        # 2026-11-28 failed the ledger comparison below on exactly
+        # that field (20784 vs 20785). Every install tail therefore
+        # zeroes the field, next to the command-not-found zeroing the
+        # tails already carry: the two normalizations must travel
+        # together, one per install tail.
+        container = (ROOT / "Containerfile").read_text(encoding="utf-8")
+        cnf = container.count("commands.db.metadata; fi")
+        shadow = container.count("sed -i -E 's/^([^:]+):([^:]*):[0-9]+:/")
+        self.assertGreaterEqual(cnf, 12)
+        self.assertEqual(shadow, 2 * cnf,
+                         "each install tail must normalize /etc/shadow "
+                         "and /etc/shadow- exactly once")
+
     def test_containerfile_stamps_the_package_set_before_var_is_removed(self):
         container = (ROOT / "Containerfile").read_text(encoding="utf-8")
         self.assertIn("dpkg-query -W -f='${Package} ${Version}\\n'", container)

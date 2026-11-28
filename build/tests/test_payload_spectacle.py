@@ -20,8 +20,10 @@ BUILD_WORKFLOW = ROOT / ".github/workflows/build.yml"
 class PayloadSpectacleTests(unittest.TestCase):
     def test_kde_layer_installs_spectacle(self):
         text = CONTAINERFILE.read_text(encoding="utf-8")
+        # The desktop set installs as several frequency groups; the
+        # span is all of them (up to the PIM group), not one layer.
         kde_layer = text.split("# --- KDE Plasma package layer", 1)[1]
-        kde_layer = kde_layer.split("apt-get purge", 1)[0]
+        kde_layer = kde_layer.split("# Group: PIM", 1)[0]
         self.assertIn("plasma-desktop", kde_layer)
         self.assertIn("kde-spectacle", kde_layer)
 

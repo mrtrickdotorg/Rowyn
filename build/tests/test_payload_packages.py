@@ -87,8 +87,8 @@ class PayloadPackageTests(unittest.TestCase):
             self.assertIn(package, tokens)
 
     def test_essentials_are_in_the_kde_layer_not_the_recommends_free_one(self):
-        # The essentials ride the main (recommends-enabled) KDE layer —
-        # the same transaction as plasma-desktop — not the later
+        # The essentials ride the recommends-enabled desktop groups —
+        # the same install mode as plasma-desktop — not the later
         # --no-install-recommends layer.
         text = CONTAINERFILE.read_text(encoding="utf-8")
         kde_layer = text.split("apt-get install -y --no-install-recommends", 1)[0]
@@ -151,6 +151,53 @@ class PayloadPackageTests(unittest.TestCase):
             "test -s /usr/share/rowyn/print-test-page.txt",
         ):
             self.assertIn(assertion, workflow)
+
+
+# The desktop set installs as five frequency groups (2026-11-27 split
+# of the old single ~1.05 GB desktop layer): each group's anchor
+# packages must be named in its own install block and in no other
+# desktop group's, so a security update to one cluster re-downloads
+# only that cluster's layer. The groups install in this order.
+DESKTOP_GROUPS = [
+    ("desktop-backbone", {"ubuntu-minimal", "ubuntu-standard",
+                          "network-manager", "tzdata", "plocate"}),
+    ("desktop-session", {"plasma-desktop", "kwin-wayland", "sddm",
+                         "kde-spectacle"}),
+    ("desktop-integration", {"kaccounts-integration", "kio-gdrive",
+                             "kwin-addons", "fprintd"}),
+    ("desktop-apps", {"gwenview", "okular", "elisa",
+                      "plasma-systemmonitor"}),
+    ("desktop-hub-vpn", {"libwebkit2gtk-4.1-0", "openconnect",
+                         "firewalld"}),
+]
+
+
+def desktop_group_blocks(text: str) -> dict[str, str]:
+    span = text.split("# --- KDE Plasma package layer", 1)[1]
+    span = span.split("# Group: PIM", 1)[0]
+    parts = re.split(r"# Group: (desktop-[a-z-]+)", span)
+    return {parts[i]: parts[i + 1] for i in range(1, len(parts), 2)}
+
+
+class DesktopGroupSplitTests(unittest.TestCase):
+    def test_desktop_installs_as_five_frequency_groups_in_order(self):
+        blocks = desktop_group_blocks(CONTAINERFILE.read_text(encoding="utf-8"))
+        self.assertEqual(list(blocks), [name for name, _ in DESKTOP_GROUPS])
+
+    def test_each_groups_anchors_are_named_only_in_that_group(self):
+        blocks = desktop_group_blocks(CONTAINERFILE.read_text(encoding="utf-8"))
+        tokens = {name: installed_tokens(body) for name, body in blocks.items()}
+        for name, anchors in DESKTOP_GROUPS:
+            for anchor in anchors:
+                self.assertIn(anchor, tokens[name],
+                              f"{anchor} must be named in {name}")
+                for other, other_tokens in tokens.items():
+                    if other != name:
+                        self.assertNotIn(
+                            anchor, other_tokens,
+                            f"{anchor} is named in both {name} and {other}; "
+                            "the split only bounds downloads if each "
+                            "cluster installs in exactly one group")
 
 
 if __name__ == "__main__":

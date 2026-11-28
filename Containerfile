@@ -132,7 +132,7 @@ RUN --mount=type=tmpfs,dst=/tmp --mount=type=tmpfs,dst=/root --mount=type=tmpfs,
   apt clean -y && \
   rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/* && \
   rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /etc/.pwd.lock && rm -rf /run/adduser && rm -rf /run/tmpkbd.* && rm -rf /run/blkid && \
-  if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi
+  if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi; sed -i -E 's/^([^:]+):([^:]*):[0-9]+:/\1:\2:0:/' /etc/shadow; if [ -f /etc/shadow- ]; then sed -i -E 's/^([^:]+):([^:]*):[0-9]+:/\1:\2:0:/' /etc/shadow-; fi
 
 RUN --mount=type=tmpfs,dst=/tmp --mount=type=tmpfs,dst=/root --mount=type=tmpfs,dst=/boot apt update -y && \
   apt install -y btrfs-progs bubblewrap dosfstools e2fsprogs fdisk linux-image-generic netplan.io openssh-server systemd-resolved chrony skopeo podman crun sudo systemd systemd-boot* xfsprogs libostree-dev dracut && \
@@ -140,7 +140,7 @@ RUN --mount=type=tmpfs,dst=/tmp --mount=type=tmpfs,dst=/root --mount=type=tmpfs,
   apt clean -y && \
   rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/* && \
   rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /etc/.pwd.lock && rm -rf /run/adduser && rm -rf /run/tmpkbd.* && rm -rf /run/blkid && \
-  if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi && \
+  if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi; sed -i -E 's/^([^:]+):([^:]*):[0-9]+:/\1:\2:0:/' /etc/shadow; if [ -f /etc/shadow- ]; then sed -i -E 's/^([^:]+):([^:]*):[0-9]+:/\1:\2:0:/' /etc/shadow-; fi && \
   : > /etc/machine-id && rm -f /etc/ssh/ssh_host_* /run/systemd/resolve/stub-resolv.conf
 
 # The official Ubuntu base image ships an `ubuntu` login user (uid 1000).
@@ -163,7 +163,13 @@ RUN userdel --remove ubuntu && rm -f /etc/.pwd.lock
 # (backbone and desktop first) so resolution matches the single
 # transaction this used to be as closely as sequential installs allow.
 # Every group ends with the same lists/cache/log wipe as the core
-# layers above, for the same reproducibility reason.
+# layers above, for the same reproducibility reason. The tails also
+# zero the last-password-change day in /etc/shadow (and its backup):
+# postinsts stamp users they create with the build's calendar day, so
+# without it two builds of identical inputs on different days drift
+# (proven 2026-11-28: a same-pair rebuild failed the reproducibility
+# ledger on exactly that field, 20784 vs 20785). The image ships no
+# interactive account, so the field is inert on the target.
 #
 # The desktop set is the Kubuntu default applications and integration
 # (the set the live image carries from the Kubuntu manifest), named
@@ -177,7 +183,7 @@ RUN userdel --remove ubuntu && rm -f /etc/.pwd.lock
 # iputils-ping, netcat-openbsd, rfkill, plocate, pastebinit),
 # named explicitly so they cannot quietly drop out of the set.
 #
-# Session group (in the desktop layer): kwin-wayland +
+# Session group (in the desktop-session group below): kwin-wayland +
 # plasma-workspace carry the Plasma Wayland session (SDDM lists Wayland
 # sessions first, so it is the preselected default) while xserver-xorg +
 # plasma-session-x11 keep the X11 session as fallback;
@@ -228,13 +234,29 @@ RUN userdel --remove ubuntu && rm -f /etc/.pwd.lock
 # shared/gpu-select.sh. The supported-GPU list the decision needs lives under
 # /usr/share/doc, which the base image's dpkg excludes drop, hence the
 # path-include (removed again once the ID list is generated below).
-# --- KDE Plasma package layer (group: desktop) --------------------------
-# The desktop group carries the command-line backbone and the stock
-# tools, which the desktop resolution expects beneath it. The purge
-# rides this group because ubuntu-standard's recommends are what drag
-# snapd in, and plasma-welcome arrives with the desktop: removing them
-# here keeps their bytes out of every shipped layer instead of
-# whiteouting them in a later one.
+# --- KDE Plasma package layer (groups: desktop-*) ----------------------
+# The desktop set used to install as one group, so any one desktop
+# package's security update re-downloaded the whole ~1.05 GB layer on
+# every client. It now installs as five frequency groups, partitioned
+# — not changed: the union of the groups' named packages is exactly
+# the old group's set, the KCM assertion step below still verifies
+# the whole, and the groups install in dependency order so resolution
+# matches the single transaction this used to be as closely as
+# sequential installs allow.
+#
+# The purges ride the first two groups: ubuntu-standard's recommends
+# are what drag snapd in (backbone), and plasma-welcome arrives with
+# the Plasma session (session). Removing them inside the group that
+# installs them keeps their bytes out of every shipped layer instead
+# of whiteouting them in a later one.
+
+# Group: desktop-backbone — the stock Ubuntu command-line backbone
+# (ubuntu-minimal + ubuntu-standard and the basic tools named in the
+# payload comment above), the system plumbing the session expects
+# beneath it (NetworkManager, PipeWire, Plymouth, tzdata/polkitd) and
+# locales. This is the slowest-moving part of the desktop set: the
+# metapackages and plumbing rev on the archive's base cadence, not
+# KDE's, so a Plasma or app update no longer drags them down the wire.
 RUN apt-get update && \
     apt-get install -y \
         ubuntu-minimal ubuntu-standard \
@@ -242,28 +264,76 @@ RUN apt-get update && \
         curl wget nano vim-tiny htop file lshw bind9-dnsutils iputils-ping \
         iputils-tracepath mtr-tiny netcat-openbsd lsof strace tcpdump hdparm \
         rfkill plocate manpages bash-completion command-not-found pastebinit \
+        network-manager pipewire wireplumber upower udisks2 plymouth plymouth-label \
+        tzdata tzdata-legacy polkitd && \
+    apt-get purge -y plasma-discover-backend-snap snapd plasma-welcome && \
+    rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/* && \
+    rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /etc/.pwd.lock && rm -rf /run/adduser && rm -rf /run/tmpkbd.* && rm -rf /run/blkid && \
+    if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi; sed -i -E 's/^([^:]+):([^:]*):[0-9]+:/\1:\2:0:/' /etc/shadow; if [ -f /etc/shadow- ]; then sed -i -E 's/^([^:]+):([^:]*):[0-9]+:/\1:\2:0:/' /etc/shadow-; fi && \
+    rm -f /var/lib/plocate/plocate.db
+
+# Group: desktop-session — the Plasma session itself: plasma-desktop,
+# KWin (Wayland with the X11 session as fallback), SDDM and its Breeze
+# theme, the Breeze themes, and the shell's own tools and KCMs
+# (Konsole, Dolphin, KInfoCenter, Spectacle, network/Bluetooth/audio
+# applets, power and screen management). KDE's release cadence moves
+# these together; confining them here confines the download a Plasma
+# point release or a KWin security fix causes.
+RUN apt-get update && \
+    apt-get install -y \
         plasma-desktop sddm xserver-xorg sddm-theme-breeze konsole dolphin kinfocenter kde-spectacle \
         breeze breeze-gtk-theme breeze-icon-theme kde-style-breeze kde-cli-tools kdialog \
         plasma-nm plasma-pa xdg-desktop-portal-kde \
         bluedevil kscreen powerdevil \
-        kup-backup bup rsync kde-config-flatpak libnotify-bin \
-        network-manager pipewire wireplumber upower udisks2 plymouth plymouth-label \
-        tzdata tzdata-legacy polkitd \
-        libwebkit2gtk-4.1-0 libayatana-appindicator3-1 libxdo3 \
-        openconnect vpnc-scripts ksshaskpass firewalld \
-        gwenview okular okular-extra-backends ark kate kcalc kcharselect \
-        kdeconnect elisa haruna skanpage unzip zip \
-        plasma-systemmonitor kamoso fprintd \
-        kaccounts-integration kio-gdrive kdenetwork-filesharing krdp \
-        kio-admin kio-audiocd kde-config-updates kde-config-plymouth \
-        plasma-runners-addons plasma-widgets-addons plasma-wallpapers-addons \
-        plasma-calendar-addons plasma-dataengines-addons kwin-addons \
         kwin-wayland plasma-workspace plasma-session-x11 && \
     apt-get purge -y plasma-discover-backend-snap snapd plasma-welcome && \
     rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/* && \
     rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /etc/.pwd.lock && rm -rf /run/adduser && rm -rf /run/tmpkbd.* && rm -rf /run/blkid && \
-    if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi && \
-    rm -f /var/lib/plocate/plocate.db
+    if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi; sed -i -E 's/^([^:]+):([^:]*):[0-9]+:/\1:\2:0:/' /etc/shadow; if [ -f /etc/shadow- ]; then sed -i -E 's/^([^:]+):([^:]*):[0-9]+:/\1:\2:0:/' /etc/shadow-; fi
+
+# Group: desktop-integration — the KDE integration extras around the
+# session: backup (Kup), Flatpak permission KCM support, online
+# accounts and cloud/network KIO workers, remote desktop, fingerprint
+# auth, and the Plasma/KWin add-on packs. These rev when their own
+# upstreams do, independently of both the session and the apps.
+RUN apt-get update && \
+    apt-get install -y \
+        kup-backup bup rsync kde-config-flatpak libnotify-bin \
+        fprintd \
+        kaccounts-integration kio-gdrive kdenetwork-filesharing krdp \
+        kio-admin kio-audiocd kde-config-updates kde-config-plymouth \
+        plasma-runners-addons plasma-widgets-addons plasma-wallpapers-addons \
+        plasma-calendar-addons plasma-dataengines-addons kwin-addons && \
+    rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/* && \
+    rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /etc/.pwd.lock && rm -rf /run/adduser && rm -rf /run/tmpkbd.* && rm -rf /run/blkid && \
+    if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi; sed -i -E 's/^([^:]+):([^:]*):[0-9]+:/\1:\2:0:/' /etc/shadow; if [ -f /etc/shadow- ]; then sed -i -E 's/^([^:]+):([^:]*):[0-9]+:/\1:\2:0:/' /etc/shadow-; fi
+
+# Group: desktop-apps — the KDE applications a convert opens by name:
+# image/document viewers, archive and text tools, media players,
+# scanning, system monitor and camera. Application point releases are
+# the most frequent desktop updates of all; on their own layer they
+# cost an app-sized download, not a desktop-sized one.
+RUN apt-get update && \
+    apt-get install -y \
+        gwenview okular okular-extra-backends ark kate kcalc kcharselect \
+        kdeconnect elisa haruna skanpage unzip zip \
+        plasma-systemmonitor kamoso && \
+    rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/* && \
+    rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /etc/.pwd.lock && rm -rf /run/adduser && rm -rf /run/tmpkbd.* && rm -rf /run/blkid && \
+    if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi; sed -i -E 's/^([^:]+):([^:]*):[0-9]+:/\1:\2:0:/' /etc/shadow; if [ -f /etc/shadow- ]; then sed -i -E 's/^([^:]+):([^:]*):[0-9]+:/\1:\2:0:/' /etc/shadow-; fi
+
+# Group: desktop-hub-vpn — the Rowyn Hub's runtime libraries (the
+# Tauri/WebKit stack) and the VPN clients the Hub's VPN page drives
+# (openconnect + vpnc script + askpass + firewalld). WebKit issues
+# security updates more often than any other desktop component; on
+# this layer one costs the WebKit stack's size, not the desktop's.
+RUN apt-get update && \
+    apt-get install -y \
+        libwebkit2gtk-4.1-0 libayatana-appindicator3-1 libxdo3 \
+        openconnect vpnc-scripts ksshaskpass firewalld && \
+    rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/* && \
+    rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /etc/.pwd.lock && rm -rf /run/adduser && rm -rf /run/tmpkbd.* && rm -rf /run/blkid && \
+    if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi; sed -i -E 's/^([^:]+):([^:]*):[0-9]+:/\1:\2:0:/' /etc/shadow; if [ -f /etc/shadow- ]; then sed -i -E 's/^([^:]+):([^:]*):[0-9]+:/\1:\2:0:/' /etc/shadow-; fi
 
 # Group: PIM and productivity natives — mail/calendar, document tools,
 # the Windows-VM basics, printing, scanning and Windows file sharing.
@@ -281,7 +351,7 @@ RUN apt-get update && \
         samba smbclient && \
     rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/* && \
     rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /etc/.pwd.lock && rm -rf /run/adduser && rm -rf /run/tmpkbd.* && rm -rf /run/blkid && \
-    if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi && \
+    if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi; sed -i -E 's/^([^:]+):([^:]*):[0-9]+:/\1:\2:0:/' /etc/shadow; if [ -f /etc/shadow- ]; then sed -i -E 's/^([^:]+):([^:]*):[0-9]+:/\1:\2:0:/' /etc/shadow-; fi && \
     if [ -f /etc/iscsi/initiatorname.iscsi ]; then sed -i -E 's/^InitiatorName=iqn\.2004-10\.com\.ubuntu:01:[0-9a-f]+$/InitiatorName=iqn.2004-10.com.ubuntu:01:000000000000/' /etc/iscsi/initiatorname.iscsi; fi && \
     rm -f /etc/ssl/certs/ssl-cert-snakeoil.pem /etc/ssl/private/ssl-cert-snakeoil.key
 
@@ -298,7 +368,7 @@ RUN apt-get update && \
         systemd-oomd iw libmimalloc3 && \
     rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/* && \
     rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /etc/.pwd.lock && rm -rf /run/adduser && rm -rf /run/tmpkbd.* && rm -rf /run/blkid && \
-    if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi
+    if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi; sed -i -E 's/^([^:]+):([^:]*):[0-9]+:/\1:\2:0:/' /etc/shadow; if [ -f /etc/shadow- ]; then sed -i -E 's/^([^:]+):([^:]*):[0-9]+:/\1:\2:0:/' /etc/shadow-; fi
 
 # Group: fonts and media extras — the slowest-moving set in the
 # payload; a font or codec update should never re-ship the desktop.
@@ -311,7 +381,7 @@ RUN apt-get update && \
         orca && \
     rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/* && \
     rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /etc/.pwd.lock && rm -rf /run/adduser && rm -rf /run/tmpkbd.* && rm -rf /run/blkid && \
-    if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi
+    if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi; sed -i -E 's/^([^:]+):([^:]*):[0-9]+:/\1:\2:0:/' /etc/shadow; if [ -f /etc/shadow- ]; then sed -i -E 's/^([^:]+):([^:]*):[0-9]+:/\1:\2:0:/' /etc/shadow-; fi
 
 # Group: the recommends-free runtime set (Flatpak + Distrobox). Kept
 # after every recommends-enabled group, as before: nothing here may
@@ -323,7 +393,7 @@ RUN apt-get update && \
     apt-get purge -y plasma-discover-backend-snap snapd plasma-welcome && \
     rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/* && \
     rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /etc/.pwd.lock && rm -rf /run/adduser && rm -rf /run/tmpkbd.* && rm -rf /run/blkid && \
-    if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi
+    if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi; sed -i -E 's/^([^:]+):([^:]*):[0-9]+:/\1:\2:0:/' /etc/shadow; if [ -f /etc/shadow- ]; then sed -i -E 's/^([^:]+):([^:]*):[0-9]+:/\1:\2:0:/' /etc/shadow-; fi
 
 # Group: NVIDIA (last install, as before). The dpkg path-include is
 # written immediately before this install and removed by the gate
@@ -341,7 +411,7 @@ RUN --mount=type=tmpfs,dst=/boot printf 'path-include=/usr/share/doc/nvidia-kern
     apt-get purge -y plasma-discover-backend-snap snapd plasma-welcome && \
     rm -rf /var/lib/apt/lists/* /var/cache/* /var/log/* && \
     rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /etc/.pwd.lock && rm -rf /run/adduser && rm -rf /run/tmpkbd.* && rm -rf /run/blkid && \
-    if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi
+    if [ -f /var/lib/command-not-found/commands.db.metadata ]; then sed -i -E 's/"st_ino": [0-9]+/"st_ino": 0/g; s/"st_dev": [0-9]+/"st_dev": 0/g' /var/lib/command-not-found/commands.db.metadata; fi; sed -i -E 's/^([^:]+):([^:]*):[0-9]+:/\1:\2:0:/' /etc/shadow; if [ -f /etc/shadow- ]; then sed -i -E 's/^([^:]+):([^:]*):[0-9]+:/\1:\2:0:/' /etc/shadow-; fi
 
 # bootc-rootfs.sh deletes /var, so the payload carries no dpkg database: the
 # KCM packages the Hub opens can only be asserted here, while it exists.
@@ -397,10 +467,11 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
 # offered set is C.UTF-8 + en_US.UTF-8) and writes the choice to
 # /etc/default/locale; a locale that was never generated silently falls
 # back to C. `locales` (already a ubuntu-minimal dependency, named in the
-# KDE layer) is generated for exactly that set: the archive lands in
-# /usr/lib/locale, so it is part of the immutable image and survives the
-# /var removal in bootc-rootfs.sh. locales-all (~236 MB) is deliberately not
-# used. C.UTF-8 is built into libc-bin (/usr/lib/locale/C.utf8).
+# desktop-backbone group) is generated for exactly that set: the archive
+# lands in /usr/lib/locale, so it is part of the immutable image and
+# survives the /var removal in bootc-rootfs.sh. locales-all (~236 MB) is
+# deliberately not used. C.UTF-8 is built into libc-bin
+# (/usr/lib/locale/C.utf8).
 RUN printf 'en_US.UTF-8 UTF-8\n' > /etc/locale.gen && \
     locale-gen && \
     printf 'LANG=en_US.UTF-8\n' > /etc/default/locale && \
@@ -567,7 +638,7 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
 # System hub (Dashboard, Apps, Updates, VPN) compiled by the hub-builder
 # stage from the pinned, ported upstream source. Runtime libraries for the
 # Tauri shell and the VPN stack (openconnect, vpnc-scripts, ksshaskpass,
-# firewalld) are in the KDE package layer above.
+# firewalld) are in the desktop-hub-vpn group above.
 COPY --from=hub-builder /rowyn-hub-shell /usr/bin/rowyn-hub-shell
 COPY --from=hub-builder /rowyn-probe /usr/bin/rowyn-probe
 COPY shared/com.rowyn.hub.desktop /usr/share/applications/com.rowyn.hub.desktop
